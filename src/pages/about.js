@@ -25,7 +25,7 @@ export function renderAbout(container) {
         <div class="about-info-row">
           <span class="about-info-label">Source</span>
           <span class="about-info-value">
-            <a href="#" class="about-link" data-url="https://github.com/TomRhowordan/star-control">github.com/TomRhodan/star-control</a>
+            <a href="#" class="about-link" data-url="https://github.com/TomRhodan/star-control">github.com/TomRhodan/star-control</a>
           </span>
         </div>
       </div>
