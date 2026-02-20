@@ -1,4 +1,5 @@
 mod config;
+mod dashboard;
 mod dxvk;
 mod installer;
 mod localization;
@@ -69,10 +70,14 @@ pub fn run() {
             sc_config::delete_backup,
             sc_config::update_backup_label,
             sc_config::list_exported_layouts,
+            localization::check_localization_update,
             localization::get_available_languages,
             localization::get_localization_status,
             localization::install_localization,
             localization::remove_localization,
+            dashboard::fetch_rsi_news,
+            dashboard::fetch_server_status,
+            dashboard::fetch_community_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

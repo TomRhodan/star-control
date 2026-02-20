@@ -236,6 +236,58 @@ fn delete_meta(version: &str) -> Result<(), String> {
 // Tauri Commands
 // ============================================================
 
+#[derive(Serialize)]
+pub struct LocalizationUpdateCheck {
+    pub update_available: bool,
+    pub local_size: u64,
+    pub remote_size: u64,
+}
+
+#[tauri::command]
+pub async fn check_localization_update(
+    game_path: String,
+    version: String,
+) -> Result<LocalizationUpdateCheck, String> {
+    let meta = load_meta(&version)
+        .ok_or_else(|| "No localization installed".to_string())?;
+
+    let languages = get_available_languages().await?;
+    let source = languages
+        .iter()
+        .find(|l| l.language_code == meta.language_code)
+        .ok_or_else(|| "Language source not found".to_string())?;
+
+    let url = build_download_url(&source.source_repo, &meta.language_code, &version);
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .head(&url)
+        .send()
+        .await
+        .map_err(|e| format!("HEAD request failed: {}", e))?;
+
+    let remote_size = resp
+        .headers()
+        .get(reqwest::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0);
+
+    // Also check local file size on disk (not just meta) for accuracy
+    let expanded = expand_tilde(&game_path);
+    let ini_path = sc_localization_dir(&expanded, &version, &meta.language_code)
+        .join("global.ini");
+    let local_size = std::fs::metadata(&ini_path)
+        .map(|m| m.len())
+        .unwrap_or(meta.file_size);
+
+    Ok(LocalizationUpdateCheck {
+        update_available: remote_size > 0 && remote_size != local_size,
+        local_size,
+        remote_size,
+    })
+}
+
 #[tauri::command]
 pub async fn get_available_languages() -> Result<Vec<LanguageSource>, String> {
     Ok(vec![
