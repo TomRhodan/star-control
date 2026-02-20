@@ -1,0 +1,25 @@
+{
+  "productName": "Star Control",
+  "version": "0.1.0",
+  "identifier": "com.starcontrol.launcher",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Star Control",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "decorations": false,
+        "center": true
+      }
+    ]
+  }
+}
