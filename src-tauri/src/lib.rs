@@ -1,3 +1,5 @@
+use tauri::Manager;
+
 mod config;
 mod dashboard;
 mod dxvk;
@@ -13,11 +15,75 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! Welcome to Star Control.", name)
 }
 
+fn window_state_path() -> Option<std::path::PathBuf> {
+    dirs::config_dir().map(|p| p.join("star-control").join("window-state.json"))
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct WindowState {
+    width: u32,
+    height: u32,
+    x: i32,
+    y: i32,
+    maximized: bool,
+}
+
+fn load_window_state() -> Option<WindowState> {
+    let path = window_state_path()?;
+    let data = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&data).ok()
+}
+
+fn save_window_state_from(window: &tauri::WebviewWindow) {
+    if let Some(path) = window_state_path() {
+        let Ok(size) = window.inner_size() else { return };
+        let Ok(pos) = window.outer_position() else { return };
+        let maximized = window.is_maximized().unwrap_or(false);
+
+        let state = WindowState {
+            width: size.width,
+            height: size.height,
+            x: pos.x,
+            y: pos.y,
+            maximized,
+        };
+
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Ok(json) = serde_json::to_string_pretty(&state) {
+            let _ = std::fs::write(path, json);
+        }
+    }
+}
+
+fn restore_window_state(window: &tauri::WebviewWindow) {
+    if let Some(state) = load_window_state() {
+        let _ = window.set_size(tauri::PhysicalSize::new(state.width, state.height));
+        let _ = window.set_position(tauri::PhysicalPosition::new(state.x, state.y));
+        if state.maximized {
+            let _ = window.maximize();
+        }
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .setup(|app| {
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                let handle2 = handle.clone();
+                let _ = handle.run_on_main_thread(move || {
+                    if let Some(window) = handle2.get_webview_window("main") {
+                        restore_window_state(&window);
+                    }
+                });
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             greet,
             system_check::run_system_check,
@@ -79,6 +145,13 @@ pub fn run() {
             dashboard::fetch_server_status,
             dashboard::fetch_community_stats,
         ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                if let Some(ww) = window.app_handle().get_webview_window(window.label()) {
+                    save_window_state_from(&ww);
+                }
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

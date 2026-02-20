@@ -16,7 +16,6 @@
     {
       "identifier": "opener:allow-open-path",
       "allow": [{ "path": "$HOME/**" }]
-    },
-    "window-state:default"
+    }
   ]
 }

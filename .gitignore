@@ -30,3 +30,5 @@ Thumbs.db
 .mcp.json
 
 Other-Tools/
+Packages/
+build-packages.sh
