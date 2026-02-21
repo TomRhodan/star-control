@@ -451,7 +451,7 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
 
     let winetricks_path = tmp_dir.join("winetricks");
     let client = reqwest::Client::builder()
-        .user_agent("star-control/0.1.0")
+        .user_agent("star-control/0.1.2")
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 
