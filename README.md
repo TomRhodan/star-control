@@ -195,15 +195,7 @@ The built binary will be in `src-tauri/target/release/` and packages in `src-tau
 
 ## Changelog
 
-### v0.1.1
-
-- **Fractional Scaling Support** — Window size and position now adapt correctly when moving between monitors with different DPI scaling (e.g., 100% ↔ 150%)
-- **Wine Runner Sources** — Added LUG Experimental to available Wine runner sources
-- **Wine Shell** — New prefix tool to launch a Wine command prompt in a terminal
-
-### v0.1.0
-
-- Initial release
+See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes.
 
 ## Contributing
 
