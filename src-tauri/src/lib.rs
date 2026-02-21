@@ -74,17 +74,31 @@ fn save_window_state_from(window: &tauri::WebviewWindow) {
 
 fn restore_window_state(window: &tauri::WebviewWindow) {
     if let Some(state) = load_window_state() {
-        // Get current scale factor of the monitor where the window is opening
-        let current_scale = window.scale_factor().unwrap_or(state.scale);
+        // Use logical size directly
+        let mut width = state.width;
+        let mut height = state.height;
 
-        // Convert stored logical size to physical size based on current monitor's scale
-        let physical_width = (state.width as f64 * current_scale) as u32;
-        let physical_height = (state.height as f64 * current_scale) as u32;
-        let physical_x = (state.x as f64 * current_scale) as i32;
-        let physical_y = (state.y as f64 * current_scale) as i32;
+        // Limit to monitor size (in logical coordinates)
+        if let Ok(Some(monitor)) = window.current_monitor() {
+            let monitor_scale = monitor.scale_factor();
+            let monitor_physical = monitor.size();
+            let monitor_logical_w = (monitor_physical.width as f64 / monitor_scale) as u32;
+            let monitor_logical_h = (monitor_physical.height as f64 / monitor_scale) as u32;
 
-        let _ = window.set_size(tauri::PhysicalSize::new(physical_width, physical_height));
-        let _ = window.set_position(tauri::PhysicalPosition::new(physical_x, physical_y));
+            width = width.min(monitor_logical_w.saturating_sub(50));
+            height = height.min(monitor_logical_h.saturating_sub(50));
+        }
+
+        // Set size using LogicalSize (better for Wayland)
+        let _ = window.set_size(tauri::LogicalSize::new(width, height));
+
+        // Set position (on X11 only, Wayland ignores it)
+        let current_scale = window.scale_factor().unwrap_or(1.0);
+        let _ = window.set_position(tauri::PhysicalPosition::new(
+            (state.x as f64 * current_scale) as i32,
+            (state.y as f64 * current_scale) as i32,
+        ));
+
         if state.maximized {
             let _ = window.maximize();
         }
@@ -97,14 +111,11 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                let handle2 = handle.clone();
-                let _ = handle.run_on_main_thread(move || {
-                    if let Some(window) = handle2.get_webview_window("main") {
-                        restore_window_state(&window);
-                    }
-                });
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                if let Some(window) = handle.get_webview_window("main") {
+                    restore_window_state(&window);
+                }
             });
             Ok(())
         })

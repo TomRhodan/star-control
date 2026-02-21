@@ -155,6 +155,10 @@ fn sc_mappings_dir(game_path: &str, version: &str) -> PathBuf {
         .join("mappings")
 }
 
+fn sc_controls_dir(game_path: &str, version: &str) -> PathBuf {
+    sc_user_dir(game_path, version).join("controls")
+}
+
 fn backup_base_dir() -> Result<PathBuf, String> {
     dirs::config_dir()
         .map(|p| p.join("star-control").join("backups"))
@@ -163,6 +167,33 @@ fn backup_base_dir() -> Result<PathBuf, String> {
 
 fn backup_version_dir(version: &str) -> Result<PathBuf, String> {
     Ok(backup_base_dir()?.join(version))
+}
+
+/// Recursively copy a directory to a destination
+fn copy_dir(src: &Path, dest: &Path) -> Result<(), String> {
+    if !src.is_dir() {
+        return Err(format!("Source is not a directory: {}", src.display()));
+    }
+
+    fs::create_dir_all(dest)
+        .map_err(|e| format!("Failed to create directory {}: {}", dest.display(), e))?;
+
+    for entry in fs::read_dir(src)
+        .map_err(|e| format!("Failed to read directory {}: {}", src.display(), e))?
+    {
+        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
+        let src_path = entry.path();
+        let dest_path = dest.join(entry.file_name());
+
+        if src_path.is_dir() {
+            copy_dir(&src_path, &dest_path)?;
+        } else {
+            fs::copy(&src_path, &dest_path)
+                .map_err(|e| format!("Failed to copy {}: {}", src_path.display(), e))?;
+        }
+    }
+
+    Ok(())
 }
 
 // ============================================================
@@ -911,6 +942,8 @@ fn backup_profile_internal(
 
     let profile_dir = sc_profile_dir(game_path, version);
     let base_dir = sc_base_dir(game_path, version);
+    let user_dir = sc_user_dir(game_path, version);
+    let controls_dir = sc_controls_dir(game_path, version);
 
     let files_to_backup = [
         (profile_dir.join("actionmaps.xml"), "actionmaps.xml"),
@@ -927,6 +960,21 @@ fn backup_profile_internal(
                 .map_err(|e| format!("Failed to copy {}: {}", name, e))?;
             backed_up_files.push(name.to_string());
         }
+    }
+
+    // Backup controls folder (recursively)
+    if controls_dir.is_dir() {
+        let controls_backup_dir = backup_dir.join("controls");
+        copy_dir(&controls_dir, &controls_backup_dir)?;
+        backed_up_files.push("controls/".to_string());
+    }
+
+    // Backup CustomCharacters folder (recursively)
+    let custom_chars_dir = user_dir.join("CustomCharacters");
+    if custom_chars_dir.is_dir() {
+        let custom_chars_backup_dir = backup_dir.join("CustomCharacters");
+        copy_dir(&custom_chars_dir, &custom_chars_backup_dir)?;
+        backed_up_files.push("CustomCharacters/".to_string());
     }
 
     if backed_up_files.is_empty() {
@@ -985,6 +1033,8 @@ pub async fn restore_profile(
 
     let profile_dir = sc_profile_dir(&expanded, &version);
     let base_dir = sc_base_dir(&expanded, &version);
+    let user_dir = sc_user_dir(&expanded, &version);
+    let controls_dir = sc_controls_dir(&expanded, &version);
 
     fs::create_dir_all(&profile_dir)
         .map_err(|e| format!("Failed to create profile directory: {}", e))?;
@@ -1006,6 +1056,19 @@ pub async fn restore_profile(
             fs::copy(&src, dest)
                 .map_err(|e| format!("Failed to restore {}: {}", name, e))?;
         }
+    }
+
+    // Restore controls folder (recursively)
+    let controls_backup_dir = backup_dir.join("controls");
+    if controls_backup_dir.is_dir() {
+        copy_dir(&controls_backup_dir, &controls_dir)?;
+    }
+
+    // Restore CustomCharacters folder (recursively)
+    let custom_chars_backup_dir = backup_dir.join("CustomCharacters");
+    let custom_chars_dir = user_dir.join("CustomCharacters");
+    if custom_chars_backup_dir.is_dir() {
+        copy_dir(&custom_chars_backup_dir, &custom_chars_dir)?;
     }
 
     Ok(())
