@@ -74,7 +74,7 @@
 - **Command Center** — Live dashboard with RSI news, server status, and community funding stats
 - **Installation Wizard** — System compatibility check, automated Wine prefix setup, and RSI Launcher installation
 - **Launch Manager** — One-click launch with configurable performance options (ESync, FSync, DXVK Async, Wayland, HDR, FSR, MangoHUD)
-- **Wine Runner Management** — Download and manage Wine/Proton runners from multiple community sources (LUG, Kron4ek, RawFox, Mactan)
+- **Wine Runner Management** — Download and manage Wine/Proton runners from multiple community sources (LUG, LUG Experimental, Kron4ek, RawFox, Mactan)
 - **DXVK Management** — Install and update DXVK versions with automatic DLL deployment
 - **Profile Management** — Backup and restore Star Citizen profiles (actionmaps.xml, attributes.xml, USER.cfg)
 - **Controller Configuration** — View connected devices, keybindings, and reorder joystick instances
@@ -187,6 +187,18 @@ The built binary will be in `src-tauri/target/release/` and packages in `src-tau
 
 - Go to **Wine Runners** to download, install, and switch between runners
 - Manage DXVK versions and use prefix tools (Winecfg, DPI, PowerShell)
+
+## Changelog
+
+### v0.1.1
+
+- **Fractional Scaling Support** — Window size and position now adapt correctly when moving between monitors with different DPI scaling (e.g., 100% ↔ 150%)
+- **Wine Runner Sources** — Added LUG Experimental to available Wine runner sources
+- **Wine Shell** — New prefix tool to launch a Wine command prompt in a terminal
+
+### v0.1.0
+
+- Initial release
 
 ## Contributing
 

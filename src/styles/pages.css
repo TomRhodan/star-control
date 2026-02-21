@@ -423,10 +423,19 @@
 }
 
 /* Runner Source Tabs */
+.runner-source-tabs-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  background: var(--bg-hover);
+  border-radius: 8px;
+}
+
 .runner-source-tabs {
   display: flex;
   gap: 6px;
-  margin-bottom: 10px;
   flex-wrap: wrap;
 }
 
@@ -481,6 +490,7 @@
 .runner-available-list {
   max-height: 240px;
   overflow-y: auto;
+  overflow-x: visible;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -488,7 +498,7 @@
 
 .runner-available-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   padding: 8px 10px;
   border-radius: var(--radius-sm);
@@ -496,6 +506,7 @@
   border: 1px solid transparent;
   transition: border-color 0.15s ease;
   gap: 10px;
+  overflow: visible !important;
 }
 
 .runner-available-item:hover {
@@ -512,15 +523,15 @@
   gap: 2px;
   min-width: 0;
   flex: 1;
+  overflow: visible !important;
 }
 
 .runner-item-name {
   font-size: 13px;
   font-weight: 500;
   color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  word-break: break-word !important;
+  white-space: normal !important;
 }
 
 .runner-item-meta {
@@ -1029,33 +1040,88 @@
   height: 36px;
 }
 
-/* Launch Info */
+/* Launch Info - Professional Card Design */
 .launch-info {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 12px;
   margin-top: 12px;
   width: 100%;
-  max-width: 320px;
+}
+
+.launch-info-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.launch-info-card-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 2px;
 }
 
 .launch-info-row {
   display: flex;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 10px;
   font-size: 12px;
-  font-family: var(--font-mono);
 }
 
 .launch-info-label {
   color: var(--text-muted);
   flex-shrink: 0;
+  min-width: 55px;
+  padding-top: 2px;
 }
 
 .launch-info-value {
+  color: var(--text-primary);
+  word-break: break-word;
+  flex: 1;
+  line-height: 1.4;
+}
+
+/* Runner Badge - Professional Tag Design */
+.launch-runner-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+  word-break: break-all;
+  line-height: 1.3;
+}
+
+.launch-runner-badge-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0.6;
+  color: var(--text-muted);
+}
+
+/* Prefix path styling */
+.launch-prefix-value {
+  font-family: var(--font-mono);
+  font-size: 11px;
   color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  word-break: break-all;
+  background: var(--bg-primary);
+  padding: 3px 6px;
+  border-radius: 4px;
 }
 
 /* Launch Status */
@@ -1336,10 +1402,31 @@
   align-items: center;
   justify-content: space-between;
   margin-bottom: 12px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .card-header-row h3 {
   margin-bottom: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.card-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.card-header-info {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 4px 8px;
+  background: var(--bg-hover);
+  border-radius: 4px;
+  font-family: var(--font-mono);
 }
 
 /* Guard Notice */

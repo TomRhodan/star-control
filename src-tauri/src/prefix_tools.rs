@@ -20,13 +20,12 @@ fn get_wine_paths(
     let prefix = Path::new(&expanded);
     let runner_bin = prefix.join("runners").join(runner_name).join("bin");
     let wine = runner_bin.join("wine");
-    let wineserver = runner_bin.join("wineserver");
 
     if !wine.exists() {
         return Err(format!("Wine binary not found: {}", wine.display()));
     }
 
-    Ok((prefix.to_path_buf(), wine, wineserver))
+    Ok((prefix.to_path_buf(), wine, runner_bin))
 }
 
 #[tauri::command]
@@ -42,6 +41,64 @@ pub async fn run_winecfg(base_path: String, runner_name: String) -> Result<(), S
         .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("Failed to launch winecfg: {}", e))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn launch_wine_shell(base_path: String, runner_name: String) -> Result<(), String> {
+    let (prefix, _wine, wine_bin_dir) = get_wine_paths(&base_path, &runner_name)?;
+
+    let prefix_str = prefix.to_string_lossy().to_string();
+    let wine_bin_str = wine_bin_dir.to_string_lossy().to_string();
+
+    // Try to find a terminal emulator
+    let terminal = if Command::new("which").arg("konsole").output().map(|o| o.status.success()).unwrap_or(false) {
+        "konsole"
+    } else if Command::new("which").arg("gnome-terminal").output().map(|o| o.status.success()).unwrap_or(false) {
+        "gnome-terminal"
+    } else if Command::new("which").arg("xfce4-terminal").output().map(|o| o.status.success()).unwrap_or(false) {
+        "xfce4-terminal"
+    } else if Command::new("which").arg("xterm").output().map(|o| o.status.success()).unwrap_or(false) {
+        "xterm"
+    } else {
+        return Err("No terminal emulator found (konsole, gnome-terminal, xfce4-terminal, xterm)".into());
+    };
+
+    // Build the command to run - start cmd.exe directly
+    let shell_cmd = format!(
+        "export WINEPREFIX='{}' && export PATH='{}:$PATH' && export WINEDEBUG=-all && wine cmd",
+        prefix_str, wine_bin_str
+    );
+
+    // Launch terminal with wineconsole
+    match terminal {
+        "konsole" => {
+            Command::new("konsole")
+                .args(["--hold", "-e", "bash", "-c", &shell_cmd])
+                .spawn()
+                .map_err(|e| format!("Failed to launch konsole: {}", e))?;
+        }
+        "gnome-terminal" => {
+            Command::new("gnome-terminal")
+                .args(["--", "bash", "-c", &shell_cmd])
+                .spawn()
+                .map_err(|e| format!("Failed to launch gnome-terminal: {}", e))?;
+        }
+        "xfce4-terminal" => {
+            Command::new("xfce4-terminal")
+                .args(["-e", "bash", "-c", &shell_cmd])
+                .spawn()
+                .map_err(|e| format!("Failed to launch xfce4-terminal: {}", e))?;
+        }
+        "xterm" => {
+            Command::new("xterm")
+                .args(["-e", "bash", "-c", &shell_cmd])
+                .spawn()
+                .map_err(|e| format!("Failed to launch xterm: {}", e))?;
+        }
+        _ => return Err("No terminal emulator found".into()),
+    }
 
     Ok(())
 }

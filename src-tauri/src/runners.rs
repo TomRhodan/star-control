@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter};
 
-use crate::config::AppConfig;
+use crate::config::{AppConfig, RunnerSourceConfig};
 
 fn load_github_token() -> Option<String> {
     let config_path = dirs::config_dir()?.join("star-control").join("config.json");
@@ -16,34 +16,36 @@ static CANCEL_FLAG: AtomicBool = AtomicBool::new(false);
 
 // --- Runner Sources ---
 
-struct RunnerSource {
-    name: &'static str,
-    api_url: &'static str,
-    filter: fn(&str) -> bool,
+fn load_runner_sources() -> Vec<RunnerSourceConfig> {
+    let config_path = match dirs::config_dir() {
+        Some(p) => p.join("star-control").join("config.json"),
+        None => return AppConfig::default().runner_sources,
+    };
+
+    let contents = match std::fs::read_to_string(&config_path) {
+        Ok(c) => c,
+        Err(_) => return AppConfig::default().runner_sources,
+    };
+
+    let config: AppConfig = match serde_json::from_str(&contents) {
+        Ok(c) => c,
+        Err(_) => return AppConfig::default().runner_sources,
+    };
+
+    // If runner_sources is empty in config, return defaults
+    if config.runner_sources.is_empty() {
+        AppConfig::default().runner_sources
+    } else {
+        config.runner_sources
+    }
 }
 
-const SOURCES: &[RunnerSource] = &[
-    RunnerSource {
-        name: "LUG",
-        api_url: "https://api.github.com/repos/starcitizen-lug/lug-wine/releases",
-        filter: accept_all,
-    },
-    RunnerSource {
-        name: "Kron4ek",
-        api_url: "https://api.github.com/repos/Kron4ek/Wine-Builds/releases",
-        filter: filter_kron4ek,
-    },
-    RunnerSource {
-        name: "RawFox",
-        api_url: "https://api.github.com/repos/starcitizen-lug/raw-wine/releases",
-        filter: accept_all,
-    },
-    RunnerSource {
-        name: "Mactan",
-        api_url: "https://api.github.com/repos/mactan-sc/mactan-sc-wine/releases",
-        filter: accept_all,
-    },
-];
+fn get_filter_fn(filter: &Option<String>) -> fn(&str) -> bool {
+    match filter.as_deref() {
+        Some("kron4ek") => filter_kron4ek,
+        _ => accept_all,
+    }
+}
 
 fn accept_all(_name: &str) -> bool {
     true
@@ -143,6 +145,7 @@ pub async fn fetch_available_runners(base_path: String) -> FetchRunnersResult {
     let runners_dir = Path::new(&expanded).join("runners");
 
     let token = load_github_token();
+    let sources = load_runner_sources();
 
     let client = reqwest::Client::builder()
         .user_agent("star-control/0.1.0")
@@ -152,7 +155,12 @@ pub async fn fetch_available_runners(base_path: String) -> FetchRunnersResult {
     let mut all_runners = Vec::new();
     let mut errors = Vec::new();
 
-    for source in SOURCES {
+    for source in sources {
+        if !source.enabled {
+            continue;
+        }
+
+        let filter_fn = get_filter_fn(&source.filter);
         let url = format!("{}?per_page=25", source.api_url);
         let mut request = client.get(&url);
         if let Some(ref t) = token {
@@ -175,7 +183,7 @@ pub async fn fetch_available_runners(base_path: String) -> FetchRunnersResult {
                                 if !is_archive(&asset.name) {
                                     continue;
                                 }
-                                if !(source.filter)(&asset.name) {
+                                if !filter_fn(&asset.name) {
                                     continue;
                                 }
 
@@ -184,7 +192,7 @@ pub async fn fetch_available_runners(base_path: String) -> FetchRunnersResult {
 
                                 all_runners.push(AvailableRunner {
                                     name: display_name,
-                                    source: source.name.to_string(),
+                                    source: source.name.clone(),
                                     version: release.tag_name.clone(),
                                     download_url: asset.browser_download_url.clone(),
                                     file_name: asset.name.clone(),

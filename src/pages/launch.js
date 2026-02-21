@@ -215,15 +215,23 @@ function renderLaunchInfo() {
   const runner = launchConfig.selected_runner || 'None';
   const prefix = launchConfig.install_path || '?';
 
+  const runnerIcon = `<svg class="launch-runner-badge-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>`;
+
   return `
     <div class="launch-info">
-      <div class="launch-info-row">
-        <span class="launch-info-label">Runner:</span>
-        <span class="launch-info-value">${escapeHtml(runner)}</span>
-      </div>
-      <div class="launch-info-row">
-        <span class="launch-info-label">Prefix:</span>
-        <span class="launch-info-value">${escapeHtml(prefix)}</span>
+      <div class="launch-info-card">
+        <div class="launch-info-card-title">Active Configuration</div>
+        <div class="launch-info-row">
+          <span class="launch-info-label">Runner</span>
+          <span class="launch-runner-badge">
+            ${runnerIcon}
+            ${escapeHtml(runner)}
+          </span>
+        </div>
+        <div class="launch-info-row">
+          <span class="launch-info-label">Prefix</span>
+          <span class="launch-prefix-value">${escapeHtml(prefix)}</span>
+        </div>
       </div>
     </div>
   `;

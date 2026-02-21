@@ -26,6 +26,12 @@ struct WindowState {
     x: i32,
     y: i32,
     maximized: bool,
+    #[serde(default = "default_scale")]
+    scale: f64,
+}
+
+fn default_scale() -> f64 {
+    1.0
 }
 
 fn load_window_state() -> Option<WindowState> {
@@ -38,14 +44,23 @@ fn save_window_state_from(window: &tauri::WebviewWindow) {
     if let Some(path) = window_state_path() {
         let Ok(size) = window.inner_size() else { return };
         let Ok(pos) = window.outer_position() else { return };
+        let Ok(scale) = window.scale_factor() else { return };
         let maximized = window.is_maximized().unwrap_or(false);
 
+        // Convert physical size to logical size for storage
+        let logical_width = (size.width as f64 / scale) as u32;
+        let logical_height = (size.height as f64 / scale) as u32;
+        // Convert physical position to logical position
+        let logical_x = (pos.x as f64 / scale) as i32;
+        let logical_y = (pos.y as f64 / scale) as i32;
+
         let state = WindowState {
-            width: size.width,
-            height: size.height,
-            x: pos.x,
-            y: pos.y,
+            width: logical_width,
+            height: logical_height,
+            x: logical_x,
+            y: logical_y,
             maximized,
+            scale,
         };
 
         if let Some(parent) = path.parent() {
@@ -59,8 +74,17 @@ fn save_window_state_from(window: &tauri::WebviewWindow) {
 
 fn restore_window_state(window: &tauri::WebviewWindow) {
     if let Some(state) = load_window_state() {
-        let _ = window.set_size(tauri::PhysicalSize::new(state.width, state.height));
-        let _ = window.set_position(tauri::PhysicalPosition::new(state.x, state.y));
+        // Get current scale factor of the monitor where the window is opening
+        let current_scale = window.scale_factor().unwrap_or(state.scale);
+
+        // Convert stored logical size to physical size based on current monitor's scale
+        let physical_width = (state.width as f64 * current_scale) as u32;
+        let physical_height = (state.height as f64 * current_scale) as u32;
+        let physical_x = (state.x as f64 * current_scale) as i32;
+        let physical_y = (state.y as f64 * current_scale) as i32;
+
+        let _ = window.set_size(tauri::PhysicalSize::new(physical_width, physical_height));
+        let _ = window.set_position(tauri::PhysicalPosition::new(physical_x, physical_y));
         if state.maximized {
             let _ = window.maximize();
         }
@@ -102,6 +126,8 @@ pub fn run() {
             config::load_dxvk_cache,
             config::save_dxvk_cache,
             config::reset_app,
+            config::add_runner_source_from_github,
+            config::import_lug_helper_sources,
             runners::fetch_available_runners,
             runners::install_runner,
             runners::cancel_runner_install,
@@ -110,6 +136,7 @@ pub fn run() {
             dxvk::detect_dxvk_version,
             dxvk::install_dxvk,
             prefix_tools::run_winecfg,
+            prefix_tools::launch_wine_shell,
             prefix_tools::get_dpi,
             prefix_tools::set_dpi,
             prefix_tools::install_powershell,

@@ -35,6 +35,26 @@ impl Default for PerformanceSettings {
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
+pub struct RunnerSourceConfig {
+    pub name: String,
+    pub api_url: String,
+    pub filter: Option<String>, // "all", "kron4ek"
+    pub enabled: bool,
+}
+
+impl Default for RunnerSourceConfig {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            api_url: String::new(),
+            filter: None,
+            enabled: true,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct AppConfig {
     pub install_path: String,
     pub selected_runner: Option<String>,
@@ -42,6 +62,7 @@ pub struct AppConfig {
     pub github_token: Option<String>,
     pub log_level: String,
     pub auto_backup_on_launch: Option<bool>,
+    pub runner_sources: Vec<RunnerSourceConfig>,
 }
 
 impl Default for AppConfig {
@@ -53,6 +74,38 @@ impl Default for AppConfig {
             github_token: None,
             log_level: "info".to_string(),
             auto_backup_on_launch: None,
+            runner_sources: vec![
+                RunnerSourceConfig {
+                    name: "LUG".into(),
+                    api_url: "https://api.github.com/repos/starcitizen-lug/lug-wine/releases".into(),
+                    filter: Some("all".into()),
+                    enabled: true,
+                },
+                RunnerSourceConfig {
+                    name: "LUG Experimental".into(),
+                    api_url: "https://api.github.com/repos/starcitizen-lug/lug-wine-experimental/releases".into(),
+                    filter: Some("all".into()),
+                    enabled: true,
+                },
+                RunnerSourceConfig {
+                    name: "Kron4ek".into(),
+                    api_url: "https://api.github.com/repos/Kron4ek/Wine-Builds/releases".into(),
+                    filter: Some("kron4ek".into()),
+                    enabled: true,
+                },
+                RunnerSourceConfig {
+                    name: "RawFox".into(),
+                    api_url: "https://api.github.com/repos/starcitizen-lug/raw-wine/releases".into(),
+                    filter: Some("all".into()),
+                    enabled: true,
+                },
+                RunnerSourceConfig {
+                    name: "Mactan".into(),
+                    api_url: "https://api.github.com/repos/mactan-sc/mactan-sc-wine/releases".into(),
+                    filter: Some("all".into()),
+                    enabled: true,
+                },
+            ],
         }
     }
 }
@@ -364,22 +417,50 @@ pub async fn save_config(config: AppConfig) -> Result<(), String> {
         }
 
         // Merge with existing config to preserve fields the frontend doesn't manage
+        let defaults = AppConfig::default();
         let merged = if let Some(existing) = config_path
             .exists()
             .then(|| fs::read_to_string(&config_path).ok())
             .flatten()
             .and_then(|c| serde_json::from_str::<AppConfig>(&c).ok())
         {
+            // Preserve runner_sources: use existing if available, otherwise use defaults
+            let runner_sources = if existing.runner_sources.is_empty() && config.runner_sources.is_empty() {
+                defaults.runner_sources.clone()
+            } else if config.runner_sources.is_empty() {
+                existing.runner_sources
+            } else {
+                config.runner_sources
+            };
+
             AppConfig {
                 github_token: match &config.github_token {
                     Some(t) if t.is_empty() => None,   // explicit clear
                     Some(_) => config.github_token,     // new value
                     None => existing.github_token,      // preserve existing
                 },
+                runner_sources,
                 ..config
             }
         } else {
-            config
+            // No existing config - use provided config but fill defaults for missing fields
+            AppConfig {
+                runner_sources: if config.runner_sources.is_empty() {
+                    defaults.runner_sources
+                } else {
+                    config.runner_sources
+                },
+                github_token: config.github_token,
+                install_path: config.install_path,
+                selected_runner: config.selected_runner,
+                performance: config.performance,
+                log_level: if config.log_level.is_empty() {
+                    defaults.log_level
+                } else {
+                    config.log_level
+                },
+                auto_backup_on_launch: config.auto_backup_on_launch,
+            }
         };
 
         let json = serde_json::to_string_pretty(&merged)
@@ -401,7 +482,26 @@ pub async fn load_config() -> Result<Option<AppConfig>, String> {
             None => return None,
         };
         let contents = fs::read_to_string(&path).ok()?;
-        serde_json::from_str(&contents).ok()
+        let config: AppConfig = match serde_json::from_str(&contents) {
+            Ok(c) => c,
+            Err(_) => return None,
+        };
+
+        // Fill in defaults for runner_sources if empty and save to config
+        let defaults = AppConfig::default();
+        if config.runner_sources.is_empty() {
+            // Write defaults to config file immediately
+            let new_config = AppConfig {
+                runner_sources: defaults.runner_sources.clone(),
+                ..config
+            };
+            if let Ok(json) = serde_json::to_string_pretty(&new_config) {
+                let _ = fs::write(&path, json);
+            }
+            return Some(new_config);
+        }
+
+        Some(config)
     })
     .await
     .map_err(|e| format!("Task failed: {}", e))
@@ -604,4 +704,151 @@ pub async fn save_dxvk_cache(releases: Vec<CachedDxvkRelease>) -> Result<(), Str
         Ok(r) => r,
         Err(e) => Err(format!("Task failed: {}", e)),
     }
+}
+
+// --- Runner Sources Management ---
+
+#[derive(Serialize, Deserialize)]
+pub struct AddRunnerSourceResult {
+    pub success: bool,
+    pub message: String,
+    pub added_sources: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn add_runner_source_from_github(
+    name: String,
+    api_url: String,
+) -> Result<AddRunnerSourceResult, String> {
+    let name = name.trim().to_string();
+    let api_url = api_url.trim().to_string();
+
+    if name.is_empty() {
+        return Err("Name cannot be empty".into());
+    }
+    if api_url.is_empty() {
+        return Err("API URL cannot be empty".into());
+    }
+
+    // Validate URL format
+    if !api_url.contains("api.github.com/repos") {
+        return Err("URL must be a GitHub API URL (e.g., https://api.github.com/repos/owner/repo/releases)".into());
+    }
+
+    let result = tokio::task::spawn_blocking(move || {
+        let config_path = match config_file_path() {
+            Some(p) => Path::new(&p).to_path_buf(),
+            None => return Err("Could not determine config directory".to_string()),
+        };
+
+        // Load existing config
+        let mut config = if config_path.exists() {
+            let contents = fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+            serde_json::from_str::<AppConfig>(&contents).map_err(|e| e.to_string())?
+        } else {
+            AppConfig::default()
+        };
+
+        // Check if source already exists
+        if config.runner_sources.iter().any(|s| s.name == name) {
+            return Ok(AddRunnerSourceResult {
+                success: false,
+                message: format!("Source '{}' already exists", name),
+                added_sources: vec![],
+            });
+        }
+
+        // Determine filter based on name
+        let filter = if name.to_lowercase().contains("kron4ek") {
+            Some("kron4ek".into())
+        } else {
+            Some("all".into())
+        };
+
+        // Add new source
+        config.runner_sources.push(RunnerSourceConfig {
+            name: name.clone(),
+            api_url: api_url.clone(),
+            filter,
+            enabled: true,
+        });
+
+        // Save config
+        let json = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
+        fs::write(&config_path, json).map_err(|e| e.to_string())?;
+
+        Ok(AddRunnerSourceResult {
+            success: true,
+            message: format!("Added source '{}'", name),
+            added_sources: vec![name],
+        })
+    }).await.map_err(|e| format!("Task failed: {}", e))?;
+
+    result
+}
+
+#[tauri::command]
+pub async fn import_lug_helper_sources() -> Result<AddRunnerSourceResult, String> {
+    // LUG-Helper Wine runner sources (from https://github.com/starcitizen-lug/lug-helper)
+    let lug_sources = vec![
+        ("LUG", "https://api.github.com/repos/starcitizen-lug/lug-wine/releases"),
+        ("LUG Experimental", "https://api.github.com/repos/starcitizen-lug/lug-wine-experimental/releases"),
+        ("RawFox", "https://api.github.com/repos/starcitizen-lug/raw-wine/releases"),
+        ("Kron4ek", "https://api.github.com/repos/Kron4ek/Wine-Builds/releases"),
+    ];
+
+    let result = tokio::task::spawn_blocking(move || {
+        let config_path = match config_file_path() {
+            Some(p) => Path::new(&p).to_path_buf(),
+            None => return Err("Could not determine config directory".to_string()),
+        };
+
+        // Load existing config
+        let mut config = if config_path.exists() {
+            let contents = fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+            serde_json::from_str::<AppConfig>(&contents).map_err(|e| e.to_string())?
+        } else {
+            AppConfig::default()
+        };
+
+        let mut added_sources = Vec::new();
+
+        for (name, api_url) in lug_sources {
+            // Check if source already exists
+            if !config.runner_sources.iter().any(|s| s.name == name) {
+                // Determine filter based on name
+                let filter = if name.to_lowercase().contains("kron4ek") {
+                    Some("kron4ek".into())
+                } else {
+                    Some("all".into())
+                };
+
+                config.runner_sources.push(RunnerSourceConfig {
+                    name: name.to_string(),
+                    api_url: api_url.to_string(),
+                    filter,
+                    enabled: true,
+                });
+                added_sources.push(name.to_string());
+            }
+        }
+
+        // Save config
+        let json = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
+        fs::write(&config_path, json).map_err(|e| e.to_string())?;
+
+        let message = if added_sources.is_empty() {
+            "All LUG sources already configured".to_string()
+        } else {
+            format!("Added {} new source(s)", added_sources.len())
+        };
+
+        Ok(AddRunnerSourceResult {
+            success: true,
+            message,
+            added_sources,
+        })
+    }).await.map_err(|e| format!("Task failed: {}", e))?;
+
+    result
 }

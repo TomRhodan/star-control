@@ -1,12 +1,20 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
+// Sort sources: LUG sources first (sorted by name length), then others alphabetically
+function sortSources(sources) {
+  const lugSources = sources.filter(s => s.includes('LUG')).sort((a, b) => a.length - b.length);
+  const otherSources = sources.filter(s => !s.includes('LUG')).sort();
+  return [...lugSources, ...otherSources];
+}
+
 // --- State ---
 
 let config = null;
 let installedRunners = [];
 let availableRunners = [];
 let fetchErrors = [];
+let availableSources = ['LUG']; // Will be populated dynamically
 let selectedSource = 'LUG';
 let isInstallingRunner = false;
 let unlistenRunnerProgress = null;
@@ -89,9 +97,21 @@ function loadData(container) {
     const cacheAge = Date.now() / 1000 - (runnerCache.cached_at || 0);
     const dxvkCacheAge = Date.now() / 1000 - (dxvkCache.cached_at || 0);
 
-    if (runnerCache.runners && runnerCache.runners.length > 0 && cacheAge < 3600) {
-      // Keep cached runners but flags will be synced in fireDataFetches
+    // Use sources from config if available, otherwise from cache
+    if (cfg && cfg.runner_sources && cfg.runner_sources.length > 0) {
+      availableSources = sortSources(cfg.runner_sources.map(s => s.name));
+      // Also use cached runners if available
+      if (runnerCache.runners && runnerCache.runners.length > 0 && cacheAge < 3600) {
+        availableRunners = runnerCache.runners.map(r => ({ ...r, installed: false }));
+        loadingFlags.available = false;
+      }
+    } else if (runnerCache.runners && runnerCache.runners.length > 0 && cacheAge < 3600) {
+      // Fallback to cached runners
       availableRunners = runnerCache.runners.map(r => ({ ...r, installed: false }));
+      const sources = [...new Set(availableRunners.map(r => r.source))].sort();
+      if (sources.length > 0) {
+        availableSources = sortSources(sources);
+      }
       loadingFlags.available = false;
     }
     if (dxvkCache.releases && dxvkCache.releases.length > 0 && dxvkCacheAge < 3600) {
@@ -120,19 +140,50 @@ function syncAvailableRunners(container, forceRefresh) {
       if (activeContainer !== container) return;
       availableRunners = result.runners || [];
       fetchErrors = result.errors || [];
+      // Extract unique sources from available runners
+      const sources = [...new Set(availableRunners.map(r => r.source))].sort();
+      if (sources.length > 0) {
+        availableSources = sortSources(sources);
+        if (!selectedSource || !availableSources.includes(selectedSource)) {
+          selectedSource = availableSources[0];
+        }
+      }
       // Sync installed flags
       const installedNames = new Set(installedRunners.map(r => r.name));
       availableRunners = availableRunners.map(r => ({ ...r, installed: installedNames.has(r.name) }));
       loadingFlags.available = false;
 
-      // Save to cache
+      // Save to cache and update local state
+      const nowCached = Math.floor(Date.now() / 1000);
+      runnerCache = { runners: availableRunners, cached_at: nowCached };
       invoke('save_runner_cache', { runners: availableRunners }).catch(() => {});
+
+      // Update cache time in header
+      const cacheTimeEl = container.querySelector('.card-header-info');
+      if (cacheTimeEl) {
+        cacheTimeEl.textContent = `Cached: ${formatCacheTime(nowCached)}`;
+      }
 
       patchSection('download-runners-slot', renderDownloadRunnersContent());
       bindDownloadRunnerEvents(container);
+
+      // Re-enable refresh button
+      const refreshAvailableBtn = document.getElementById('btn-refresh-available');
+      if (refreshAvailableBtn) {
+        refreshAvailableBtn.disabled = false;
+        refreshAvailableBtn.textContent = 'Refresh';
+      }
     }).catch(err => {
       fetchErrors = [String(err)];
       loadingFlags.available = false;
+
+      // Re-enable refresh button on error
+      const refreshAvailableBtn = document.getElementById('btn-refresh-available');
+      if (refreshAvailableBtn) {
+        refreshAvailableBtn.disabled = false;
+        refreshAvailableBtn.textContent = 'Refresh';
+      }
+
       // Use cached data on error
       if (runnerCache.runners && runnerCache.runners.length > 0) {
         availableRunners = runnerCache.runners;
@@ -142,10 +193,30 @@ function syncAvailableRunners(container, forceRefresh) {
       patchSection('download-runners-slot', renderDownloadRunnersContent());
     });
   } else {
-    // Sync installed flags with cached data
-    const installedNames = new Set(installedRunners.map(r => r.name));
-    availableRunners = runnerCache.runners.map(r => ({ ...r, installed: installedNames.has(r.name) }));
+    // Use sources from config if available
+    if (config && config.runner_sources && config.runner_sources.length > 0) {
+      availableSources = sortSources(config.runner_sources.map(s => s.name));
+      // Load cached runners and sync installed flags later
+      availableRunners = runnerCache.runners.map(r => ({ ...r, installed: false }));
+    } else {
+      // Fallback to cached runners
+      const sources = [...new Set(runnerCache.runners.map(r => r.source))].sort();
+      if (sources.length > 0) {
+        availableSources = sortSources(sources);
+      }
+      availableRunners = runnerCache.runners.map(r => ({ ...r, installed: false }));
+    }
+    if (!selectedSource || !availableSources.includes(selectedSource)) {
+      selectedSource = availableSources[0] || 'LUG';
+    }
     loadingFlags.available = false;
+
+    // Sync installed flags after scan_runners completes (if not already done)
+    if (installedRunners.length > 0) {
+      const installedNames = new Set(installedRunners.map(r => r.name));
+      availableRunners = availableRunners.map(r => ({ ...r, installed: installedNames.has(r.name) }));
+    }
+
     patchSection('download-runners-slot', renderDownloadRunnersContent());
     bindDownloadRunnerEvents(container);
   }
@@ -157,13 +228,37 @@ function fireDataFetches(container, forceRefresh = false) {
     if (activeContainer !== container) return;
     installedRunners = result.runners || [];
     loadingFlags.installed = false;
+
+    // Re-enable refresh button
+    const refreshInstalledBtn = document.getElementById('btn-refresh-installed');
+    if (refreshInstalledBtn) {
+      refreshInstalledBtn.disabled = false;
+      refreshInstalledBtn.textContent = 'Refresh';
+    }
+
     patchSection('installed-runners-slot', renderInstalledRunnersContent());
     bindInstalledRunnerEvents(container);
+
+    // Sync installed flags for cached runners if available
+    if (availableRunners.length > 0) {
+      const installedNames = new Set(installedRunners.map(r => r.name));
+      availableRunners = availableRunners.map(r => ({ ...r, installed: installedNames.has(r.name) }));
+      patchSection('download-runners-slot', renderDownloadRunnersContent());
+      bindDownloadRunnerEvents(container);
+    }
 
     // After scan completes, sync available runners
     syncAvailableRunners(container, forceRefresh);
   }).catch(() => {
     loadingFlags.installed = false;
+
+    // Re-enable refresh button on error
+    const refreshInstalledBtn = document.getElementById('btn-refresh-installed');
+    if (refreshInstalledBtn) {
+      refreshInstalledBtn.disabled = false;
+      refreshInstalledBtn.textContent = 'Refresh';
+    }
+
     patchSection('installed-runners-slot', renderInstalledRunnersContent());
     // Even on error, try to sync with empty installed runners
     syncAvailableRunners(container, forceRefresh);
@@ -286,8 +381,10 @@ function renderPageSkeleton(container) {
 
     <div class="card">
       <div class="card-header-row">
-        <h3 data-tooltip="Wine/Proton runners available on your system" data-tooltip-pos="right">Installed Runners</h3>
-        <button class="btn-sm" id="btn-refresh-installed">Refresh</button>
+        <h3 data-tooltip="Wine/Proton runners available on your system. Click Refresh to scan for installed runners." data-tooltip-pos="right">Installed Runners</h3>
+        <div class="card-header-actions">
+          <button class="btn-sm" id="btn-refresh-installed" data-tooltip="Scan for installed runners" data-tooltip-pos="left">Refresh</button>
+        </div>
       </div>
       <div id="installed-runners-slot">${spinner}</div>
     </div>
@@ -295,13 +392,19 @@ function renderPageSkeleton(container) {
     <div class="card">
       <div class="card-header-row">
         <h3 data-tooltip="Download Wine/Proton runners from community sources" data-tooltip-pos="right">Download Runners</h3>
-        <span class="runner-cache-time">Cached: ${formatCacheTime(runnerCache.cached_at)}</span>
-        <button class="btn-sm" id="btn-refresh-available">Refresh</button>
+        <div class="card-header-actions">
+          <span class="card-header-info">Cached: ${formatCacheTime(runnerCache.cached_at)}</span>
+          <button class="btn-sm" id="btn-get-lug-sources" data-tooltip="Import latest runner sources from LUG-Helper GitHub repo" data-tooltip-pos="left">Get LUG Sources</button>
+          <button class="btn-sm" id="btn-refresh-available" data-tooltip="Fetch latest runners from all configured sources" data-tooltip-pos="left">Refresh</button>
+        </div>
       </div>
-      <div class="runner-source-tabs" id="source-tabs">
-        ${['LUG', 'Mactan', 'Kron4ek', 'RawFox'].map(s => `
-          <button class="source-tab ${selectedSource === s ? 'active' : ''}" data-source="${s}">${s}</button>
-        `).join('')}
+      <div class="runner-source-tabs-row">
+        <div class="runner-source-tabs" id="source-tabs">
+          ${availableSources.map(s => `
+            <button class="source-tab ${selectedSource === s ? 'active' : ''}" data-source="${s}">${s}</button>
+          `).join('')}
+        </div>
+        <button class="btn-sm" id="btn-add-source" title="Add new runner source">+</button>
       </div>
       <div id="download-runners-slot">${spinner}</div>
       <div class="runner-install-overlay" id="runner-install-overlay" style="display:none">
@@ -317,8 +420,10 @@ function renderPageSkeleton(container) {
     <div class="runners-tools-grid">
       <div class="card">
         <div class="card-header-row">
-          <h3 data-tooltip="DirectX to Vulkan translation layer" data-tooltip-pos="right">DXVK</h3>
-          <button class="btn-sm" id="btn-refresh-dxvk">Refresh</button>
+          <h3 data-tooltip="DirectX to Vulkan translation layer for better performance" data-tooltip-pos="right">DXVK</h3>
+          <div class="card-header-actions">
+            <button class="btn-sm" id="btn-refresh-dxvk" data-tooltip="Fetch latest DXVK releases" data-tooltip-pos="left">Refresh</button>
+          </div>
         </div>
         ${hasPrefix
           ? `<div id="dxvk-status-slot">${spinner}</div>
@@ -434,7 +539,7 @@ function renderDownloadRunnersContent() {
         ${filtered.map(r => `
           <div class="runner-available-item ${r.installed ? 'installed' : ''}">
             <div class="runner-item-info">
-              <span class="runner-item-name">${escapeHtml(r.name)}</span>
+              <span class="runner-item-name" style="white-space: normal !important; word-break: break-word !important; overflow: visible !important;">${escapeHtml(r.name)}</span>
               <span class="runner-item-meta">
                 <span class="runner-source-badge">${escapeHtml(r.source)}</span>
                 <span class="runner-item-size">${formatSize(r.size_bytes)}</span>
@@ -497,6 +602,8 @@ function renderDxvkReleasesContent() {
 }
 
 function renderPrefixToolsContent() {
+  const hasRunner = !!config.selected_runner;
+
   if (!config.selected_runner || !config.install_path) {
     const msg = !config.selected_runner
       ? 'Select a runner first to use prefix tools.'
@@ -521,19 +628,12 @@ function renderPrefixToolsContent() {
 
     <div class="prefix-tool-row">
       <div class="prefix-tool-info">
-        <span class="prefix-tool-name">DPI Setting</span>
-        <span class="prefix-tool-hint">Current: ${currentDpi} DPI</span>
+        <span class="prefix-tool-name">Wine Shell</span>
+        <span class="prefix-tool-hint">Open terminal with wine shell for this runner</span>
       </div>
-      <div class="dpi-presets" id="dpi-presets">
-        ${[
-          { v: 96, tip: '100% scaling (default)' },
-          { v: 120, tip: '125% scaling' },
-          { v: 144, tip: '150% scaling' },
-          { v: 192, tip: '200% scaling (HiDPI)' },
-        ].map(({ v, tip }) => `
-          <button class="dpi-btn ${currentDpi === v ? 'active' : ''}" data-dpi="${v}" data-tooltip="${tip}">${v}</button>
-        `).join('')}
-      </div>
+      <button class="btn-sm btn-install" id="btn-wine-shell" ${!hasRunner || isRunningPrefixTool ? 'disabled' : ''}>
+        ${isRunningPrefixTool ? 'Starting...' : 'Launch'}
+      </button>
     </div>
 
     <div class="prefix-tool-divider"></div>
@@ -562,8 +662,16 @@ function bindSkeletonEvents(container) {
   const refreshInstalledBtn = document.getElementById('btn-refresh-installed');
   if (refreshInstalledBtn) {
     refreshInstalledBtn.addEventListener('click', () => {
+      console.log('Refresh installed clicked');
       loadingFlags.installed = true;
-      patchSection('installed-runners-slot', '<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>Loading...</span></div>');
+      // Show loading state
+      const installedSlot = document.getElementById('installed-runners-slot');
+      if (installedSlot) {
+        installedSlot.innerHTML = '<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>Scanning for installed runners...</span></div>';
+      }
+      // Disable button during refresh
+      refreshInstalledBtn.disabled = true;
+      refreshInstalledBtn.textContent = '...';
       fireDataFetches(container, false);
     });
   }
@@ -572,10 +680,30 @@ function bindSkeletonEvents(container) {
   const refreshAvailableBtn = document.getElementById('btn-refresh-available');
   if (refreshAvailableBtn) {
     refreshAvailableBtn.addEventListener('click', () => {
+      console.log('Refresh clicked');
       loadingFlags.available = true;
-      patchSection('download-runners-slot', '<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>Refreshing...</span></div>');
+      // Show loading state in the download section
+      const downloadSlot = document.getElementById('download-runners-slot');
+      if (downloadSlot) {
+        downloadSlot.innerHTML = '<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>Refreshing runners...</span></div>';
+      }
+      // Disable button during refresh
+      refreshAvailableBtn.disabled = true;
+      refreshAvailableBtn.textContent = '...';
       fireDataFetches(container, true);
     });
+  }
+
+  // Add new source button
+  const addSourceBtn = document.getElementById('btn-add-source');
+  if (addSourceBtn) {
+    addSourceBtn.addEventListener('click', () => showAddSourceDialog(container));
+  }
+
+  // Get LUG Sources button
+  const getLugSourcesBtn = document.getElementById('btn-get-lug-sources');
+  if (getLugSourcesBtn) {
+    getLugSourcesBtn.addEventListener('click', () => importLugHelperSources(container));
   }
 
   // Refresh DXVK
@@ -649,9 +777,10 @@ function bindPrefixToolEvents(container) {
     winecfgBtn.addEventListener('click', launchWinecfg);
   }
 
-  document.querySelectorAll('.dpi-btn').forEach(btn => {
-    btn.addEventListener('click', () => setDpi(parseInt(btn.dataset.dpi), container));
-  });
+  const wineShellBtn = document.getElementById('btn-wine-shell');
+  if (wineShellBtn) {
+    wineShellBtn.addEventListener('click', () => launchWineShell(container));
+  }
 
   const psBtn = document.getElementById('btn-install-powershell');
   if (psBtn) {
@@ -692,6 +821,105 @@ async function selectRunner(name, container) {
   bindInstalledRunnerEvents(container);
   patchSection('prefix-tools-slot', renderPrefixToolsContent());
   bindPrefixToolEvents(container);
+}
+
+async function showAddSourceDialog(container) {
+  const name = prompt('Enter runner source name (e.g., "LUG Experimental"):');
+  if (!name || !name.trim()) return;
+
+  const apiUrl = prompt('Enter GitHub API URL:\n(e.g., https://api.github.com/repos/starcitizen-lug/lug-wine-experimental/releases)');
+  if (!apiUrl || !apiUrl.trim()) return;
+
+  try {
+    const result = await invoke('add_runner_source_from_github', {
+      name: name.trim(),
+      apiUrl: apiUrl.trim()
+    });
+
+    if (result.success) {
+      alert(result.message);
+
+      // Reload config to get updated runner_sources
+      const cfg = await invoke('load_config');
+      if (cfg && cfg.runner_sources && cfg.runner_sources.length > 0) {
+        config = cfg;
+        availableSources = sortSources(cfg.runner_sources.map(s => s.name));
+        if (!selectedSource || !availableSources.includes(selectedSource)) {
+          selectedSource = availableSources[0] || 'LUG';
+        }
+        // Re-render the source tabs
+        const tabsContainer = container.querySelector('#source-tabs');
+        if (tabsContainer) {
+          tabsContainer.innerHTML = availableSources.map(s => `
+            <button class="source-tab ${selectedSource === s ? 'active' : ''}" data-source="${s}">${s}</button>
+          `).join('');
+
+          // Re-bind tab click events
+          tabsContainer.querySelectorAll('.source-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+              selectedSource = tab.dataset.source;
+              tabsContainer.querySelectorAll('.source-tab').forEach(t => t.classList.remove('active'));
+              tab.classList.add('active');
+              patchSection('download-runners-slot', renderDownloadRunnersContent());
+              bindDownloadRunnerEvents(container);
+            });
+          });
+        }
+      }
+
+      // Refresh runners
+      loadingFlags.available = true;
+      patchSection('download-runners-slot', '<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>Refreshing...</span></div>');
+      fireDataFetches(container, true);
+    } else {
+      alert(result.message);
+    }
+  } catch (err) {
+    alert('Failed to add source: ' + err);
+  }
+}
+
+async function importLugHelperSources(container) {
+  try {
+    const result = await invoke('import_lug_helper_sources');
+
+    alert(result.message);
+
+    // Reload config to get updated runner_sources
+    const cfg = await invoke('load_config');
+    if (cfg && cfg.runner_sources && cfg.runner_sources.length > 0) {
+      config = cfg;
+      availableSources = sortSources(cfg.runner_sources.map(s => s.name));
+      if (!selectedSource || !availableSources.includes(selectedSource)) {
+        selectedSource = availableSources[0] || 'LUG';
+      }
+      // Re-render the source tabs
+      const tabsContainer = container.querySelector('#source-tabs');
+      if (tabsContainer) {
+        tabsContainer.innerHTML = availableSources.map(s => `
+          <button class="source-tab ${selectedSource === s ? 'active' : ''}" data-source="${s}">${s}</button>
+        `).join('');
+
+        // Re-bind tab click events
+        tabsContainer.querySelectorAll('.source-tab').forEach(tab => {
+          tab.addEventListener('click', () => {
+            selectedSource = tab.dataset.source;
+            tabsContainer.querySelectorAll('.source-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            patchSection('download-runners-slot', renderDownloadRunnersContent());
+            bindDownloadRunnerEvents(container);
+          });
+        });
+      }
+    }
+
+    // Refresh runners
+    loadingFlags.available = true;
+    patchSection('download-runners-slot', '<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>Refreshing...</span></div>');
+    fireDataFetches(container, true);
+  } catch (err) {
+    alert('Failed to import LUG sources: ' + err);
+  }
 }
 
 async function deleteRunner(name, container) {
@@ -844,6 +1072,27 @@ async function launchWinecfg() {
     });
   } catch (err) {
     console.error('Failed to launch winecfg:', err);
+  }
+}
+
+async function launchWineShell(container) {
+  if (!config || !config.selected_runner) return;
+  isRunningPrefixTool = true;
+  patchSection('prefix-tools-slot', renderPrefixToolsContent());
+  bindPrefixToolEvents(container);
+
+  try {
+    await invoke('launch_wine_shell', {
+      basePath: config.install_path,
+      runnerName: config.selected_runner,
+    });
+  } catch (err) {
+    console.error('Failed to launch wine shell:', err);
+    alert('Failed to launch wine shell: ' + err);
+  } finally {
+    isRunningPrefixTool = false;
+    patchSection('prefix-tools-slot', renderPrefixToolsContent());
+    bindPrefixToolEvents(container);
   }
 }
 
