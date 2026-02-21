@@ -67,6 +67,11 @@
   <em>Localization — Install community translations with one click</em>
 </p>
 
+<p align="center">
+  <img src="docs/screenshots/about.png" alt="About" width="720"><br>
+  <em>About — Version info, links, and credits</em>
+</p>
+
 </details>
 
 ## Features
