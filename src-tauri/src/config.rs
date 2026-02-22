@@ -63,6 +63,7 @@ pub struct AppConfig {
     pub log_level: String,
     pub auto_backup_on_launch: Option<bool>,
     pub runner_sources: Vec<RunnerSourceConfig>,
+    pub install_mode: String,  // "full" | "quick"
 }
 
 impl Default for AppConfig {
@@ -74,38 +75,8 @@ impl Default for AppConfig {
             github_token: None,
             log_level: "info".to_string(),
             auto_backup_on_launch: None,
-            runner_sources: vec![
-                RunnerSourceConfig {
-                    name: "LUG".into(),
-                    api_url: "https://api.github.com/repos/starcitizen-lug/lug-wine/releases".into(),
-                    filter: Some("all".into()),
-                    enabled: true,
-                },
-                RunnerSourceConfig {
-                    name: "LUG Experimental".into(),
-                    api_url: "https://api.github.com/repos/starcitizen-lug/lug-wine-experimental/releases".into(),
-                    filter: Some("all".into()),
-                    enabled: true,
-                },
-                RunnerSourceConfig {
-                    name: "Kron4ek".into(),
-                    api_url: "https://api.github.com/repos/Kron4ek/Wine-Builds/releases".into(),
-                    filter: Some("kron4ek".into()),
-                    enabled: true,
-                },
-                RunnerSourceConfig {
-                    name: "RawFox".into(),
-                    api_url: "https://api.github.com/repos/starcitizen-lug/raw-wine/releases".into(),
-                    filter: Some("all".into()),
-                    enabled: true,
-                },
-                RunnerSourceConfig {
-                    name: "Mactan".into(),
-                    api_url: "https://api.github.com/repos/mactan-sc/mactan-sc-wine/releases".into(),
-                    filter: Some("all".into()),
-                    enabled: true,
-                },
-            ],
+            runner_sources: vec![],
+            install_mode: "full".to_string(),
         }
     }
 }
@@ -440,6 +411,11 @@ pub async fn save_config(config: AppConfig) -> Result<(), String> {
                     None => existing.github_token,      // preserve existing
                 },
                 runner_sources,
+                install_mode: if config.install_mode.is_empty() {
+                    existing.install_mode
+                } else {
+                    config.install_mode
+                },
                 ..config
             }
         } else {
@@ -460,6 +436,11 @@ pub async fn save_config(config: AppConfig) -> Result<(), String> {
                     config.log_level
                 },
                 auto_backup_on_launch: config.auto_backup_on_launch,
+                install_mode: if config.install_mode.is_empty() {
+                    defaults.install_mode
+                } else {
+                    config.install_mode
+                },
             }
         };
 

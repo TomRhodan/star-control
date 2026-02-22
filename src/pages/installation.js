@@ -37,6 +37,7 @@ let configState = {
     primary_monitor: null,
   },
   pathValidation: null,
+  installMode: 'full',
 };
 
 let detectedMonitors = [];
@@ -48,7 +49,12 @@ let availableRunners = [];
 let fetchErrors = [];
 let isInstallingRunner = false;
 let selectedSource = 'LUG';
+let availableSources = ['LUG']; // Will be populated from config
+let isLoadingRunners = true;
 let unlistenProgress = null;
+
+// Loading spinner
+const spinnerHtml = '<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>Loading...</span></div>';
 
 // --- Installation State ---
 
@@ -71,15 +77,38 @@ const INSTALL_PHASES = [
 
 // --- Main Render ---
 
-export function renderInstallation(container) {
-  // Load saved config on first render
-  invoke('load_config').then(config => {
+export async function renderInstallation(container) {
+  // First, ensure we have the latest runner sources from LUG-Helper
+  try {
+    await invoke('import_lug_helper_sources');
+  } catch (e) {
+    // Ignore errors - we'll use cached/default sources
+  }
+
+  // Load saved config on first render (must complete before rendering)
+  try {
+    const config = await invoke('load_config');
     if (config) {
       configState.installPath = config.install_path;
       configState.selectedRunner = config.selected_runner;
       configState.performance = config.performance;
+      configState.installMode = config.install_mode || 'full';
+
+      // Populate available sources from config
+      if (config.runner_sources && config.runner_sources.length > 0) {
+        availableSources = config.runner_sources
+          .filter(s => s.enabled)
+          .map(s => s.name);
+        if (!availableSources.includes(selectedSource)) {
+          selectedSource = availableSources[0];
+        }
+      }
     }
-  }).catch(() => {});
+  } catch (e) {
+    // Ignore config load errors
+  }
+
+  renderCurrentStep(container);
 
   // Load default path if none set
   if (!configState.installPath) {
@@ -87,8 +116,6 @@ export function renderInstallation(container) {
       configState.installPath = path;
     }).catch(() => {});
   }
-
-  renderCurrentStep(container);
 }
 
 function renderCurrentStep(container) {
@@ -674,10 +701,7 @@ async function renderRunnerSection() {
       ${localRunners.length > 0 ? '<div class="runner-download-toggle" id="toggle-download-panel">Download more runners...</div>' : ''}
       <div class="runner-download-content" id="runner-download-content" ${localRunners.length > 0 ? 'style="display:none"' : ''}>
         <div class="runner-source-tabs" id="source-tabs">
-          <button class="source-tab ${selectedSource === 'LUG' ? 'active' : ''}" data-source="LUG">LUG</button>
-          <button class="source-tab ${selectedSource === 'Mactan' ? 'active' : ''}" data-source="Mactan">Mactan</button>
-          <button class="source-tab ${selectedSource === 'Kron4ek' ? 'active' : ''}" data-source="Kron4ek">Kron4ek</button>
-          <button class="source-tab ${selectedSource === 'RawFox' ? 'active' : ''}" data-source="RawFox">RawFox</button>
+          ${availableSources.map(s => `<button class="source-tab ${selectedSource === s ? 'active' : ''}" data-source="${s}">${s}</button>`).join('')}
         </div>
         <div id="fetch-errors"></div>
         <div class="runner-available-list" id="runner-available-list">
@@ -731,15 +755,24 @@ async function renderRunnerSection() {
   });
 
   // Event: cancel install
-  document.getElementById('btn-cancel-install').addEventListener('click', async () => {
-    try { await invoke('cancel_runner_install'); } catch (e) { /* ignore */ }
-  });
+  const cancelBtn = document.getElementById('btn-cancel-install');
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', async () => {
+      try { await invoke('cancel_runner_install'); } catch (e) { /* ignore */ }
+    });
+  }
 
   // Fetch online runners
   fetchAvailableRunners();
 }
 
 async function fetchAvailableRunners() {
+  isLoadingRunners = true;
+
+  // Show loading state in the available list
+  const list = document.getElementById('runner-available-list');
+  if (list) list.innerHTML = spinnerHtml;
+
   try {
     const result = await invoke('fetch_available_runners', { basePath: configState.installPath });
     availableRunners = result.runners;
@@ -748,6 +781,8 @@ async function fetchAvailableRunners() {
     availableRunners = [];
     fetchErrors = [String(err)];
   }
+
+  isLoadingRunners = false;
   renderAvailableRunnersList();
   renderFetchErrors();
 }
@@ -1085,6 +1120,7 @@ async function startInstallation() {
         install_path: configState.installPath,
         selected_runner: configState.selectedRunner,
         performance: configState.performance,
+        install_mode: configState.installMode,
       },
     });
     onInstallComplete();
@@ -1105,6 +1141,15 @@ function handleInstallProgress(payload) {
     }
     currentPhaseId = phase;
   }
+
+  // Store launch logs in global state for the Launch page
+  if ((phase === 'launch' || phase === 'complete') && log_line) {
+    if (!window._starControlLaunchLogs) {
+      window._starControlLaunchLogs = [];
+    }
+    window._starControlLaunchLogs.push(log_line);
+  }
+
   currentPercent = percent;
 
   // Update phase list UI

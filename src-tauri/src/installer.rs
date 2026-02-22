@@ -389,11 +389,20 @@ pub async fn stop_game(app: AppHandle) -> Result<(), String> {
 pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), String> {
     INSTALL_CANCEL.store(false, Ordering::SeqCst);
 
-    // Frontend may not pass github_token — load it from saved config if missing
-    let config = if config.github_token.is_none() {
+    // Frontend may not pass github_token or install_mode — load from saved config if missing
+    let config = if config.github_token.is_none() || config.install_mode.is_empty() {
         if let Ok(Some(saved)) = crate::config::load_config().await {
             AppConfig {
-                github_token: saved.github_token,
+                github_token: if config.github_token.is_none() {
+                    saved.github_token
+                } else {
+                    config.github_token
+                },
+                install_mode: if config.install_mode.is_empty() {
+                    saved.install_mode
+                } else {
+                    config.install_mode
+                },
                 ..config
             }
         } else {
@@ -404,6 +413,21 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
     };
 
     let install_path = expand_tilde(&config.install_path);
+    let skip_launcher = config.install_mode == "quick";
+
+    // In quick mode, verify that RSI Launcher actually exists
+    if skip_launcher {
+        let launcher_exe = Path::new(&install_path)
+            .join("drive_c")
+            .join("Program Files")
+            .join("Roberts Space Industries")
+            .join("RSI Launcher")
+            .join("RSI Launcher.exe");
+        if !launcher_exe.exists() {
+            return Err("Quick Install selected but RSI Launcher not found. Please use Full Installation.".into());
+        }
+    }
+
     let runner_name = config
         .selected_runner
         .as_deref()
@@ -424,10 +448,17 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
     }
 
     // ── Phase 1: Prepare (0–5%) ──
+    // Note: In quick mode, we run Phases 1-3 but skip Phases 4-5 (RSI Launcher)
+
+    let tmp_dir = Path::new(&install_path).join(".tmp");
+    let client = reqwest::Client::builder()
+        .user_agent("star-control/0.1.2")
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+
     emit_progress(&app, "prepare", "Preparing environment...", 0.0, "Starting installation...");
 
     let live_dir = Path::new(&install_path).join("drive_c");
-    let tmp_dir = Path::new(&install_path).join(".tmp");
 
     std::fs::create_dir_all(&install_path)
         .map_err(|e| format!("Failed to create install directory: {}", e))?;
@@ -436,24 +467,20 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
     std::fs::create_dir_all(&tmp_dir)
         .map_err(|e| format!("Failed to create .tmp directory: {}", e))?;
 
-    // Create no_win64_warnings early so winetricks skips the 64-bit warning
-    let marker = Path::new(&install_path).join("no_win64_warnings");
-    let _ = std::fs::write(&marker, "");
+        // Create no_win64_warnings early so winetricks skips the 64-bit warning
+        let marker = Path::new(&install_path).join("no_win64_warnings");
+        let _ = std::fs::write(&marker, "");
 
-    // Kill any lingering wineserver from previous attempts
-    emit_progress(&app, "prepare", "Cleaning up old processes...", 1.0, "Killing any lingering wineserver...");
-    let _ = Command::new(wineserver.to_string_lossy().as_ref())
-        .arg("-k")
-        .env("WINEPREFIX", &install_path)
-        .output();
+        // Kill any lingering wineserver from previous attempts
+        emit_progress(&app, "prepare", "Cleaning up old processes...", 1.0, "Killing any lingering wineserver...");
+        let _ = Command::new(wineserver.to_string_lossy().as_ref())
+            .arg("-k")
+            .env("WINEPREFIX", &install_path)
+            .output();
 
-    emit_progress(&app, "prepare", "Downloading winetricks...", 2.0, "Downloading winetricks...");
+        emit_progress(&app, "prepare", "Downloading winetricks...", 2.0, "Downloading winetricks...");
 
     let winetricks_path = tmp_dir.join("winetricks");
-    let client = reqwest::Client::builder()
-        .user_agent("star-control/0.1.2")
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new());
 
     let wt_bytes = client
         .get("https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks")
@@ -721,8 +748,14 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
         return Err("Installation cancelled".into());
     }
 
-    // ── Phase 4: Download RSI Launcher (65–85%) ──
-    emit_progress(&app, "download", "Fetching launcher info...", 65.0, "Downloading latest.yml...");
+    // ── Phase 4 & 5: RSI Launcher Download & Install (65–95%) ──
+    // Skip if install_mode is "quick" (RSI Launcher already exists)
+    if skip_launcher {
+        emit_progress(&app, "launcher_skip", "Skipping RSI Launcher...", 65.0,
+            "Quick Install: RSI Launcher already exists, skipping download and install");
+    } else {
+        // ── Phase 4: Download RSI Launcher (65–85%) ──
+        emit_progress(&app, "download", "Fetching launcher info...", 65.0, "Downloading latest.yml...");
 
     let latest_yml = client
         .get("https://install.robertsspaceindustries.com/rel/2/latest.yml")
@@ -915,10 +948,13 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
     // Give wineserver a moment to shut everything down
     std::thread::sleep(std::time::Duration::from_secs(2));
 
-    // Remove tmp directory
-    let _ = std::fs::remove_dir_all(&tmp_dir);
-
     emit_progress(&app, "install", "Installation complete", 95.0, "RSI Launcher installed successfully");
+    } // End of else (non-quick mode for Phase 4/5)
+
+    // Cleanup tmp_dir if it was created (in non-quick mode)
+    if !skip_launcher {
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
 
     if is_cancelled() {
         return Err("Installation cancelled".into());

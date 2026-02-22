@@ -41,7 +41,10 @@ export function requestAutoLaunch() {
 
 export function renderLaunch(container) {
   launchStatus = 'checking';
-  launchLog = [];
+  // Load logs from installation process if available
+  launchLog = window._starControlLaunchLogs ? [...window._starControlLaunchLogs] : [];
+  // Clear the stored logs after loading
+  window._starControlLaunchLogs = [];
   renderPage(container);
   loadAndCheck(container);
 }
