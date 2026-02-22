@@ -1,8 +1,19 @@
+//! Wine prefix utility tools module.
+//!
+//! This module provides various Wine prefix management tools:
+//! - winecfg: Wine configuration dialog
+//! - Wine shell: Terminal with Wine environment
+//! - DPI settings: Get and set DPI in Wine prefix
+//! - PowerShell: Install PowerShell via winetricks
+//!
+//! These tools help configure the Wine prefix for optimal Star Citizen performance.
+
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use tauri::{AppHandle, Emitter};
 
+/// Expands tilde (~) in a path to the user's home directory.
 fn expand_tilde(path: &str) -> String {
     if path.starts_with('~') {
         if let Ok(home) = std::env::var("HOME") {
@@ -12,6 +23,8 @@ fn expand_tilde(path: &str) -> String {
     path.to_string()
 }
 
+/// Gets the paths for Wine binary, runner bin directory, and prefix.
+/// Returns (prefix_path, wine_binary, runner_bin_dir).
 fn get_wine_paths(
     base_path: &str,
     runner_name: &str,

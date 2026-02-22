@@ -1,8 +1,21 @@
+//! Configuration management module for Star Control.
+//!
+//! This module handles all application configuration including:
+//! - Performance settings (esync, fsync, DXVK, etc.)
+//! - Runner sources (Wine/Proton repositories)
+//! - Installation settings
+//! - Caching of runner and DXVK data
+//!
+//! Configuration is stored in `~/.config/star-control/config.json`
+//! Cache is stored in `~/.config/star-control/cache.json`
+
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
+/// Performance-related settings for Wine/Star Citizen execution.
+/// These settings control various Wine features and overlays.
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct PerformanceSettings {
@@ -33,6 +46,8 @@ impl Default for PerformanceSettings {
     }
 }
 
+/// Configuration for a Wine/Proton runner source.
+/// Runner sources are GitHub repositories that provide pre-built Wine builds.
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct RunnerSourceConfig {
@@ -53,6 +68,8 @@ impl Default for RunnerSourceConfig {
     }
 }
 
+/// Main application configuration structure.
+/// Contains all settings needed to run Star Citizen.
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct AppConfig {
@@ -83,6 +100,7 @@ impl Default for AppConfig {
 
 // --- Cached Data Structures ---
 
+/// Cached information about an available runner.
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct CachedRunner {
     pub name: String,
@@ -93,6 +111,7 @@ pub struct CachedRunner {
     pub size_bytes: u64,
 }
 
+/// Cached information about an available DXVK release.
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct CachedDxvkRelease {
     pub version: String,
@@ -101,24 +120,28 @@ pub struct CachedDxvkRelease {
     pub size_bytes: u64,
 }
 
+/// Cache container for runner data.
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct RunnerCache {
     pub runners: Vec<CachedRunner>,
     pub cached_at: u64,  // Unix timestamp
 }
 
+/// Cache container for DXVK release data.
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct DxvkCache {
     pub releases: Vec<CachedDxvkRelease>,
     pub cached_at: u64,
 }
 
+/// Combined application cache containing both runner and DXVK data.
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct AppCache {
     pub runners: RunnerCache,
     pub dxvk: DxvkCache,
 }
 
+/// Returns the path to the cache file.
 fn cache_file_path() -> Option<String> {
     dirs::config_dir().map(|p| {
         p.join("star-control")
@@ -128,6 +151,7 @@ fn cache_file_path() -> Option<String> {
     })
 }
 
+/// Result of validating an installation path.
 #[derive(Serialize, Deserialize)]
 pub struct PathValidation {
     pub valid: bool,
@@ -137,6 +161,7 @@ pub struct PathValidation {
     pub message: String,
 }
 
+/// Information about a detected runner in the local installation directory.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct DetectedRunner {
     pub name: String,
@@ -144,12 +169,14 @@ pub struct DetectedRunner {
     pub wine_executable: String,
 }
 
+/// Result of scanning for local runners.
 #[derive(Serialize, Deserialize)]
 pub struct ScanRunnersResult {
     pub runners: Vec<DetectedRunner>,
     pub runners_dir: String,
 }
 
+/// Expands tilde (~) in a path to the user's home directory.
 fn expand_tilde(path: &str) -> String {
     if path.starts_with('~') {
         if let Ok(home) = std::env::var("HOME") {
@@ -159,6 +186,7 @@ fn expand_tilde(path: &str) -> String {
     path.to_string()
 }
 
+/// Finds the first existing parent directory in a path.
 fn find_existing_parent(path: &str) -> String {
     let mut p = Path::new(path);
     while !p.exists() {
@@ -170,6 +198,7 @@ fn find_existing_parent(path: &str) -> String {
     p.to_string_lossy().into_owned()
 }
 
+/// Gets the free disk space in gigabytes for a given path.
 fn get_free_space_gb(path: &str) -> u64 {
     use std::ffi::CString;
 
@@ -189,6 +218,7 @@ fn get_free_space_gb(path: &str) -> u64 {
     }
 }
 
+/// Checks if a path is writable by the current user.
 fn is_writable(path: &str) -> bool {
     let p = Path::new(path);
     if !p.exists() {
@@ -217,6 +247,7 @@ fn is_writable(path: &str) -> bool {
     }
 }
 
+/// Returns the path to the configuration file.
 fn config_file_path() -> Option<String> {
     dirs::config_dir().map(|p| {
         p.join("star-control")
@@ -226,6 +257,7 @@ fn config_file_path() -> Option<String> {
     })
 }
 
+/// Result of checking if initial setup is required.
 #[derive(Serialize, Deserialize)]
 pub struct SetupCheck {
     pub needs_setup: bool,
@@ -689,6 +721,7 @@ pub async fn save_dxvk_cache(releases: Vec<CachedDxvkRelease>) -> Result<(), Str
 
 // --- Runner Sources Management ---
 
+/// Result of adding a new runner source.
 #[derive(Serialize, Deserialize)]
 pub struct AddRunnerSourceResult {
     pub success: bool,

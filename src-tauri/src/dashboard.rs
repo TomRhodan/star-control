@@ -1,3 +1,12 @@
+//! Dashboard module for RSI information.
+//!
+//! This module provides commands to fetch:
+//! - RSI News from community feeds
+//! - Server status from status.robertsspaceindustries.com
+//! - Community stats (funds, fleet, fans) from third-party APIs
+//!
+//! All data is fetched asynchronously and cached appropriately.
+
 use chrono::{DateTime, Utc};
 use quick_xml::events::Event;
 use quick_xml::Reader;
@@ -5,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 // ── RSI News ──────────────────────────────────────────────────────────
 
+/// A single RSI news item from the feed.
 #[derive(Serialize, Clone)]
 pub struct RsiNewsItem {
     pub title: String,
@@ -15,6 +25,7 @@ pub struct RsiNewsItem {
     pub relative_time: String,
 }
 
+/// Result containing RSI news items or an error message.
 #[derive(Serialize)]
 pub struct RsiNewsResult {
     pub items: Vec<RsiNewsItem>,
@@ -190,12 +201,14 @@ fn format_relative_time(date_str: &str) -> String {
 
 // ── Server Status ─────────────────────────────────────────────────────
 
+/// Information about a single RSI server component.
 #[derive(Serialize, Clone)]
 pub struct ServerComponent {
     pub name: String,
     pub status: String, // "operational", "degraded", "major_outage", "unknown"
 }
 
+/// Result containing server status information or an error message.
 #[derive(Serialize)]
 pub struct ServerStatusResult {
     pub components: Vec<ServerComponent>,
@@ -321,11 +334,13 @@ async fn fetch_server_status_inner() -> Result<Vec<ServerComponent>, Box<dyn std
 
 // ── Community Stats ───────────────────────────────────────────────────
 
+/// Response from the Star Citizen Wiki stats API.
 #[derive(Deserialize)]
 struct StatsApiResponse {
     data: StatsData,
 }
 
+/// Data field from the stats API response.
 #[derive(Deserialize)]
 struct StatsData {
     funds: String,
@@ -333,6 +348,7 @@ struct StatsData {
     fleet: u64,
 }
 
+/// Community statistics for Star Citizen (funds, fans, fleet).
 #[derive(Serialize)]
 pub struct CommunityStats {
     pub funds: String,
@@ -343,6 +359,7 @@ pub struct CommunityStats {
     pub fleet_raw: u64,
 }
 
+/// Result containing community stats or an error message.
 #[derive(Serialize)]
 pub struct CommunityStatsResult {
     pub stats: Option<CommunityStats>,

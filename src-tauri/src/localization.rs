@@ -1,3 +1,13 @@
+//! Localization (language pack) management module.
+//!
+//! This module handles:
+//! - Fetching available translations from GitHub repositories
+//! - Installing translation files (global.ini)
+//! - Checking for translation updates
+//! - Removing installed translations
+//!
+//! Supported languages include German, French, Spanish, Italian, and Portuguese.
+
 use crate::sc_config::{expand_tilde, sc_base_dir};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
@@ -9,6 +19,7 @@ use tauri::{AppHandle, Emitter};
 // Data Structures
 // ============================================================
 
+/// Information about an available language source.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct LanguageSource {
     pub language_code: String,
@@ -18,6 +29,7 @@ pub struct LanguageSource {
     pub source_label: String,
 }
 
+/// Status of an installed localization.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct LocalizationStatus {
     pub installed: bool,
@@ -30,6 +42,7 @@ pub struct LocalizationStatus {
     pub cfg_language_audio: Option<String>,
 }
 
+/// Result of a localization installation operation.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct LocalizationInstallResult {
     pub success: bool,
@@ -37,6 +50,7 @@ pub struct LocalizationInstallResult {
     pub bytes: u64,
 }
 
+/// Metadata stored for an installed localization.
 #[derive(Serialize, Deserialize, Clone)]
 struct LocalizationMeta {
     language_code: String,
@@ -46,6 +60,7 @@ struct LocalizationMeta {
     file_size: u64,
 }
 
+/// Progress update during localization installation.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct LocalizationProgress {
     pub phase: String,
@@ -57,6 +72,7 @@ pub struct LocalizationProgress {
 // Path Helpers
 // ============================================================
 
+/// Returns the path to the localization directory for a specific language.
 fn sc_localization_dir(game_path: &str, version: &str, language_code: &str) -> PathBuf {
     sc_base_dir(game_path, version)
         .join("data")
@@ -64,12 +80,14 @@ fn sc_localization_dir(game_path: &str, version: &str, language_code: &str) -> P
         .join(language_code)
 }
 
+/// Returns the directory where localization metadata is stored.
 fn meta_dir() -> Result<PathBuf, String> {
     dirs::config_dir()
         .map(|p| p.join("star-control").join("localization"))
         .ok_or_else(|| "Could not determine config directory".to_string())
 }
 
+/// Returns the path to a localization metadata file for a specific version.
 fn meta_path(version: &str) -> Result<PathBuf, String> {
     Ok(meta_dir()?.join(format!("{}.json", version)))
 }

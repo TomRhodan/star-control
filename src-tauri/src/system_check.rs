@@ -1,8 +1,22 @@
+//! System requirements checking module.
+//!
+//! This module performs various system checks to ensure the system
+//! meets the requirements for running Star Citizen:
+//! - Memory (RAM + swap)
+//! - CPU AVX support
+//! - vm.max_map_count (system limit for memory mappings)
+//! - File descriptor limit
+//! - Vulkan support
+//! - Disk space
+//!
+//! It also provides fix commands for configurable system settings.
+
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+/// Status result for individual system checks.
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum CheckStatus {
@@ -11,6 +25,7 @@ pub enum CheckStatus {
     Fail,
 }
 
+/// Result of a single system check.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct CheckResult {
     id: String,
@@ -20,6 +35,7 @@ pub struct CheckResult {
     fixable: bool,
 }
 
+/// Complete result of all system checks.
 #[derive(Serialize, Deserialize)]
 pub struct SystemCheckResult {
     checks: Vec<CheckResult>,
@@ -27,6 +43,7 @@ pub struct SystemCheckResult {
     has_warnings: bool,
 }
 
+/// Result of attempting to fix a system issue.
 #[derive(Serialize, Deserialize)]
 pub struct FixResult {
     success: bool,
@@ -35,6 +52,7 @@ pub struct FixResult {
 
 // --- Individual checks ---
 
+/// Checks system memory (RAM + swap) against requirements.
 fn check_memory() -> CheckResult {
     let mut ram_kb: u64 = 0;
     let mut swap_kb: u64 = 0;
@@ -75,6 +93,7 @@ fn check_memory() -> CheckResult {
     }
 }
 
+/// Parses a value from /proc/meminfo.
 fn parse_meminfo_value(line: &str) -> u64 {
     line.split_whitespace()
         .nth(1)
@@ -82,6 +101,7 @@ fn parse_meminfo_value(line: &str) -> u64 {
         .unwrap_or(0)
 }
 
+/// Checks CPU AVX instruction support.
 fn check_avx() -> CheckResult {
     let has_avx = fs::read_to_string("/proc/cpuinfo")
         .map(|contents| {
@@ -108,6 +128,7 @@ fn check_avx() -> CheckResult {
     }
 }
 
+/// Checks vm.max_map_count system limit.
 fn check_mapcount() -> CheckResult {
     let required: u64 = 16_777_216;
 
@@ -139,6 +160,7 @@ fn check_mapcount() -> CheckResult {
     }
 }
 
+/// Checks file descriptor limit.
 fn check_filelimit() -> CheckResult {
     let required: u64 = 524_288;
 
@@ -178,6 +200,7 @@ fn check_filelimit() -> CheckResult {
     }
 }
 
+/// Checks Vulkan support.
 fn check_vulkan() -> CheckResult {
     let has_vulkaninfo = Path::new("/usr/bin/vulkaninfo").exists();
     let has_libvulkan = Path::new("/usr/lib/libvulkan.so.1").exists()
@@ -205,6 +228,7 @@ fn check_vulkan() -> CheckResult {
     }
 }
 
+/// Checks available disk space for installation.
 fn check_disk_space(install_path: &str) -> CheckResult {
     let required_gb: u64 = 100;
 
@@ -239,6 +263,7 @@ fn check_disk_space(install_path: &str) -> CheckResult {
     }
 }
 
+/// Finds the first existing parent directory in a path.
 fn find_existing_parent(path: &str) -> String {
     let mut p = Path::new(path);
     while !p.exists() {
@@ -250,6 +275,7 @@ fn find_existing_parent(path: &str) -> String {
     p.to_string_lossy().into_owned()
 }
 
+/// Gets free disk space in gigabytes for a given path.
 fn get_free_space_gb(path: &str) -> u64 {
     use std::ffi::CString;
 
@@ -269,6 +295,7 @@ fn get_free_space_gb(path: &str) -> u64 {
     }
 }
 
+/// Formats a number with thousand separators.
 fn format_number(n: u64) -> String {
     let s = n.to_string();
     let mut result = String::new();
@@ -281,6 +308,7 @@ fn format_number(n: u64) -> String {
     result.chars().rev().collect()
 }
 
+/// Returns the default installation path.
 fn get_default_install_path_inner() -> String {
     if let Ok(home) = std::env::var("HOME") {
         format!("{}/Games/star-citizen", home)
@@ -289,6 +317,7 @@ fn get_default_install_path_inner() -> String {
     }
 }
 
+/// Information about a connected monitor.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct MonitorInfo {
     pub name: String,

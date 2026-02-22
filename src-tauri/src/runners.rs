@@ -1,3 +1,13 @@
+//! Wine/Proton runner management module.
+//!
+//! This module handles:
+//! - Fetching available Wine/Proton runners from configured GitHub sources
+//! - Installing runners (downloading, extracting archives)
+//! - Deleting installed runners
+//! - Canceling ongoing downloads
+//!
+//! Supported archive formats: .tar.gz, .tar.xz, .tar.zst, .tar.zstd
+
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -5,6 +15,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::config::{AppConfig, RunnerSourceConfig};
 
+/// Loads the GitHub token from the configuration file.
 fn load_github_token() -> Option<String> {
     let config_path = dirs::config_dir()?.join("star-control").join("config.json");
     let contents = std::fs::read_to_string(config_path).ok()?;
@@ -12,10 +23,12 @@ fn load_github_token() -> Option<String> {
     config.github_token
 }
 
+/// Flag to signal cancellation of runner download.
 static CANCEL_FLAG: AtomicBool = AtomicBool::new(false);
 
 // --- Runner Sources ---
 
+/// Loads runner sources from the configuration file.
 fn load_runner_sources() -> Vec<RunnerSourceConfig> {
     let config_path = match dirs::config_dir() {
         Some(p) => p.join("star-control").join("config.json"),
@@ -40,6 +53,7 @@ fn load_runner_sources() -> Vec<RunnerSourceConfig> {
     }
 }
 
+/// Returns the appropriate filter function based on the runner source filter setting.
 fn get_filter_fn(filter: &Option<String>) -> fn(&str) -> bool {
     match filter.as_deref() {
         Some("kron4ek") => filter_kron4ek,
@@ -47,10 +61,12 @@ fn get_filter_fn(filter: &Option<String>) -> fn(&str) -> bool {
     }
 }
 
+/// Accepts all runner names.
 fn accept_all(_name: &str) -> bool {
     true
 }
 
+/// Filters out 32-bit (x86, wow64) runners for Kron4ek builds.
 fn filter_kron4ek(name: &str) -> bool {
     let lower = name.to_lowercase();
     !lower.contains("x86") && !lower.contains("wow64")
@@ -58,6 +74,7 @@ fn filter_kron4ek(name: &str) -> bool {
 
 // --- Structs ---
 
+/// Information about an available runner from a GitHub source.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AvailableRunner {
     pub name: String,
@@ -69,12 +86,14 @@ pub struct AvailableRunner {
     pub installed: bool,
 }
 
+/// Result of fetching available runners from all sources.
 #[derive(Serialize, Deserialize)]
 pub struct FetchRunnersResult {
     pub runners: Vec<AvailableRunner>,
     pub errors: Vec<String>,
 }
 
+/// Progress update during runner download.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct DownloadProgress {
     pub phase: String,
@@ -85,6 +104,7 @@ pub struct DownloadProgress {
     pub message: String,
 }
 
+/// Result of a runner installation operation.
 #[derive(Serialize, Deserialize)]
 pub struct InstallRunnerResult {
     pub success: bool,
@@ -95,12 +115,14 @@ pub struct InstallRunnerResult {
 
 // --- GitHub API types ---
 
+/// GitHub release response structure.
 #[derive(Deserialize)]
 struct GhRelease {
     tag_name: String,
     assets: Vec<GhAsset>,
 }
 
+/// GitHub release asset (download file).
 #[derive(Deserialize)]
 struct GhAsset {
     name: String,
@@ -110,6 +132,7 @@ struct GhAsset {
 
 // --- Helper: strip known archive extensions ---
 
+/// Removes common archive extensions from a filename.
 fn strip_archive_ext(name: &str) -> String {
     let mut s = name.to_string();
     for ext in &[".tar.gz", ".tar.xz", ".tar.zst", ".tar.zstd"] {
@@ -121,6 +144,7 @@ fn strip_archive_ext(name: &str) -> String {
     s
 }
 
+/// Checks if a filename is a supported archive format.
 fn is_archive(name: &str) -> bool {
     name.ends_with(".tar.gz")
         || name.ends_with(".tar.xz")
@@ -128,6 +152,7 @@ fn is_archive(name: &str) -> bool {
         || name.ends_with(".tar.zstd")
 }
 
+/// Expands tilde (~) in a path to the user's home directory.
 fn expand_tilde(path: &str) -> String {
     if path.starts_with('~') {
         if let Ok(home) = std::env::var("HOME") {

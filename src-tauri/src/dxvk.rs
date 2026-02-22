@@ -1,9 +1,20 @@
+//! DXVK installation and management module.
+//!
+//! This module handles:
+//! - Fetching available DXVK releases from GitHub
+//! - Detecting installed DXVK versions in Wine prefixes
+//! - Installing DXVK (downloading, extracting, copying DLLs)
+//!
+//! DXVK is a Vulkan-based implementation of Direct3D 9, 10, and 11
+//! for Wine-based runners, providing better performance.
+
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tauri::{AppHandle, Emitter};
 
 use crate::config::AppConfig;
 
+/// Loads the GitHub token from the configuration file for API rate limit increase.
 fn load_github_token() -> Option<String> {
     let config_path = dirs::config_dir()?.join("star-control").join("config.json");
     let contents = std::fs::read_to_string(config_path).ok()?;
@@ -13,6 +24,7 @@ fn load_github_token() -> Option<String> {
 
 // --- Structs ---
 
+/// Information about an available DXVK release from GitHub.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct DxvkRelease {
     pub version: String,
@@ -21,6 +33,7 @@ pub struct DxvkRelease {
     pub size_bytes: u64,
 }
 
+/// Status of DXVK in a Wine prefix.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct DxvkStatus {
     pub installed: bool,
@@ -28,6 +41,7 @@ pub struct DxvkStatus {
     pub dlls_found: Vec<String>,
 }
 
+/// Progress update for DXVK installation.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct DxvkProgress {
     pub phase: String,
@@ -37,12 +51,14 @@ pub struct DxvkProgress {
 
 // --- GitHub API types ---
 
+/// GitHub release response structure.
 #[derive(Deserialize)]
 struct GhRelease {
     tag_name: String,
     assets: Vec<GhAsset>,
 }
 
+/// GitHub release asset (download file).
 #[derive(Deserialize)]
 struct GhAsset {
     name: String,
@@ -50,6 +66,7 @@ struct GhAsset {
     size: u64,
 }
 
+/// Expands tilde (~) in a path to the user's home directory.
 fn expand_tilde(path: &str) -> String {
     if path.starts_with('~') {
         if let Ok(home) = std::env::var("HOME") {

@@ -1,7 +1,19 @@
+/**
+ * Star Control - Settings Page
+ *
+ * This module handles application settings:
+ * - Base directory path configuration
+ * - Log level selection
+ * - GitHub token management (for API rate limits)
+ * - Application reset (delete all data)
+ *
+ * @module pages/settings
+ */
+
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 
-// State
+/** @type {Object|null} Current application configuration */
 let config = null;
 
 export async function renderSettings(container) {

@@ -1,7 +1,24 @@
+/**
+ * Star Control - Runners Page
+ *
+ * This module manages Wine/Proton runners:
+ * - Display installed runners
+ * - Fetch and install new runners from GitHub sources
+ * - Select and activate a runner
+ * - DXVK version management
+ * - Wine prefix tools (winecfg, DPI settings, PowerShell)
+ *
+ * @module pages/runners
+ */
+
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
-// Sort sources: LUG sources first (sorted by name length), then others alphabetically
+/**
+ * Sort sources: LUG sources first (sorted by name length), then others alphabetically
+ * @param {string[]} sources - Array of source names
+ * @returns {string[]} Sorted source names
+ */
 function sortSources(sources) {
   const lugSources = sources.filter(s => s.includes('LUG')).sort((a, b) => a.length - b.length);
   const otherSources = sources.filter(s => !s.includes('LUG')).sort();

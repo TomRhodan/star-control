@@ -1,8 +1,22 @@
+/**
+ * Star Control - Dashboard Page
+ *
+ * This module renders the main dashboard page which displays:
+ * - Star Citizen installation status
+ * - Wine runner status
+ * - RSI News feed
+ * - Server status
+ * - Community stats (funds, fleet, fans)
+ *
+ * @module pages/dashboard
+ */
+
 import { invoke } from '@tauri-apps/api/core';
 import { openUrl, openPath } from '@tauri-apps/plugin-opener';
 import { router } from '../router.js';
 import { requestAutoLaunch } from './launch.js';
 
+/** @type {Object|null} */
 let dashConfig = null;
 let dashInstallStatus = null;
 let dashLocStatus = null;

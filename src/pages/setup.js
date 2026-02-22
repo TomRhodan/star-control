@@ -1,7 +1,20 @@
+/**
+ * Star Control - Setup Wizard Page
+ *
+ * This module handles the initial setup wizard:
+ * - Welcome/disclaimer step
+ * - Path selection step
+ * - Installation mode selection
+ * - Final configuration save
+ *
+ * @module pages/setup
+ */
+
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import madeByCommunityUrl from '../assets/logos/MadeByTheCommunity_White.png';
 
+/** @type {string} Default installation path */
 let defaultPath = '';
 let currentPath = '';
 let validationResult = null;

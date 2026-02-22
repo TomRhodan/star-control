@@ -1,10 +1,20 @@
+/**
+ * Star Control - Installation Page
+ *
+ * This module handles the installation wizard which includes:
+ * - Step 1: System compatibility checks (memory, AVX, mapcount, etc.)
+ * - Step 2: Configuration (install path, runner selection, performance options)
+ * - Step 3: Actual installation (Wine prefix, DXVK, RSI Launcher)
+ *
+ * @module pages/installation
+ */
+
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import { router } from '../router.js';
 
-// --- Constants ---
-
+/** @constant {Array} System check items */
 const CHECK_ITEMS = [
   { id: 'memory', name: 'Memory', icon: '', tooltip: 'Star Citizen requires at least 16 GB RAM' },
   { id: 'avx', name: 'AVX Support', icon: '', tooltip: 'Advanced Vector Extensions — required by CryEngine' },

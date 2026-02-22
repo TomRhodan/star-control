@@ -1,3 +1,14 @@
+//! Star Citizen configuration management module.
+//!
+//! This module handles various Star Citizen-specific configurations:
+//! - USER.cfg reading and writing
+//! - Profile management (profiles, attributes, actionmaps)
+//! - Device detection and reordering (joysticks)
+//! - Backup and restore of game settings
+//! - Version detection (LIVE, PTU, etc.)
+//!
+//! Security: Path traversal protection is implemented for all file operations.
+
 use chrono::Local;
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
@@ -6,6 +17,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 // Security: Path traversal prevention
+
+/// Validates that a path is inside a base directory to prevent path traversal attacks.
 fn validate_path_inside_base(path: &Path, base: &Path) -> Result<PathBuf, String> {
     let canonical_path = path.canonicalize()
         .map_err(|_| format!("Invalid path: {}", path.display()))?;
@@ -19,6 +32,7 @@ fn validate_path_inside_base(path: &Path, base: &Path) -> Result<PathBuf, String
     Ok(canonical_path)
 }
 
+/// Validates that a path is inside a base directory (string version).
 fn validate_path_inside_base_str(path: &Path, base: &str) -> Result<PathBuf, String> {
     let base_path = Path::new(base);
     validate_path_inside_base(path, base_path)
@@ -28,12 +42,14 @@ fn validate_path_inside_base_str(path: &Path, base: &str) -> Result<PathBuf, Str
 // Data Structures
 // ============================================================
 
+/// A single attribute from the Star Citizen attributes.xml file.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ScAttribute {
     pub name: String,
     pub value: String,
 }
 
+/// Collection of attributes from Star Citizen profile.
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct ScAttributes {
     #[serde(rename = "Attr", default)]
@@ -42,6 +58,7 @@ pub struct ScAttributes {
     pub version: String,
 }
 
+/// Information about a detected Star Citizen version (LIVE, PTU, etc.).
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ScVersionInfo {
     pub version: String,
@@ -52,6 +69,7 @@ pub struct ScVersionInfo {
     pub has_exported_layouts: bool,
 }
 
+/// Information about an input device (joystick, keyboard, etc.) in Star Citizen.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ScDevice {
     pub device_type: String,
@@ -60,6 +78,7 @@ pub struct ScDevice {
     pub guid: String,
 }
 
+/// Deadzone and saturation settings for a device input.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ScDeviceOption {
     pub input: String,
@@ -67,24 +86,28 @@ pub struct ScDeviceOption {
     pub saturation: Option<f64>,
 }
 
+/// Collection of device options for a specific device.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ScDeviceOptions {
     pub name: String,
     pub options: Vec<ScDeviceOption>,
 }
 
+/// A key/button binding for a Star Citizen action.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ScBinding {
     pub action_name: String,
     pub input: String,
 }
 
+/// Collection of bindings for an action map in Star Citizen.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ScActionMap {
     pub name: String,
     pub bindings: Vec<ScBinding>,
 }
 
+/// Complete parsed actionmaps.xml content including devices, options, and bindings.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ParsedActionMaps {
     pub version: String,
@@ -94,6 +117,7 @@ pub struct ParsedActionMaps {
     pub action_maps: Vec<ScActionMap>,
 }
 
+/// Information about a profile backup.
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct BackupInfo {
@@ -120,6 +144,7 @@ impl Default for BackupInfo {
     }
 }
 
+/// Information about an exported control layout file.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ExportedLayout {
     pub filename: String,
@@ -127,6 +152,7 @@ pub struct ExportedLayout {
     pub modified: u64,
 }
 
+/// Entry describing a joystick instance reorder operation.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct DeviceReorderEntry {
     pub old_instance: u32,
@@ -137,6 +163,7 @@ pub struct DeviceReorderEntry {
 // Path Helpers
 // ============================================================
 
+/// Expands tilde (~) in a path to the user's home directory.
 pub(crate) fn expand_tilde(path: &str) -> String {
     if path.starts_with('~') {
         if let Ok(home) = std::env::var("HOME") {
@@ -146,6 +173,7 @@ pub(crate) fn expand_tilde(path: &str) -> String {
     path.to_string()
 }
 
+/// Returns the base directory for a specific Star Citizen version.
 pub(crate) fn sc_base_dir(game_path: &str, version: &str) -> PathBuf {
     Path::new(game_path)
         .join("drive_c")
@@ -155,6 +183,7 @@ pub(crate) fn sc_base_dir(game_path: &str, version: &str) -> PathBuf {
         .join(version)
 }
 
+/// Returns the user data directory for a specific Star Citizen version.
 fn sc_user_dir(game_path: &str, version: &str) -> PathBuf {
     sc_base_dir(game_path, version)
         .join("user")
@@ -162,33 +191,38 @@ fn sc_user_dir(game_path: &str, version: &str) -> PathBuf {
         .join("0")
 }
 
+/// Returns the profile directory for a specific Star Citizen version.
 fn sc_profile_dir(game_path: &str, version: &str) -> PathBuf {
     sc_user_dir(game_path, version)
         .join("Profiles")
         .join("default")
 }
 
+/// Returns the control mappings directory for a specific Star Citizen version.
 fn sc_mappings_dir(game_path: &str, version: &str) -> PathBuf {
     sc_user_dir(game_path, version)
         .join("controls")
         .join("mappings")
 }
 
+/// Returns the controls directory for a specific Star Citizen version.
 fn sc_controls_dir(game_path: &str, version: &str) -> PathBuf {
     sc_user_dir(game_path, version).join("controls")
 }
 
+/// Returns the base directory for backups.
 fn backup_base_dir() -> Result<PathBuf, String> {
     dirs::config_dir()
         .map(|p| p.join("star-control").join("backups"))
         .ok_or_else(|| "Could not determine config directory".to_string())
 }
 
+/// Returns the backup directory for a specific Star Citizen version.
 fn backup_version_dir(version: &str) -> Result<PathBuf, String> {
     Ok(backup_base_dir()?.join(version))
 }
 
-/// Recursively copy a directory to a destination
+/// Recursively copy a directory to a destination.
 fn copy_dir(src: &Path, dest: &Path) -> Result<(), String> {
     if !src.is_dir() {
         return Err(format!("Source is not a directory: {}", src.display()));
@@ -325,6 +359,7 @@ pub async fn write_user_cfg(
 // Profile Listing (refactored paths)
 // ============================================================
 
+/// Information about a Star Citizen profile.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ScProfile {
     pub name: String,

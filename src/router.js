@@ -1,3 +1,13 @@
+/**
+ * Star Control - Router Module
+ *
+ * This module handles client-side routing for the application.
+ * It manages page navigation, sidebar visibility based on installation state,
+ * and the initial setup flow for first-time users.
+ *
+ * @module router
+ */
+
 import { invoke } from '@tauri-apps/api/core';
 import { renderDashboard } from './pages/dashboard.js';
 import { renderInstallation } from './pages/installation.js';
@@ -8,6 +18,10 @@ import { renderSettings } from './pages/settings.js';
 import { renderAbout } from './pages/about.js';
 import { renderSetup } from './pages/setup.js';
 
+/**
+ * Route mapping from page name to render function.
+ * @constant {Object<string, function>}
+ */
 const routes = {
   dashboard: renderDashboard,
   installation: renderInstallation,
@@ -27,6 +41,10 @@ const POST_INSTALL_PAGES = ['dashboard', 'launch', 'runners', 'profiles', 'setti
 let setupActive = false;
 let installed = false;
 
+/**
+ * Navigates to a specific page.
+ * @param {string} page - The page name to navigate to.
+ */
 function navigate(page) {
   if (setupActive) return;
 
@@ -42,6 +60,10 @@ function navigate(page) {
   });
 }
 
+/**
+ * Updates the sidebar visibility based on installation state.
+ * @param {boolean} isInstalled - Whether Star Citizen is installed.
+ */
 function updateSidebar(isInstalled) {
   installed = isInstalled;
   const visiblePages = isInstalled ? POST_INSTALL_PAGES : PRE_INSTALL_PAGES;
@@ -59,6 +81,10 @@ function updateSidebar(isInstalled) {
   });
 }
 
+/**
+ * Checks if Star Citizen is installed by loading config and checking installation status.
+ * @returns {Promise<boolean>} True if installed, false otherwise.
+ */
 async function checkInstallationState() {
   try {
     const config = await invoke('load_config');
@@ -72,6 +98,10 @@ async function checkInstallationState() {
   return false;
 }
 
+/**
+ * Shows the initial setup wizard.
+ * @param {string} defaultPath - Default installation path suggestion.
+ */
 function showSetup(defaultPath) {
   setupActive = true;
 
@@ -94,6 +124,10 @@ function showSetup(defaultPath) {
   });
 }
 
+/**
+ * Initializes the router and application state.
+ * Sets up navigation handlers, checks for setup requirements, and loads the initial page.
+ */
 async function init() {
   document.querySelectorAll('.nav-link').forEach((link) => {
     link.addEventListener('click', (e) => {

@@ -1,3 +1,25 @@
+//! Star Control Library - Core Tauri application logic.
+//!
+//! This is the main library crate for Star Control, a desktop application
+//! for managing Star Citizen on Linux with Wine/Proton.
+//!
+//! ## Modules
+//!
+//! - `config`: Application configuration management
+//! - `dashboard`: RSI news, server status, and community stats
+//! - `dxvk`: DXVK installation and detection
+//! - `installer`: Game installation and launching
+//! - `localization`: Language pack management
+//! - `prefix_tools`: Wine prefix utilities (winecfg, DPI, PowerShell)
+//! - `runners`: Wine runner (Wine/Proton) management
+//! - `sc_config`: Star Citizen configuration and profile management
+//! - `system_check`: System requirements checking
+//!
+//! ## Window State Management
+//!
+//! The application saves and restores window position, size, and scale
+//! to provide a seamless user experience across sessions.
+
 use tauri::Manager;
 
 mod config;
@@ -10,15 +32,19 @@ mod runners;
 mod sc_config;
 mod system_check;
 
+/// Simple greeting command for testing Tauri command infrastructure.
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! Welcome to Star Control.", name)
 }
 
+/// Returns the path to the window state file.
+/// The file is stored in the config directory under `star-control/window-state.json`.
 fn window_state_path() -> Option<std::path::PathBuf> {
     dirs::config_dir().map(|p| p.join("star-control").join("window-state.json"))
 }
 
+/// Represents the saved window state including position, size, and scale.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct WindowState {
     width: u32,
@@ -30,16 +56,22 @@ struct WindowState {
     scale: f64,
 }
 
+/// Default scale factor for the window (1.0 = 100%).
 fn default_scale() -> f64 {
     1.0
 }
 
+/// Loads the window state from the configuration file.
+/// Returns None if the file doesn't exist or cannot be parsed.
 fn load_window_state() -> Option<WindowState> {
     let path = window_state_path()?;
     let data = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&data).ok()
 }
 
+/// Saves the current window state to the configuration file.
+/// This is called when the window is closed.
+/// Converts physical coordinates to logical coordinates for proper scaling.
 fn save_window_state_from(window: &tauri::WebviewWindow) {
     if let Some(path) = window_state_path() {
         let Ok(size) = window.inner_size() else { return };
@@ -72,6 +104,9 @@ fn save_window_state_from(window: &tauri::WebviewWindow) {
     }
 }
 
+/// Restores the window state from the configuration file.
+/// This is called when the application starts.
+/// Limits the window size to the monitor size to prevent issues.
 fn restore_window_state(window: &tauri::WebviewWindow) {
     if let Some(state) = load_window_state() {
         // Use logical size directly
@@ -105,6 +140,8 @@ fn restore_window_state(window: &tauri::WebviewWindow) {
     }
 }
 
+/// Main entry point for the Tauri application.
+/// Initializes all plugins, commands, and sets up window event handlers.
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())

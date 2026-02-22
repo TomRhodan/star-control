@@ -1,8 +1,21 @@
+/**
+ * Star Control - Launch Page
+ *
+ * This module handles launching Star Citizen with configurable options:
+ * - Launch/stop the RSI Launcher
+ * - Configure performance options (ESync, FSync, DXVK Async)
+ * - Configure display options (Wayland, HDR, FSR)
+ * - Configure overlays (MangoHUD, DXVK HUD)
+ * - Monitor selection for Wayland
+ * - Real-time log output
+ *
+ * @module pages/launch
+ */
+
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
-// --- State ---
-
+/** @constant {string} Launch status states */
 let launchStatus = 'idle'; // 'idle' | 'checking' | 'ready' | 'launching' | 'running' | 'error' | 'not_installed'
 let launchConfig = null;
 let launchLog = [];

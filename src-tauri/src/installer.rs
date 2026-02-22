@@ -1,3 +1,19 @@
+//! Game installation and launch module.
+//!
+//! This module handles:
+//! - Running the full installation process (winetricks, DXVK, RSI Launcher)
+//! - Launching Star Citizen with appropriate Wine settings
+//! - Stopping running game processes
+//! - Checking installation status
+//!
+//! Installation is performed in multiple phases:
+//! 1. Prepare environment (download winetricks)
+//! 2. Winetricks (win11, arial, tahoma, powershell)
+//! 3. DXVK installation
+//! 4. Registry configuration
+//! 5. RSI Launcher download and install
+//! 6. Launch
+
 use crate::config::{AppConfig, PerformanceSettings};
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader};
@@ -7,11 +23,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter};
 
+/// Flag to signal cancellation of installation.
 static INSTALL_CANCEL: AtomicBool = AtomicBool::new(false);
 
 /// Stores the PID of the running game process and the install path (for wineserver cleanup).
 static GAME_PID: Mutex<Option<(u32, String)>> = Mutex::new(None);
 
+/// Progress update during installation.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct InstallProgress {
     pub phase: String,
@@ -20,6 +38,7 @@ pub struct InstallProgress {
     pub log_line: String,
 }
 
+/// Current status of the game installation.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct InstallationStatus {
     pub installed: bool,
@@ -30,6 +49,7 @@ pub struct InstallationStatus {
     pub message: String,
 }
 
+/// Expands tilde (~) in a path to the user's home directory.
 fn expand_tilde(path: &str) -> String {
     if path.starts_with('~') {
         if let Ok(home) = std::env::var("HOME") {
@@ -39,6 +59,7 @@ fn expand_tilde(path: &str) -> String {
     path.to_string()
 }
 
+/// Emits a progress update event to the frontend.
 fn emit_progress(app: &AppHandle, phase: &str, step: &str, percent: f64, log_line: &str) {
     let _ = app.emit(
         "install-progress",
@@ -51,10 +72,13 @@ fn emit_progress(app: &AppHandle, phase: &str, step: &str, percent: f64, log_lin
     );
 }
 
+/// Checks if the installation has been cancelled.
 fn is_cancelled() -> bool {
     INSTALL_CANCEL.load(Ordering::Relaxed)
 }
 
+/// Streams command output to the frontend to avoid pipe deadlocks.
+/// Uses separate threads for stdout and stderr.
 fn stream_command_output(app: &AppHandle, phase: &str, step: &str, percent: f64, child: &mut std::process::Child) {
     // Read stdout and stderr on separate threads to avoid pipe deadlocks.
     // A deadlock occurs when the child fills the stderr buffer while we block on stdout.
@@ -86,6 +110,8 @@ fn stream_command_output(app: &AppHandle, phase: &str, step: &str, percent: f64,
     }
 }
 
+/// Configures environment variables for Wine execution.
+/// Sets up performance features, display settings, and overlays.
 fn configure_wine_env(cmd: &mut Command, install_path: &str, perf: &PerformanceSettings, log_level: &str) -> Vec<(String, String)> {
     let mut vars: Vec<(String, String)> = Vec::new();
 

@@ -1,7 +1,24 @@
+/**
+ * Star Control - About Page
+ *
+ * This module renders the about page which displays:
+ * - Application version and description
+ * - Author information
+ * - Credits and inspirations
+ * - License information
+ * - Links to GitHub, wiki, and other resources
+ *
+ * @module pages/about
+ */
+
 import { openUrl } from '@tauri-apps/plugin-opener';
 import logoUrl from '../assets/logos/StarControl-Transparent-Logo-Image.png';
 import madeByCommunityUrl from '../assets/logos/MadeByTheCommunity_White.png';
 
+/**
+ * Renders the about page into the given container.
+ * @param {HTMLElement} container - The container element to render into.
+ */
 export function renderAbout(container) {
   container.innerHTML = `
     <div class="about-hero">

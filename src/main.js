@@ -1,3 +1,12 @@
+/**
+ * Star Control - Main Entry Point
+ *
+ * This is the main JavaScript entry point for the Star Control application.
+ * It handles window management, initializes the router, and sets up global UI components.
+ *
+ * @module main
+ */
+
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { router } from './router.js';
