@@ -39,6 +39,8 @@ async fn fetch_rsi_news_inner() -> Result<Vec<RsiNewsItem>, Box<dyn std::error::
         .await?;
 
     let mut reader = Reader::from_str(&body);
+    // Security: Disable DTD and entity processing to prevent XXE attacks
+    reader.config_mut().trim_text(true);
     let mut items: Vec<RsiNewsItem> = Vec::new();
     let mut in_entry = false;
     let mut current_title = String::new();
@@ -222,6 +224,8 @@ async fn fetch_server_status_inner() -> Result<Vec<ServerComponent>, Box<dyn std
 
     // Parse RSS feed for incident information
     let mut reader = Reader::from_str(&body);
+    // Security: Disable DTD and entity processing to prevent XXE attacks
+    reader.config_mut().trim_text(true);
     let mut incidents: Vec<(String, String)> = Vec::new(); // (title, description)
     let mut in_item = false;
     let mut current_tag = String::new();

@@ -1191,7 +1191,15 @@ pub async fn update_backup_label(
 
 #[tauri::command]
 pub async fn delete_backup(version: String, backup_id: String) -> Result<(), String> {
+    // Security: Validate backup_id to prevent path traversal
+    if backup_id.contains("..") || backup_id.contains('/') || backup_id.contains('\\') {
+        return Err("Invalid backup ID".to_string());
+    }
+
     let backup_dir = backup_version_dir(&version)?.join(&backup_id);
+
+    // Security: Validate path stays within backup directory
+    validate_path_inside_base_str(&backup_dir, &backup_version_dir(&version)?.to_string_lossy())?;
 
     if !backup_dir.is_dir() {
         return Err(format!("Backup '{}' not found", backup_id));
