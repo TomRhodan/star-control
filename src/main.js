@@ -4,6 +4,28 @@ import { router } from './router.js';
 
 const appWindow = getCurrentWindow();
 
+// Adjust window size to fit screen (max 80% of screen, min 900x700)
+(async () => {
+  try {
+    const factor = window.devicePixelRatio || 1;
+    const screenWidth = window.screen.width * factor;
+    const screenHeight = window.screen.height * factor;
+
+    const maxWidth = Math.floor(screenWidth * 0.85);
+    const maxHeight = Math.floor(screenHeight * 0.85);
+
+    const targetWidth = Math.min(1280, maxWidth);
+    const targetHeight = Math.min(900, maxHeight);
+
+    // Only resize if needed (screen is smaller than default)
+    if (screenWidth < 1280 || screenHeight < 900) {
+      await appWindow.setSize({ type: 'Logical', width: targetWidth, height: targetHeight });
+    }
+  } catch (e) {
+    // Ignore resize errors (not critical)
+  }
+})();
+
 document.getElementById('btn-minimize').addEventListener('click', () => {
   appWindow.minimize();
 });
