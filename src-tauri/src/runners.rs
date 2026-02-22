@@ -148,7 +148,7 @@ pub async fn fetch_available_runners(base_path: String) -> FetchRunnersResult {
     let sources = load_runner_sources();
 
     let client = reqwest::Client::builder()
-        .user_agent("star-control/0.1.2")
+        .user_agent("star-control/0.1.3")
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 
@@ -288,7 +288,7 @@ pub async fn install_runner(
     };
 
     let client = reqwest::Client::builder()
-        .user_agent("star-control/0.1.2")
+        .user_agent("star-control/0.1.3")
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 

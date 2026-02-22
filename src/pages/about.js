@@ -8,7 +8,7 @@ export function renderAbout(container) {
         <img src="/assets/logos/StarControl-Transparent-Logo-Image.png" alt="Star Control Logo" />
       </div>
       <h1 class="about-hero-title">Star Control</h1>
-      <p class="about-hero-version">v0.1.2</p>
+      <p class="about-hero-version">v0.1.3</p>
       <p class="about-hero-tagline">Star Citizen Linux Manager</p>
     </div>
 
@@ -21,7 +21,7 @@ export function renderAbout(container) {
         </div>
         <div class="about-info-row">
           <span class="about-info-label">Version</span>
-          <span class="about-info-value">v0.1.2</span>
+          <span class="about-info-value">v0.1.3</span>
         </div>
         <div class="about-info-row">
           <span class="about-info-label">Description</span>
