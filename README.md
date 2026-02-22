@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src/assets/logos/StarControl-Icon-1024.png" alt="Star Control" width="160">
+  <img src="docs/star-control.de/assets/logo-hero.png" alt="Star Control" width="400">
 </p>
 
 <h1 align="center">Star Control</h1>
@@ -11,6 +11,8 @@
 
 <p align="center">
   Built with <a href="https://tauri.app/">Tauri 2</a> and vanilla JavaScript.
+  <br>
+  <strong>Version 0.1.3</strong>
 </p>
 
 ---
@@ -76,6 +78,7 @@
 
 ## Features
 
+- **Quick Install** — Automatically detects existing RSI Launcher installations and offers Quick Install (skip RSI Launcher download) or Full Reinstall
 - **Command Center** — Live dashboard with RSI news, server status, and community funding stats
 - **Installation Wizard** — System compatibility check, automated Wine prefix setup, and RSI Launcher installation
 - **Launch Manager** — One-click launch with configurable performance options (ESync, FSync, DXVK Async, Wayland, HDR, FSR, MangoHUD)
