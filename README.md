@@ -20,7 +20,7 @@
 ## Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/dashboard.png" alt="Command Center" width="720"><br>
+  <img src="docs/star-control.de/assets/screenshots/dashboard.png" alt="Command Center" width="720"><br>
   <em>Command Center — RSI news, server status, and community stats at a glance</em>
 </p>
 
@@ -30,47 +30,47 @@
 <br>
 
 <p align="center">
-  <img src="docs/screenshots/launch.png" alt="Launch" width="720"><br>
+  <img src="docs/star-control.de/assets/screenshots/launch.png" alt="Launch" width="720"><br>
   <em>Launch — One-click start with configurable performance options</em>
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/system-check.png" alt="System Check" width="720"><br>
+  <img src="docs/star-control.de/assets/screenshots/system-check.png" alt="System Check" width="720"><br>
   <em>Installation — Automated system compatibility check</em>
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/configuration.png" alt="Configuration" width="720"><br>
+  <img src="docs/star-control.de/assets/screenshots/configuration.png" alt="Configuration" width="720"><br>
   <em>Configuration — Wine runner selection and performance flags</em>
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/installation.png" alt="Installation" width="720"><br>
+  <img src="docs/star-control.de/assets/screenshots/installation.png" alt="Installation" width="720"><br>
   <em>Installation — Automated Wine prefix setup and RSI Launcher download</em>
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/wine-runners.png" alt="Wine Runners" width="720"><br>
+  <img src="docs/star-control.de/assets/screenshots/wine-runners.png" alt="Wine Runners" width="720"><br>
   <em>Wine Runners — Download runners, manage DXVK, and access prefix tools</em>
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/usercfg-editor.png" alt="USER.cfg Editor" width="720"><br>
+  <img src="docs/star-control.de/assets/screenshots/usercfg-editor.png" alt="USER.cfg Editor" width="720"><br>
   <em>USER.cfg Editor — Visual editor for graphics and performance settings</em>
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/controller.png" alt="Controller" width="720"><br>
+  <img src="docs/star-control.de/assets/screenshots/controller.png" alt="Controller" width="720"><br>
   <em>Controller — Connected devices, keybindings, and joystick reordering</em>
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/localization.png" alt="Localization" width="720"><br>
+  <img src="docs/star-control.de/assets/screenshots/localization.png" alt="Localization" width="720"><br>
   <em>Localization — Install community translations with one click</em>
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/about.png" alt="About" width="720"><br>
+  <img src="docs/star-control.de/assets/screenshots/about.png" alt="About" width="720"><br>
   <em>About — Version info, links, and credits</em>
 </p>
 
