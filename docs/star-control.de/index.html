@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
+    <title>Star Control — Linux Management for Star Citizen</title>
+    <meta
+      name="description"
+      content="A Linux management tool for Star Citizen. Install, configure, and launch Star Citizen with Wine/Proton — no terminal required."
+    />
+
+    <!-- Favicon -->
+    <link
+      rel="icon"
+      type="image/png"
+      href="assets/logo.png"
+    />
+
+    <!-- Fonts -->
+    <link
+      rel="preconnect"
+      href="https://fonts.googleapis.com"
+    />
+    <link
+      rel="preconnect"
+      href="https://fonts.gstatic.com"
+      crossorigin
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Exo+2:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Styles -->
+    <link
+      rel="stylesheet"
+      href="css/styles.css"
+    />
+  </head>
+  <body>
+    <!-- Animated Starfield -->
+    <div
+      class="starfield"
+      id="starfield"
+    ></div>
+    <div class="nebula"></div>
+
+    <div class="content">
+      <!-- Navigation -->
+      <nav>
+        <a
+          href="#"
+          class="logo"
+        >
+          <img
+            src="assets/logo.png"
+            alt="Star Control"
+            class="logo-img"
+          />
+          <span>Star Control</span>
+        </a>
+        <ul class="nav-links">
+          <li><a href="#features">Features</a></li>
+          <li><a href="#screenshots">Screenshots</a></li>
+          <li><a href="#download">Download</a></li>
+          <li><a href="#links">Links</a></li>
+        </ul>
+      </nav>
+
+      <!-- Hero Section -->
+      <section class="hero">
+        <div class="hero-content">
+          <div class="hero-logo-wrapper">
+            <img
+              src="assets/logo-hero.png"
+              alt="Star Control Logo"
+              class="hero-logo"
+            />
+          </div>
+          <span class="hero-badge">Open Source · Linux</span>
+          <p class="hero-description">Install, configure, and launch Star Citizen with Wine/Proton — no terminal required. Built with Tauri 2 and vanilla JavaScript.</p>
+          <div class="hero-cta">
+            <a
+              href="#download"
+              class="btn btn-primary"
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line
+                  x1="12"
+                  y1="15"
+                  x2="12"
+                  y2="3"
+                ></line>
+              </svg>
+              Download Now
+            </a>
+            <a
+              href="#features"
+              class="btn btn-secondary"
+            >Learn More</a
+            >
+          </div>
+        </div>
+      </section>
+
+      <!-- Features Section -->
+      <section
+        id="features"
+        class="features"
+      >
+        <div class="section-header">
+          <h2>Powerful Features</h2>
+          <p>Everything you need to run Star Citizen on Linux with ease.</p>
+        </div>
+        <div class="features-grid">
+          <div class="feature-card animate-on-scroll">
+            <div class="feature-icon">📊</div>
+            <h3>Command Center</h3>
+            <p>Live dashboard with RSI news, server status, and community funding stats at a glance.</p>
+          </div>
+          <div class="feature-card animate-on-scroll">
+            <div class="feature-icon">🚀</div>
+            <h3>Launch Manager</h3>
+            <p>One-click launch with configurable performance options: ESync, FSync, DXVK Async, Wayland, HDR, FSR, MangoHUD.</p>
+          </div>
+          <div class="feature-card animate-on-scroll">
+            <div class="feature-icon">🛠️</div>
+            <h3>Wine Runner Management</h3>
+            <p>Download and manage Wine/Proton runners from multiple community sources (LUG, Kron4ek, RawFox).</p>
+          </div>
+          <div class="feature-card animate-on-scroll">
+            <div class="feature-icon">🎮</div>
+            <h3>Controller Configuration</h3>
+            <p>View connected devices, keybindings, and reorder joystick instances effortlessly.</p>
+          </div>
+          <div class="feature-card animate-on-scroll">
+            <div class="feature-icon">📝</div>
+            <h3>USER.cfg Editor</h3>
+            <p>Visual editor for all Star Citizen graphics, performance, and quality settings.</p>
+          </div>
+          <div class="feature-card animate-on-scroll">
+            <div class="feature-icon">🌍</div>
+            <h3>Localization</h3>
+            <p>Install community translations with one click, with automatic update detection.</p>
+          </div>
+          <div class="feature-card animate-on-scroll">
+            <div class="feature-icon">💾</div>
+            <h3>Profile Management</h3>
+            <p>Backup and restore Star Citizen profiles (actionmaps.xml, attributes.xml, USER.cfg).</p>
+          </div>
+          <div class="feature-card animate-on-scroll">
+            <div class="feature-icon">📦</div>
+            <h3>Multi-version Support</h3>
+            <p>Manage LIVE, PTU, EPTU, and other Star Citizen channels from a single interface.</p>
+          </div>
+          <div class="feature-card animate-on-scroll">
+            <div class="feature-icon">⚡</div>
+            <h3>DXVK Management</h3>
+            <p>Install and update DXVK versions with automatic DLL deployment.</p>
+          </div>
+          <div class="feature-card animate-on-scroll">
+            <div class="feature-icon">🔧</div>
+            <h3>Prefix Tools</h3>
+            <p>Winecfg, DPI scaling, PowerShell installation via winetricks — all in one place.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screenshots Section -->
+      <section
+        id="screenshots"
+        class="screenshots"
+      >
+        <div class="section-header">
+          <h2>See It In Action</h2>
+          <p>A modern, intuitive interface designed for Linux gamers.</p>
+        </div>
+        <div class="screenshots-grid">
+          <div class="screenshot-card">
+            <img
+              src="assets/screenshots/dashboard.png"
+              alt="Command Center Dashboard"
+            />
+            <div class="screenshot-overlay">
+              <h4>Command Center</h4>
+              <p>RSI news, server status, and community stats at a glance</p>
+            </div>
+          </div>
+          <div class="screenshot-card">
+            <img
+              src="assets/screenshots/launch.png"
+              alt="Launch Manager"
+            />
+            <div class="screenshot-overlay">
+              <h4>Launch Manager</h4>
+              <p>One-click start with configurable performance options</p>
+            </div>
+          </div>
+          <div class="screenshot-card">
+            <img
+              src="assets/screenshots/configuration.png"
+              alt="Configuration"
+            />
+            <div class="screenshot-overlay">
+              <h4>Configuration</h4>
+              <p>Wine runner selection and performance flags</p>
+            </div>
+          </div>
+          <div class="screenshot-card">
+            <img
+              src="assets/screenshots/system-check.png"
+              alt="System Check"
+            />
+            <div class="screenshot-overlay">
+              <h4>System Check</h4>
+              <p>Automated system compatibility verification</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Download Section -->
+      <section
+        id="download"
+        class="download"
+      >
+        <div class="section-header">
+          <h2>Get Started</h2>
+          <p>Download Star Control and start playing Star Citizen on Linux today.</p>
+        </div>
+        <div class="download-options">
+          <div class="download-card">
+            <div class="download-icon">📦</div>
+            <h3>DEB Package</h3>
+            <p>For Debian, Ubuntu, Linux Mint, and derivatives</p>
+            <a
+              href="https://github.com/TomRhodan/star-control/releases/latest/download/star-control_*.deb"
+              class="btn btn-primary"
+              download
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line
+                  x1="12"
+                  y1="15"
+                  x2="12"
+                  y2="3"
+                ></line>
+              </svg>
+              Download .deb
+            </a>
+            <div class="version-tag">Latest Release</div>
+          </div>
+          <div class="download-card">
+            <div class="download-icon">⚡</div>
+            <h3>AppImage</h3>
+            <p>Portable — works on any Linux distribution</p>
+            <a
+              href="https://github.com/TomRhodan/star-control/releases/latest/download/Star-Control_*.AppImage"
+              class="btn btn-secondary"
+              download
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line
+                  x1="12"
+                  y1="15"
+                  x2="12"
+                  y2="3"
+                ></line>
+              </svg>
+              Download AppImage
+            </a>
+            <div class="version-tag">Portable</div>
+          </div>
+        </div>
+        <p class="download-note">
+          Pre-built packages are available on the GitHub Releases page.<br />
+          <a
+            href="https://github.com/TomRhodan/star-control/releases"
+            style="color: var(--accent-primary)"
+            >View all releases →</a
+          >
+        </p>
+      </section>
+
+      <!-- Links Section -->
+      <section
+        id="links"
+        class="links"
+      >
+        <div class="section-header">
+          <h2>Inspired By</h2>
+          <p>Projects and resources that made Star Control possible.</p>
+        </div>
+        <div class="links-grid">
+          <a
+            href="https://github.com/starcitizen-lug/lug-helper"
+            class="link-card"
+            target="_blank"
+            rel="noopener"
+          >
+            <div class="link-icon">🔧</div>
+            <div class="link-content">
+              <h4>LUG Helper</h4>
+              <p>Star Citizen LUG Helper script</p>
+            </div>
+          </a>
+          <a
+            href="https://luftwerft.com"
+            class="link-card"
+            target="_blank"
+            rel="noopener"
+          >
+            <div class="link-icon">⚙️</div>
+            <div class="link-content">
+              <h4>luftwerft.com</h4>
+              <p>SC Launcher Configurator</p>
+            </div>
+          </a>
+          <a
+            href="https://wiki.starcitizen-lug.org/"
+            class="link-card"
+            target="_blank"
+            rel="noopener"
+          >
+            <div class="link-icon">📚</div>
+            <div class="link-content">
+              <h4>Star Citizen LUG Wiki</h4>
+              <p>Community knowledge base</p>
+            </div>
+          </a>
+          <a
+            href="https://github.com/TomRhodan/star-control"
+            class="link-card"
+            target="_blank"
+            rel="noopener"
+          >
+            <div class="link-icon">⭐</div>
+            <div class="link-content">
+              <h4>GitHub Repository</h4>
+              <p>Source code and issue tracker</p>
+            </div>
+          </a>
+        </div>
+      </section>
+
+      <!-- Footer -->
+      <footer>
+        <div class="footer-content">
+          <div class="footer-logo">★ Star Control</div>
+          <div class="footer-links">
+            <a href="https://github.com/TomRhodan/star-control">GitHub</a>
+            <a href="https://github.com/TomRhodan/star-control/releases">Releases</a>
+            <a href="https://github.com/TomRhodan/star-control/issues">Issues</a>
+          </div>
+          <p class="footer-disclaimer">
+            Star Citizen is a registered trademark of Cloud Imperium Games Corporation.<br />
+            Star Control is not affiliated with or endorsed by Cloud Imperium Games.<br />
+            Licensed under GNU General Public License v3.0.
+          </p>
+        </div>
+      </footer>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/main.js"></script>
+  </body>
+</html>
