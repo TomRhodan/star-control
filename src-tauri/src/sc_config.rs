@@ -5,6 +5,25 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+// Security: Path traversal prevention
+fn validate_path_inside_base(path: &Path, base: &Path) -> Result<PathBuf, String> {
+    let canonical_path = path.canonicalize()
+        .map_err(|_| format!("Invalid path: {}", path.display()))?;
+    let canonical_base = base.canonicalize()
+        .map_err(|_| format!("Invalid base path: {}", base.display()))?;
+
+    if !canonical_path.starts_with(&canonical_base) {
+        return Err(format!("Path traversal attempt detected: {}", path.display()));
+    }
+
+    Ok(canonical_path)
+}
+
+fn validate_path_inside_base_str(path: &Path, base: &str) -> Result<PathBuf, String> {
+    let base_path = Path::new(base);
+    validate_path_inside_base(path, base_path)
+}
+
 // ============================================================
 // Data Structures
 // ============================================================
@@ -490,12 +509,36 @@ pub async fn export_profile(
     }
 
     let dest = Path::new(&dest_path);
+
+    // Security: Validate destination is within allowed directory
+    // For export, we allow any path user chooses but sanitize it
+    let dest_canonical = dest.canonicalize()
+        .or_else(|_| {
+            // If dest doesn't exist, create parent and try again
+            if let Some(parent) = dest.parent() {
+                fs::create_dir_all(parent).ok();
+                dest.canonicalize()
+            } else {
+                Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Invalid path"))
+            }
+        })
+        .map_err(|e| format!("Invalid destination path: {}", e))?;
+
+    // Get the user's home directory as a safety boundary
+    let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
+    if !dest_canonical.starts_with(&home) && !dest_canonical.starts_with("/tmp") {
+        return Err("Destination must be within user home or /tmp".to_string());
+    }
+
     fs::create_dir_all(dest)
         .map_err(|e| format!("Failed to create destination directory: {}", e))?;
 
     for filename in &["actionmaps.xml", "attributes.xml", "profile.xml"] {
         let src = source_path.join(filename);
         if src.exists() {
+            // Security: Validate source path is within game directory
+            validate_path_inside_base_str(&src, &expanded)?;
+
             fs::copy(&src, dest.join(filename))
                 .map_err(|e| format!("Failed to copy {}: {}", filename, e))?;
         }
@@ -524,6 +567,17 @@ pub async fn import_profile(
     for filename in &["actionmaps.xml", "attributes.xml", "profile.xml"] {
         let src = source.join(filename);
         if src.exists() {
+            // Security: Validate source is within allowed directory (home or /tmp)
+            let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
+            let src_canonical = src.canonicalize()
+                .map_err(|e| format!("Invalid source path: {}", e))?;
+            if !src_canonical.starts_with(&home) && !src_canonical.starts_with("/tmp") {
+                return Err("Source must be within user home or /tmp".to_string());
+            }
+
+            // Security: Validate destination stays within game directory
+            validate_path_inside_base_str(&dest_path.join(filename), &expanded)?;
+
             fs::copy(&src, dest_path.join(filename))
                 .map_err(|e| format!("Failed to copy {}: {}", filename, e))?;
         }

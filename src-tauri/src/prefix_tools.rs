@@ -65,10 +65,20 @@ pub async fn launch_wine_shell(base_path: String, runner_name: String) -> Result
         return Err("No terminal emulator found (konsole, gnome-terminal, xfce4-terminal, xterm)".into());
     };
 
+    // Sanitize paths to prevent command injection
+    fn sanitize_path(p: &str) -> String {
+        p.chars()
+            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' || c == '/' || c == '.' { c } else { '_' })
+            .collect()
+    }
+
+    let safe_prefix = sanitize_path(&prefix_str);
+    let safe_wine_bin = sanitize_path(&wine_bin_str);
+
     // Build the command to run - start cmd.exe directly
     let shell_cmd = format!(
         "export WINEPREFIX='{}' && export PATH='{}:$PATH' && export WINEDEBUG=-all && wine cmd",
-        prefix_str, wine_bin_str
+        safe_prefix, safe_wine_bin
     );
 
     // Launch terminal with wineconsole
