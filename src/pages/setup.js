@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
+import madeByCommunityUrl from '../assets/logos/MadeByTheCommunity_White.png';
 
 let defaultPath = '';
 let currentPath = '';
@@ -24,7 +25,7 @@ function renderDisclaimerStep(container, { onComplete }) {
     <div class="setup-wizard">
       <div class="setup-card">
         <div class="setup-header">
-          <img src="/assets/logos/MadeByTheCommunity_White.png" alt="Star Control" class="setup-logo" />
+          <img src="${madeByCommunityUrl}" alt="Star Control" class="setup-logo" />
           <h1 class="setup-title">Welcome to Star Control</h1>
           <p class="setup-subtitle">Linux launcher for Star Citizen</p>
         </div>
@@ -73,7 +74,7 @@ function renderDirectoryStep(container, { onComplete }) {
     <div class="setup-wizard">
       <div class="setup-card">
         <div class="setup-header">
-          <img src="/assets/logos/MadeByTheCommunity_White.png" alt="Star Control" class="setup-logo" />
+          <img src="${madeByCommunityUrl}" alt="Star Control" class="setup-logo" />
           <h1 class="setup-title">Welcome to Star Control</h1>
           <p class="setup-subtitle">Linux launcher for Star Citizen</p>
         </div>

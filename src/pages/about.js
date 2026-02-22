@@ -1,11 +1,13 @@
 import { openUrl } from '@tauri-apps/plugin-opener';
+import logoUrl from '../assets/logos/StarControl-Transparent-Logo-Image.png';
+import madeByCommunityUrl from '../assets/logos/MadeByTheCommunity_White.png';
 
 export function renderAbout(container) {
   container.innerHTML = `
     <div class="about-hero">
       <div class="about-hero-glow"></div>
       <div class="about-hero-icon">
-        <img src="/assets/logos/StarControl-Transparent-Logo-Image.png" alt="Star Control Logo" />
+        <img src="${logoUrl}" alt="Star Control Logo" />
       </div>
       <h1 class="about-hero-title">Star Control</h1>
       <p class="about-hero-version">v0.1.3</p>
@@ -53,7 +55,7 @@ export function renderAbout(container) {
         <h3>Credits & Inspirations</h3>
         <div class="about-credits-layout">
           <div class="about-community-badge">
-            <img src="/assets/logos/MadeByTheCommunity_White.png" alt="Made by the Community" />
+            <img src="${madeByCommunityUrl}" alt="Made by the Community" />
           </div>
           <div class="about-credits-links">
             <div class="about-credit-item">
