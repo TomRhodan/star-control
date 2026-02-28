@@ -133,7 +133,7 @@ fn backup_base_dir() -> Result<PathBuf, String> {
 fn backup_version_dir(version: &str) -> Result<PathBuf, String> { Ok(backup_base_dir()?.join(version)) }
 
 // ============================================================
-// CryXmlB Parser (High Robustness Version)
+// CryXmlB Parser (Definitive 32-Byte SC Version)
 // ============================================================
 
 fn read_cry_string(table: &[u8], offset: usize) -> String {
@@ -145,89 +145,116 @@ fn read_cry_string(table: &[u8], offset: usize) -> String {
 fn parse_cryxmlb_full(buffer: &[u8]) -> Result<ParsedActionMaps, String> {
     if !buffer.starts_with(b"CryXmlB") { return Err("Not a CryXmlB file".to_string()); }
     
-    // Header reading with bounds checks
-    let read_u32 = |off: usize| -> u32 {
-        if off + 4 > buffer.len() { 0 } else { u32::from_le_bytes(buffer[off..off+4].try_into().unwrap()) }
-    };
+    let nt_off = u32::from_le_bytes(buffer[12..16].try_into().unwrap()) as usize;
+    let nt_cnt = u32::from_le_bytes(buffer[16..20].try_into().unwrap()) as usize;
+    let at_off = u32::from_le_bytes(buffer[20..24].try_into().unwrap()) as usize;
+    let ct_off = u32::from_le_bytes(buffer[28..32].try_into().unwrap()) as usize;
+    let ct_cnt = u32::from_le_bytes(buffer[32..36].try_into().unwrap()) as usize;
+    let st_off = u32::from_le_bytes(buffer[36..40].try_into().unwrap()) as usize;
+    let st_sz = u32::from_le_bytes(buffer[40..44].try_into().unwrap()) as usize;
 
-    let nt_off = read_u32(12) as usize;
-    let nt_cnt = read_u32(16) as usize;
-    let at_off = read_u32(20) as usize;
-    let at_cnt = read_u32(24) as usize;
-    let st_off = read_u32(36) as usize;
-    let st_sz = read_u32(40) as usize;
-    
-    if st_off + st_sz > buffer.len() { return Err("Invalid String Table Offset".to_string()); }
+    if st_off + st_sz > buffer.len() || ct_off + ct_cnt * 4 > buffer.len() { 
+        return Err("Invalid table offsets in CryXmlB".to_string()); 
+    }
+
     let st = &buffer[st_off..st_off + st_sz];
-
-    log_debug(&format!("CryXmlB: Nodes={}, Attrs={}, Strings={} bytes", nt_cnt, at_cnt, st_sz));
+    let ct = &buffer[ct_off..ct_off + ct_cnt * 4];
 
     let mut res = ParsedActionMaps::default();
-    let mut current_am: Option<ScActionMap> = None;
-    let mut action_count = 0;
+    let mut total_actions = 0;
+    
+    let mut action_maps = Vec::new();
+    traverse_node_tauri(buffer, nt_off, at_off, st, ct, 0, 0, &mut action_maps, None);
 
-    for i in 0..nt_cnt {
-        let off = nt_off + i * 28; 
-        if off + 28 > buffer.len() { break; }
-        
-        let node_bytes = &buffer[off..off+28];
-        let n_idx = u32::from_le_bytes(node_bytes[0..4].try_into().unwrap()) as usize;
-        
-        // In SC versions, Attribute Index is often at offset 12 or 16, not 4.
-        // Let's try to detect it by checking the attribute count first.
-        // Usually: [NameIdx:4][ChildIdx:4][NextIdx:4][AttrIdx:4][AttrCnt:2][...]
-        let a_idx = u32::from_le_bytes(node_bytes[12..16].try_into().unwrap()) as usize;
-        let a_cnt = u16::from_le_bytes(node_bytes[16..18].try_into().unwrap()) as usize;
-        
-        let tag = read_cry_string(st, n_idx).to_lowercase();
+    for (name, actions) in action_maps {
+        let mut b_actions = Vec::new();
+        let mut bindings = Vec::new();
+        for (aname, input) in actions {
+            if !b_actions.contains(&aname) {
+                b_actions.push(aname.clone());
+                total_actions += 1;
+            }
+            if !input.is_empty() {
+                bindings.push(ScBinding { action_name: aname, input });
+            }
+        }
+        res.action_maps.push(ScActionMap { name, bindings, actions: b_actions });
+    }
 
-        if tag == "actionmap" || tag == "actiongroup" || tag == "action_group" {
-            if let Some(am) = current_am.take() { res.action_maps.push(am); }
-            let mut name = String::new();
-            for j in 0..a_cnt {
-                let ao = at_off + (a_idx + j) * 8;
-                if ao + 8 <= buffer.len() {
-                    let k_idx = u32::from_le_bytes(buffer[ao..ao+4].try_into().unwrap()) as usize;
-                    let v_idx = u32::from_le_bytes(buffer[ao+4..ao+8].try_into().unwrap()) as usize;
-                    if read_cry_string(st, k_idx).to_lowercase() == "name" { name = read_cry_string(st, v_idx); }
-                }
+    log_debug(&format!("Tree Parser Finished: {} categories, {} actions total", res.action_maps.len(), total_actions));
+    Ok(res)
+}
+
+fn traverse_node_tauri(
+    buffer: &[u8], nt_off: usize, at_off: usize, st: &[u8], ct: &[u8], 
+    node_idx: usize, depth: usize, 
+    action_maps: &mut Vec<(String, Vec<(String, String)>)>, 
+    mut current_map: Option<String>
+) {
+    let node_size = 28;
+    let off = nt_off + node_idx * node_size;
+    if off + node_size > buffer.len() { return; }
+    let nb = &buffer[off..off+node_size];
+
+    let n_idx = u32::from_le_bytes(nb[0..4].try_into().unwrap()) as usize;
+    let attr_cnt = u16::from_le_bytes(nb[8..10].try_into().unwrap()) as usize;
+    let child_cnt = u16::from_le_bytes(nb[10..12].try_into().unwrap()) as usize;
+    let first_attr_idx = u32::from_le_bytes(nb[16..20].try_into().unwrap()) as usize;
+    let first_child_idx = u32::from_le_bytes(nb[20..24].try_into().unwrap()) as usize;
+
+    let tag = read_cry_string(st, n_idx).to_lowercase();
+
+    // Ignore console branches entirely
+    if tag == "xboxone" || tag == "ps4" || tag == "ps5" || tag == "gamepad" {
+        return;
+    }
+
+    let mut attrs = Vec::new();
+    for i in 0..attr_cnt {
+        let ao = at_off + (first_attr_idx + i as usize) * 8;
+        if ao + 8 <= buffer.len() {
+            let k_idx = u32::from_le_bytes(buffer[ao..ao+4].try_into().unwrap()) as usize;
+            let v_idx = u32::from_le_bytes(buffer[ao+4..ao+8].try_into().unwrap()) as usize;
+            attrs.push((read_cry_string(st, k_idx).to_lowercase(), read_cry_string(st, v_idx)));
+        }
+    }
+
+    if tag == "actionmap" || tag == "actiongroup" {
+        if let Some((_, name)) = attrs.iter().find(|(k, _)| k == "name") {
+            current_map = Some(name.clone());
+            action_maps.push((name.clone(), Vec::new()));
+        }
+    } else if tag == "action" {
+        if let Some(map_name) = &current_map {
+            let action_name = attrs.iter()
+                .find(|(k, _)| k == "name" || k == "id")
+                .map(|(_, v)| v.clone())
+                .unwrap_or_else(|| "unknown".to_string());
+            
+            if let Some(map) = action_maps.iter_mut().find(|(n, _)| n == map_name) {
+                map.1.push((action_name, "".to_string()));
             }
-            current_am = Some(ScActionMap { name, bindings: vec![], actions: vec![] });
-        } else if tag == "action" {
-            let mut name = String::new();
-            for j in 0..a_cnt {
-                let ao = at_off + (a_idx + j) * 8;
-                if ao + 8 <= buffer.len() {
-                    let k_idx = u32::from_le_bytes(buffer[ao..ao+4].try_into().unwrap()) as usize;
-                    let v_idx = u32::from_le_bytes(buffer[ao+4..ao+8].try_into().unwrap()) as usize;
-                    let key = read_cry_string(st, k_idx).to_lowercase();
-                    if key == "name" || key == "id" { name = read_cry_string(st, v_idx); }
-                }
-            }
-            if let Some(ref mut am) = current_am {
-                if !name.is_empty() { am.actions.push(name); action_count += 1; }
-            }
-        } else if tag == "rebind" {
-            if let Some(ref mut am) = current_am {
-                if let Some(an) = am.actions.last().cloned() {
-                    for j in 0..a_cnt {
-                        let ao = at_off + (a_idx + j) * 8;
-                        if ao + 8 <= buffer.len() {
-                            let k_idx = u32::from_le_bytes(buffer[ao..ao+4].try_into().unwrap()) as usize;
-                            let v_idx = u32::from_le_bytes(buffer[ao+4..ao+8].try_into().unwrap()) as usize;
-                            if read_cry_string(st, k_idx).to_lowercase() == "input" { 
-                                am.bindings.push(ScBinding { action_name: an.clone(), input: read_cry_string(st, v_idx) }); 
-                            }
-                        }
+        }
+    } else if tag == "rebind" {
+        if let Some(map_name) = &current_map {
+            if let Some((_, input)) = attrs.iter().find(|(k, _)| k == "input") {
+                if let Some(map) = action_maps.iter_mut().find(|(n, _)| n == map_name) {
+                    if let Some(last_action) = map.1.last_mut() {
+                        last_action.1 = input.clone();
                     }
                 }
             }
         }
     }
-    
-    if let Some(am) = current_am { res.action_maps.push(am); }
-    log_debug(&format!("Safe Parser Stats: {} categories, {} actions total", res.action_maps.len(), action_count));
-    Ok(res)
+
+    // Recurse into children
+    for i in 0..child_cnt {
+        let child_ptr_off = (first_child_idx + i as usize) * 4;
+        if child_ptr_off + 4 <= ct.len() {
+            let child_node_idx = u32::from_le_bytes(ct[child_ptr_off..child_ptr_off+4].try_into().unwrap()) as usize;
+            traverse_node_tauri(buffer, nt_off, at_off, st, ct, child_node_idx, depth + 1, action_maps, current_map.clone());
+        }
+    }
 }
 
 // ============================================================
@@ -248,7 +275,6 @@ pub fn read_p4k_file(game_path: &str, version: &str, file_path: &str) -> Result<
         let header = &cd_buffer[current_pos..current_pos+46];
         let n_len = u16::from_le_bytes([header[28], header[29]]) as usize;
         let e_len = u16::from_le_bytes([header[30], header[31]]) as usize;
-        let c_len = u16::from_le_bytes([header[32], header[33]]) as usize;
         let name = String::from_utf8_lossy(&cd_buffer[current_pos+46..current_pos+46+n_len]);
         if name.eq_ignore_ascii_case(&search_path) {
             let mut comp_size = u32::from_le_bytes([header[20], header[21], header[22], header[23]]) as u64;
@@ -273,7 +299,7 @@ pub fn read_p4k_file(game_path: &str, version: &str, file_path: &str) -> Result<
             }
             return Ok(data);
         }
-        current_pos += 46 + n_len + e_len + c_len;
+        current_pos += 46 + n_len + e_len + u16::from_le_bytes([header[32], header[33]]) as usize;
     }
     Err(format!("File '{}' not found in Data.p4k", file_path))
 }
@@ -329,19 +355,10 @@ pub async fn get_localization_labels(game_path: String, version: String, languag
 
 #[tauri::command]
 pub async fn get_complete_binding_list(game_path: String, version: String) -> Result<BindingListResponse, String> {
-    log_debug(&format!("--- START get_complete_binding_list for {} ---", version));
     let labels = get_localization_labels(game_path.clone(), version.clone(), None).await.unwrap_or_default();
-    
-    // Find master profile path by scanning
     let files = list_p4k(game_path.clone(), version.clone(), Some("defaultProfile.xml".to_string())).await.unwrap_or_default();
     let master_path = files.iter().find(|f| f.ends_with("defaultProfile.xml")).cloned();
-    
-    if let Some(ref path) = master_path {
-        log_debug(&format!("Found master profile at: {}", path));
-    } else {
-        return Err("Could not find defaultProfile.xml in game files.".to_string());
-    }
-
+    if master_path.is_none() { return Err("Could not find defaultProfile.xml".to_string()); }
     let master_raw = read_p4k_file(&game_path, &version, &master_path.unwrap())?;
     let master_parsed = parse_cryxmlb_full(&master_raw)?;
 
@@ -371,11 +388,15 @@ pub async fn get_complete_binding_list(game_path: String, version: String) -> Re
         let cat_label = labels.get(&format!("ui_Control{}", cat_name)).or(labels.get(&cat_name)).cloned().unwrap_or_else(|| cat_name.replace('_', " "));
         for (action_name, (inputs, is_custom)) in actions {
             stats.total += 1; if is_custom { stats.custom += 1; }
+            
+            // Advanced Label Lookup
             let display_name = labels.get(&format!("ui_Control{}", action_name))
-                .or(labels.get(&action_name))
                 .or(labels.get(&format!("ui_Control_{}", action_name)))
+                .or(labels.get(&action_name))
                 .or(labels.get(&format!("ui_v_{}", action_name.strip_prefix("v_").unwrap_or(&action_name))))
+                .or(labels.get(&format!("ui_Control_v_{}", action_name.strip_prefix("v_").unwrap_or(&action_name))))
                 .cloned().unwrap_or_else(|| action_name.replace('_', " "));
+
             if inputs.is_empty() {
                 results.push(CompleteBinding { category: cat_label.clone(), action_name: action_name.clone(), display_name: display_name.clone(), current_input: "".to_string(), device_type: "none".to_string(), description: None, is_custom });
             } else {
@@ -383,8 +404,11 @@ pub async fn get_complete_binding_list(game_path: String, version: String) -> Re
             }
         }
     }
-    results.sort_by(|a, b| a.category.cmp(&b.category));
-    log_debug(&format!("--- END get_complete_binding_list: {} entries generated ---", results.len()));
+    // Final Alphabetical sort: Case-insensitive
+    results.sort_by(|a, b| {
+        let cat_cmp = a.category.to_lowercase().cmp(&b.category.to_lowercase());
+        if cat_cmp == std::cmp::Ordering::Equal { a.display_name.to_lowercase().cmp(&b.display_name.to_lowercase()) } else { cat_cmp }
+    });
     Ok(BindingListResponse { bindings: results, stats })
 }
 
