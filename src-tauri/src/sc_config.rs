@@ -55,7 +55,10 @@ pub struct DeviceReorderEntry {
 pub struct ScBinding { pub action_name: String, pub input: String }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct ScActionMap { pub name: String, pub bindings: Vec<ScBinding>, pub actions: Vec<String> }
+pub struct ScAction { pub name: String, pub label: Option<String> }
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ScActionMap { pub name: String, pub bindings: Vec<ScBinding>, pub actions: Vec<ScAction> }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ScDevice { pub device_type: String, pub instance: u32, pub product: String, pub guid: String }
@@ -177,9 +180,9 @@ fn parse_cryxmlb_full(buffer: &[u8]) -> Result<ParsedActionMaps, String> {
     for (name, actions) in action_maps {
         let mut b_actions = Vec::new();
         let mut bindings = Vec::new();
-        for (aname, input) in actions {
-            if !b_actions.contains(&aname) {
-                b_actions.push(aname.clone());
+        for (aname, alabel, input) in actions {
+            if !b_actions.iter().any(|a: &ScAction| a.name == aname) {
+                b_actions.push(ScAction { name: aname.clone(), label: alabel });
                 total_actions += 1;
             }
             if !input.is_empty() {
@@ -196,7 +199,7 @@ fn parse_cryxmlb_full(buffer: &[u8]) -> Result<ParsedActionMaps, String> {
 fn traverse_node_tauri(
     buffer: &[u8], nt_off: usize, at_off: usize, st: &[u8], ct: &[u8], 
     node_idx: usize, depth: usize, 
-    action_maps: &mut Vec<(String, Vec<(String, String)>)>, 
+    action_maps: &mut Vec<(String, Vec<(String, Option<String>, String)>)>, 
     mut current_map: Option<String>
 ) {
     let node_size = 28;
@@ -239,8 +242,12 @@ fn traverse_node_tauri(
                 .map(|(_, v)| v.clone())
                 .unwrap_or_else(|| "unknown".to_string());
             
+            let label = attrs.iter()
+                .find(|(k, _)| k == "label" || k == "uilabel")
+                .map(|(_, v)| v.clone());
+            
             if let Some(map) = action_maps.iter_mut().find(|(n, _)| n == map_name) {
-                map.1.push((action_name, "".to_string()));
+                map.1.push((action_name, label, "".to_string()));
             }
         }
     } else if tag == "rebind" {
@@ -248,7 +255,7 @@ fn traverse_node_tauri(
             if let Some((_, input)) = attrs.iter().find(|(k, _)| k == "input") {
                 if let Some(map) = action_maps.iter_mut().find(|(n, _)| n == map_name) {
                     if let Some(last_action) = map.1.last_mut() {
-                        last_action.1 = input.clone();
+                        last_action.2 = input.clone();
                     }
                 }
             }
@@ -371,19 +378,24 @@ pub async fn get_complete_binding_list(game_path: String, version: String) -> Re
     let user_p = sc_profile_dir(&expand_tilde(&game_path), &version).join("actionmaps.xml");
     let user_parsed = if user_p.exists() { parse_actionmaps_xml(&fs::read_to_string(user_p).unwrap_or_default()).ok() } else { None };
 
-    let mut merged: HashMap<String, HashMap<String, (Vec<String>, bool)>> = HashMap::new();
+    let mut merged: HashMap<String, HashMap<String, (Vec<String>, Option<String>, bool)>> = HashMap::new();
     for am in master_parsed.action_maps {
         let action_map = merged.entry(am.name).or_insert_with(HashMap::new);
-        for action_name in am.actions { action_map.entry(action_name).or_insert_with(|| (Vec::new(), false)); }
-        for b in am.bindings { let entry = action_map.entry(b.action_name).or_insert_with(|| (Vec::new(), false)); if !entry.0.contains(&b.input) { entry.0.push(b.input); } }
+        for action in am.actions { 
+            action_map.entry(action.name.clone()).or_insert_with(|| (Vec::new(), action.label.clone(), false)); 
+        }
+        for b in am.bindings { 
+            let entry = action_map.entry(b.action_name).or_insert_with(|| (Vec::new(), None, false)); 
+            if !entry.0.contains(&b.input) { entry.0.push(b.input); } 
+        }
     }
     if let Some(up) = user_parsed {
         for am in up.action_maps {
             let action_map = merged.entry(am.name).or_insert_with(HashMap::new);
             for b in am.bindings { 
-                let entry = action_map.entry(b.action_name).or_insert_with(|| (Vec::new(), false));
+                let entry = action_map.entry(b.action_name).or_insert_with(|| (Vec::new(), None, false));
                 if !entry.0.contains(&b.input) { entry.0.push(b.input); }
-                entry.1 = true;
+                entry.2 = true;
             }
         }
     }
@@ -392,11 +404,13 @@ pub async fn get_complete_binding_list(game_path: String, version: String) -> Re
     let mut stats = BindingStats { total: 0, custom: 0 };
     for (cat_name, actions) in merged {
         let cat_label = labels.get(&format!("ui_Control{}", cat_name)).or(labels.get(&cat_name)).cloned().unwrap_or_else(|| cat_name.replace('_', " "));
-        for (action_name, (inputs, is_custom)) in actions {
+        for (action_name, (inputs, alabel, is_custom)) in actions {
             stats.total += 1; if is_custom { stats.custom += 1; }
             
             // Advanced Label Lookup
-            let display_name = labels.get(&format!("ui_Control{}", action_name))
+            let display_name = alabel.as_ref()
+                .and_then(|l| labels.get(l.strip_prefix('@').unwrap_or(l)))
+                .or(labels.get(&format!("ui_Control{}", action_name)))
                 .or(labels.get(&format!("ui_Control_{}", action_name)))
                 .or(labels.get(&action_name))
                 .or(labels.get(&format!("ui_v_{}", action_name.strip_prefix("v_").unwrap_or(&action_name))))
@@ -653,7 +667,7 @@ fn parse_actionmaps_xml(content: &str) -> Result<ParsedActionMaps, String> {
                     "deviceoptions" => { current_opts = Some(ScDeviceOptions { name: get_attr(e, b"name").unwrap_or_default(), options: Vec::new() }); }
                     "option" => { if let Some(ref mut o) = current_opts { o.options.push(ScDeviceOption { input: get_attr(e, b"input").unwrap_or_default(), deadzone: get_attr(e, b"deadzone").and_then(|v| v.parse().ok()), saturation: get_attr(e, b"saturation").and_then(|v| v.parse().ok()) }); } }
                     "actionmap" => { current_am = Some(ScActionMap { name: get_attr(e, b"name").unwrap_or_default(), bindings: Vec::new(), actions: Vec::new() }); }
-                    "action" => { let name = get_attr(e, b"name").unwrap_or_default(); if let Some(ref mut am) = current_am { if !name.is_empty() { am.actions.push(name.clone()); } } current_action = Some(name); }
+                    "action" => { let name = get_attr(e, b"name").unwrap_or_default(); if let Some(ref mut am) = current_am { if !name.is_empty() { am.actions.push(ScAction { name: name.clone(), label: None }); } } current_action = Some(name); }
                     "rebind" => { if let (Some(ref a), Some(ref mut am)) = (current_action.as_ref(), current_am.as_mut()) { let i = get_attr(e, b"input").unwrap_or_default(); if !i.is_empty() { am.bindings.push(ScBinding { action_name: a.to_string(), input: i }); } } }
                     _ => {}
                 }
@@ -700,7 +714,7 @@ fn get_attr(e: &BytesStart, name: &[u8]) -> Option<String> {
     if !found {
         let cat = if !category.is_empty() { category } else { "general".to_string() };
         if let Some(am) = parsed.action_maps.iter_mut().find(|am| am.name == cat) { am.bindings.push(ScBinding { action_name: action_name.clone(), input }); }
-        else { parsed.action_maps.push(ScActionMap { name: cat, bindings: vec![ScBinding { action_name: action_name.clone(), input }], actions: vec![action_name] }); }
+        else { parsed.action_maps.push(ScActionMap { name: cat, bindings: vec![ScBinding { action_name: action_name.clone(), input }], actions: vec![ScAction { name: action_name, label: None }] }); }
     }
     write_actionmaps_xml(&p, &parsed)
 }
