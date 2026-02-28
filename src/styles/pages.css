@@ -2,6 +2,121 @@
    Setup Wizard (First Run)
    ============================ */
 
+/* Keybindings Accordion Styling */
+.binding-category-block {
+  margin-bottom: 10px;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  border-radius: 6px;
+  background: var(--bg-card, rgba(255, 255, 255, 0.02));
+  overflow: hidden;
+  transition: border-color 0.2s ease;
+}
+
+.binding-category-block:hover {
+  border-color: var(--primary-color, #00d2ff);
+}
+
+.binding-category-header {
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  background: var(--bg-card-header, rgba(255, 255, 255, 0.03));
+  user-select: none;
+}
+
+.category-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #fff;
+  flex: 1;
+}
+
+.category-count {
+  font-size: 12px;
+  color: var(--text-muted, #888);
+  margin-right: 12px;
+}
+
+.binding-category-block .chevron {
+  transition: transform 0.3s ease;
+  color: var(--text-muted, #888);
+}
+
+.binding-category-block.expanded .chevron {
+  transform: rotate(180deg);
+}
+
+.binding-category-content {
+  display: none;
+  padding: 0;
+  border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+}
+
+.binding-category-block.expanded .binding-category-content {
+  display: block;
+}
+
+.binding-search {
+  width: 250px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 6px 12px;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 13px;
+}
+
+.binding-search:focus {
+  border-color: var(--primary-color, #00d2ff);
+  outline: none;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.binding-unbound {
+  font-size: 12px;
+  color: var(--text-muted, #666);
+  font-style: italic;
+}
+
+.binding-action-key {
+  font-size: 10px;
+  color: var(--text-muted, #555);
+  font-family: var(--font-mono, monospace);
+  margin-top: 2px;
+}
+
+.binding-device-tag.keyboard { border-left: 3px solid #00d2ff; }
+.binding-device-tag.mouse { border-left: 3px solid #ff00ff; }
+.binding-device-tag.joystick { border-left: 3px solid #ffff00; }
+.binding-device-tag.gamepad { border-left: 3px solid #00ff00; }
+
+.binding-stats-badge {
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-left: 12px;
+  color: var(--text-muted, #888);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-weight: normal;
+}
+
+.custom-binding {
+  position: relative;
+}
+
+.custom-badge {
+  font-size: 9px;
+  text-transform: uppercase;
+  background: var(--primary-color, #00d2ff);
+  color: #000;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-left: 8px;
+  font-weight: bold;
+}
+
 .sidebar-hidden {
   display: none !important;
 }
@@ -3446,6 +3561,191 @@
   color: var(--text-muted);
   border-top: 1px solid var(--border);
   background: var(--bg-primary);
+}
+
+/* Binding row states */
+.binding-row-empty {
+  background: var(--bg-hover);
+  opacity: 0.7;
+}
+
+.binding-row-empty:hover {
+  opacity: 1;
+}
+
+.binding-unbound {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.binding-none {
+  color: var(--text-muted);
+}
+
+/* Action name display */
+.binding-action-name {
+  font-weight: 500;
+}
+
+.binding-action-key {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: monospace;
+}
+
+/* Binding actions cell */
+.binding-actions-cell {
+  white-space: nowrap;
+}
+
+.binding-actions-cell .btn-icon {
+  padding: 4px;
+  margin-right: 2px;
+}
+
+/* Multiple bindings per row */
+.binding-device-tag {
+  display: inline-block;
+  padding: 2px 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 10px;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+.binding-inputs-cell {
+  min-width: 150px;
+}
+
+.binding-input-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.binding-input-row:last-child {
+  margin-bottom: 0;
+}
+
+.binding-input-row .binding-input {
+  flex: 1;
+}
+
+.binding-input-row .btn-icon {
+  padding: 2px;
+  opacity: 0.6;
+}
+
+.binding-input-row .btn-icon:hover {
+  opacity: 1;
+}
+
+/* ============================
+   Profiles - Binding Editor Modal
+   ============================ */
+
+.binding-editor-modal {
+  width: 480px;
+  max-width: 95vw;
+}
+
+.binding-editor-info {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+}
+
+.binding-editor-action label,
+.binding-editor-category label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.binding-editor-action-value,
+.binding-editor-category-value {
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.binding-editor-device-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.device-tab {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+  transition: all 0.15s;
+}
+
+.device-tab:hover {
+  background: var(--bg-hover);
+}
+
+.device-tab.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
+}
+
+.binding-editor-capture label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.capture-prompt {
+  padding: 16px;
+  background: var(--bg-secondary);
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  text-align: center;
+  font-family: monospace;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+  min-height: 24px;
+}
+
+.capture-prompt:hover {
+  border-color: var(--color-primary);
+  background: var(--bg-hover);
+}
+
+.capture-prompt.capturing {
+  border-color: var(--color-primary);
+  background: rgba(59, 130, 246, 0.1);
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.capture-instructions {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
 }
 
 /* ============================

@@ -31,6 +31,7 @@ mod prefix_tools;
 mod runners;
 mod sc_config;
 mod system_check;
+mod action_definitions;
 
 /// Simple greeting command for testing Tauri command infrastructure.
 #[tauri::command]
@@ -204,9 +205,19 @@ pub fn run() {
             sc_config::read_attributes,
             sc_config::write_attributes,
             sc_config::parse_actionmaps,
+            sc_config::get_action_definitions,
+            sc_config::get_complete_binding_list,
+            sc_config::assign_binding,
+            sc_config::remove_binding,
+            sc_config::read_p4k,
+            sc_config::list_p4k,
+            sc_config::get_localization_labels,
+            sc_config::get_localization_ini,
+            sc_config::list_localization_languages,
             sc_config::reorder_devices,
             sc_config::backup_profile,
             sc_config::restore_profile,
+            sc_config::backup_profile_manual,
             sc_config::list_backups,
             sc_config::delete_backup,
             sc_config::update_backup_label,

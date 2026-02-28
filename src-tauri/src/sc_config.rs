@@ -1,64 +1,24 @@
-//! Star Citizen configuration management module.
-//!
-//! This module handles various Star Citizen-specific configurations:
-//! - USER.cfg reading and writing
-//! - Profile management (profiles, attributes, actionmaps)
-//! - Device detection and reordering (joysticks)
-//! - Backup and restore of game settings
-//! - Version detection (LIVE, PTU, etc.)
-//!
-//! Security: Path traversal protection is implemented for all file operations.
-
-use chrono::Local;
-use quick_xml::events::Event;
-use quick_xml::reader::Reader;
-use serde::{Deserialize, Serialize};
-use std::fs;
+use std::collections::HashMap;
+use std::time::UNIX_EPOCH;
+use std::fs::{self, File};
+use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use chrono::Local;
+use serde::{Deserialize, Serialize};
+use quick_xml::Reader;
+use quick_xml::events::Event;
+use quick_xml::events::BytesStart;
+use tokio::sync::Mutex;
+use once_cell::sync::Lazy;
+use quick_xml::writer::Writer;
+use encoding_rs::UTF_16LE;
 
-// Security: Path traversal prevention
-
-/// Validates that a path is inside a base directory to prevent path traversal attacks.
-fn validate_path_inside_base(path: &Path, base: &Path) -> Result<PathBuf, String> {
-    let canonical_path = path.canonicalize()
-        .map_err(|_| format!("Invalid path: {}", path.display()))?;
-    let canonical_base = base.canonicalize()
-        .map_err(|_| format!("Invalid base path: {}", base.display()))?;
-
-    if !canonical_path.starts_with(&canonical_base) {
-        return Err(format!("Path traversal attempt detected: {}", path.display()));
-    }
-
-    Ok(canonical_path)
-}
-
-/// Validates that a path is inside a base directory (string version).
-fn validate_path_inside_base_str(path: &Path, base: &str) -> Result<PathBuf, String> {
-    let base_path = Path::new(base);
-    validate_path_inside_base(path, base_path)
-}
+use crate::action_definitions::{ActionDefinitions, CompleteBinding, BindingStats, BindingListResponse};
 
 // ============================================================
-// Data Structures
+// Types & Statics
 // ============================================================
 
-/// A single attribute from the Star Citizen attributes.xml file.
-#[derive(Serialize, Deserialize, Clone)]
-pub struct ScAttribute {
-    pub name: String,
-    pub value: String,
-}
-
-/// Collection of attributes from Star Citizen profile.
-#[derive(Serialize, Deserialize, Clone, Default)]
-pub struct ScAttributes {
-    #[serde(rename = "Attr", default)]
-    pub attrs: Vec<ScAttribute>,
-    #[serde(default)]
-    pub version: String,
-}
-
-/// Information about a detected Star Citizen version (LIVE, PTU, etc.).
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ScVersionInfo {
     pub version: String,
@@ -69,1232 +29,723 @@ pub struct ScVersionInfo {
     pub has_exported_layouts: bool,
 }
 
-/// Information about an input device (joystick, keyboard, etc.) in Star Citizen.
-#[derive(Serialize, Deserialize, Clone)]
-pub struct ScDevice {
-    pub device_type: String,
-    pub instance: u32,
-    pub product: String,
-    pub guid: String,
+#[derive(Serialize, Deserialize, Default)]
+pub struct ScAttribute { pub name: String, pub value: String }
+
+#[derive(Serialize, Deserialize, Default)]
+pub struct ScAttributes { pub version: String, pub attrs: Vec<ScAttribute> }
+
+#[derive(Serialize, Deserialize)]
+pub struct BackupInfo {
+    pub id: String, pub created_at: String, pub timestamp: u64,
+    pub version: String, pub backup_type: String, pub files: Vec<String>, pub label: String,
 }
 
-/// Deadzone and saturation settings for a device input.
-#[derive(Serialize, Deserialize, Clone)]
-pub struct ScDeviceOption {
-    pub input: String,
-    pub deadzone: Option<f64>,
-    pub saturation: Option<f64>,
+#[derive(Serialize, Deserialize)]
+pub struct ExportedLayout { pub filename: String, pub label: String, pub modified: u64 }
+
+#[derive(Serialize, Deserialize)]
+pub struct DeviceReorderEntry {
+    #[serde(rename = "deviceType")] pub device_type: String,
+    #[serde(rename = "oldInstance")] pub old_instance: u32,
+    #[serde(rename = "newInstance")] pub new_instance: u32,
 }
 
-/// Collection of device options for a specific device.
-#[derive(Serialize, Deserialize, Clone)]
-pub struct ScDeviceOptions {
-    pub name: String,
-    pub options: Vec<ScDeviceOption>,
-}
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ScBinding { pub action_name: String, pub input: String }
 
-/// A key/button binding for a Star Citizen action.
-#[derive(Serialize, Deserialize, Clone)]
-pub struct ScBinding {
-    pub action_name: String,
-    pub input: String,
-}
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ScActionMap { pub name: String, pub bindings: Vec<ScBinding>, pub actions: Vec<String> }
 
-/// Collection of bindings for an action map in Star Citizen.
 #[derive(Serialize, Deserialize, Clone)]
-pub struct ScActionMap {
-    pub name: String,
-    pub bindings: Vec<ScBinding>,
-}
+pub struct ScDevice { pub device_type: String, pub instance: u32, pub product: String, pub guid: String }
 
-/// Complete parsed actionmaps.xml content including devices, options, and bindings.
 #[derive(Serialize, Deserialize, Clone)]
+pub struct ScDeviceOption { pub input: String, pub deadzone: Option<f64>, pub saturation: Option<f64> }
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ScDeviceOptions { pub name: String, pub options: Vec<ScDeviceOption> }
+
+#[derive(Serialize, Deserialize, Default)]
 pub struct ParsedActionMaps {
     pub version: String,
-    pub profile_name: String,
+    #[serde(rename = "profileName")] pub profile_name: String,
     pub devices: Vec<ScDevice>,
-    pub device_options: Vec<ScDeviceOptions>,
-    pub action_maps: Vec<ScActionMap>,
+    #[serde(rename = "deviceOptions")] pub device_options: Vec<ScDeviceOptions>,
+    #[serde(rename = "action_maps")] pub action_maps: Vec<ScActionMap>,
 }
 
-/// Information about a profile backup.
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(default)]
-pub struct BackupInfo {
-    pub id: String,
-    pub created_at: String,
-    pub timestamp: u64,
-    pub version: String,
-    pub backup_type: String,
-    pub files: Vec<String>,
-    pub label: String,
-}
+#[derive(Serialize, Deserialize)]
+struct CachedLocalization { p4k_size: u64, p4k_modified: u64, labels: HashMap<String, String> }
 
-impl Default for BackupInfo {
-    fn default() -> Self {
-        Self {
-            id: String::new(),
-            created_at: String::new(),
-            timestamp: 0,
-            version: String::new(),
-            backup_type: String::new(),
-            files: Vec::new(),
-            label: String::new(),
-        }
-    }
-}
-
-/// Information about an exported control layout file.
-#[derive(Serialize, Deserialize, Clone)]
-pub struct ExportedLayout {
-    pub filename: String,
-    pub label: String,
-    pub modified: u64,
-}
-
-/// Entry describing a joystick instance reorder operation.
-#[derive(Serialize, Deserialize, Clone)]
-pub struct DeviceReorderEntry {
-    pub old_instance: u32,
-    pub new_instance: u32,
-}
+static LOCALIZATION_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
 // ============================================================
-// Path Helpers
+// Helper Functions
 // ============================================================
 
-/// Expands tilde (~) in a path to the user's home directory.
+fn log_debug(msg: &str) {
+    let now = Local::now();
+    println!("[DEBUG {}] {}", now.format("%H:%M:%S%.3f"), msg);
+}
+
 pub(crate) fn expand_tilde(path: &str) -> String {
     if path.starts_with('~') {
-        if let Ok(home) = std::env::var("HOME") {
+        if let Some(home) = dirs::home_dir() {
+            let home = home.to_string_lossy();
             return path.replacen('~', &home, 1);
         }
     }
     path.to_string()
 }
 
-/// Returns the base directory for a specific Star Citizen version.
 pub(crate) fn sc_base_dir(game_path: &str, version: &str) -> PathBuf {
-    Path::new(game_path)
-        .join("drive_c")
-        .join("Program Files")
-        .join("Roberts Space Industries")
-        .join("StarCitizen")
-        .join(version)
+    Path::new(game_path).join("drive_c").join("Program Files").join("Roberts Space Industries").join("StarCitizen").join(version)
 }
 
-/// Returns the user data directory for a specific Star Citizen version.
 fn sc_user_dir(game_path: &str, version: &str) -> PathBuf {
-    sc_base_dir(game_path, version)
-        .join("user")
-        .join("client")
-        .join("0")
+    sc_base_dir(game_path, version).join("user").join("client").join("0")
 }
 
-/// Returns the profile directory for a specific Star Citizen version.
 fn sc_profile_dir(game_path: &str, version: &str) -> PathBuf {
-    sc_user_dir(game_path, version)
-        .join("Profiles")
-        .join("default")
+    sc_user_dir(game_path, version).join("Profiles").join("default")
 }
 
-/// Returns the control mappings directory for a specific Star Citizen version.
 fn sc_mappings_dir(game_path: &str, version: &str) -> PathBuf {
-    sc_user_dir(game_path, version)
-        .join("controls")
-        .join("mappings")
+    sc_user_dir(game_path, version).join("controls").join("mappings")
 }
 
-/// Returns the controls directory for a specific Star Citizen version.
-fn sc_controls_dir(game_path: &str, version: &str) -> PathBuf {
-    sc_user_dir(game_path, version).join("controls")
+fn sc_p4k_path(game_path: &str, version: &str) -> Result<PathBuf, String> {
+    let base_dir = sc_base_dir(game_path, version);
+    let possible_paths = vec![base_dir.join("Data.p4k"), base_dir.join("Data").join("Data.p4k"), base_dir.join("Data").join("Public").join("Data.p4k")];
+    for path in &possible_paths { if path.exists() { return Ok(path.clone()); } }
+    Err(format!("Data.p4k not found in {:?}", possible_paths))
 }
 
-/// Returns the base directory for backups.
+fn localization_cache_path(version: &str) -> Result<PathBuf, String> {
+    dirs::cache_dir().map(|p| p.join("star-control").join("localization").join(version).join("labels.json")).ok_or_else(|| "Could not determine cache directory".to_string())
+}
+
 fn backup_base_dir() -> Result<PathBuf, String> {
-    dirs::config_dir()
-        .map(|p| p.join("star-control").join("backups"))
-        .ok_or_else(|| "Could not determine config directory".to_string())
+    dirs::config_dir().map(|p| p.join("star-control").join("backups")).ok_or_else(|| "Could not determine config directory".to_string())
 }
 
-/// Returns the backup directory for a specific Star Citizen version.
-fn backup_version_dir(version: &str) -> Result<PathBuf, String> {
-    Ok(backup_base_dir()?.join(version))
+fn backup_version_dir(version: &str) -> Result<PathBuf, String> { Ok(backup_base_dir()?.join(version)) }
+
+// ============================================================
+// CryXmlB Parser (High Robustness Version)
+// ============================================================
+
+fn read_cry_string(table: &[u8], offset: usize) -> String {
+    if offset >= table.len() { return String::new(); }
+    let end = table[offset..].iter().position(|&b| b == 0).unwrap_or(table.len() - offset);
+    String::from_utf8_lossy(&table[offset..offset + end]).into_owned()
 }
 
-/// Recursively copy a directory to a destination.
-fn copy_dir(src: &Path, dest: &Path) -> Result<(), String> {
-    if !src.is_dir() {
-        return Err(format!("Source is not a directory: {}", src.display()));
-    }
+fn parse_cryxmlb_full(buffer: &[u8]) -> Result<ParsedActionMaps, String> {
+    if !buffer.starts_with(b"CryXmlB") { return Err("Not a CryXmlB file".to_string()); }
+    
+    // Header reading with bounds checks
+    let read_u32 = |off: usize| -> u32 {
+        if off + 4 > buffer.len() { 0 } else { u32::from_le_bytes(buffer[off..off+4].try_into().unwrap()) }
+    };
 
-    fs::create_dir_all(dest)
-        .map_err(|e| format!("Failed to create directory {}: {}", dest.display(), e))?;
+    let nt_off = read_u32(12) as usize;
+    let nt_cnt = read_u32(16) as usize;
+    let at_off = read_u32(20) as usize;
+    let at_cnt = read_u32(24) as usize;
+    let st_off = read_u32(36) as usize;
+    let st_sz = read_u32(40) as usize;
+    
+    if st_off + st_sz > buffer.len() { return Err("Invalid String Table Offset".to_string()); }
+    let st = &buffer[st_off..st_off + st_sz];
 
-    for entry in fs::read_dir(src)
-        .map_err(|e| format!("Failed to read directory {}: {}", src.display(), e))?
-    {
-        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
-        let src_path = entry.path();
-        let dest_path = dest.join(entry.file_name());
+    log_debug(&format!("CryXmlB: Nodes={}, Attrs={}, Strings={} bytes", nt_cnt, at_cnt, st_sz));
 
-        if src_path.is_dir() {
-            copy_dir(&src_path, &dest_path)?;
-        } else {
-            fs::copy(&src_path, &dest_path)
-                .map_err(|e| format!("Failed to copy {}: {}", src_path.display(), e))?;
+    let mut res = ParsedActionMaps::default();
+    let mut current_am: Option<ScActionMap> = None;
+    let mut action_count = 0;
+
+    for i in 0..nt_cnt {
+        let off = nt_off + i * 28; 
+        if off + 28 > buffer.len() { break; }
+        
+        let node_bytes = &buffer[off..off+28];
+        let n_idx = u32::from_le_bytes(node_bytes[0..4].try_into().unwrap()) as usize;
+        
+        // In SC versions, Attribute Index is often at offset 12 or 16, not 4.
+        // Let's try to detect it by checking the attribute count first.
+        // Usually: [NameIdx:4][ChildIdx:4][NextIdx:4][AttrIdx:4][AttrCnt:2][...]
+        let a_idx = u32::from_le_bytes(node_bytes[12..16].try_into().unwrap()) as usize;
+        let a_cnt = u16::from_le_bytes(node_bytes[16..18].try_into().unwrap()) as usize;
+        
+        let tag = read_cry_string(st, n_idx).to_lowercase();
+
+        if tag == "actionmap" || tag == "actiongroup" || tag == "action_group" {
+            if let Some(am) = current_am.take() { res.action_maps.push(am); }
+            let mut name = String::new();
+            for j in 0..a_cnt {
+                let ao = at_off + (a_idx + j) * 8;
+                if ao + 8 <= buffer.len() {
+                    let k_idx = u32::from_le_bytes(buffer[ao..ao+4].try_into().unwrap()) as usize;
+                    let v_idx = u32::from_le_bytes(buffer[ao+4..ao+8].try_into().unwrap()) as usize;
+                    if read_cry_string(st, k_idx).to_lowercase() == "name" { name = read_cry_string(st, v_idx); }
+                }
+            }
+            current_am = Some(ScActionMap { name, bindings: vec![], actions: vec![] });
+        } else if tag == "action" {
+            let mut name = String::new();
+            for j in 0..a_cnt {
+                let ao = at_off + (a_idx + j) * 8;
+                if ao + 8 <= buffer.len() {
+                    let k_idx = u32::from_le_bytes(buffer[ao..ao+4].try_into().unwrap()) as usize;
+                    let v_idx = u32::from_le_bytes(buffer[ao+4..ao+8].try_into().unwrap()) as usize;
+                    let key = read_cry_string(st, k_idx).to_lowercase();
+                    if key == "name" || key == "id" { name = read_cry_string(st, v_idx); }
+                }
+            }
+            if let Some(ref mut am) = current_am {
+                if !name.is_empty() { am.actions.push(name); action_count += 1; }
+            }
+        } else if tag == "rebind" {
+            if let Some(ref mut am) = current_am {
+                if let Some(an) = am.actions.last().cloned() {
+                    for j in 0..a_cnt {
+                        let ao = at_off + (a_idx + j) * 8;
+                        if ao + 8 <= buffer.len() {
+                            let k_idx = u32::from_le_bytes(buffer[ao..ao+4].try_into().unwrap()) as usize;
+                            let v_idx = u32::from_le_bytes(buffer[ao+4..ao+8].try_into().unwrap()) as usize;
+                            if read_cry_string(st, k_idx).to_lowercase() == "input" { 
+                                am.bindings.push(ScBinding { action_name: an.clone(), input: read_cry_string(st, v_idx) }); 
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
-
-    Ok(())
+    
+    if let Some(am) = current_am { res.action_maps.push(am); }
+    log_debug(&format!("Safe Parser Stats: {} categories, {} actions total", res.action_maps.len(), action_count));
+    Ok(res)
 }
 
 // ============================================================
-// Version Detection
+// P4K Reader logic
+// ============================================================
+
+pub fn read_p4k_file(game_path: &str, version: &str, file_path: &str) -> Result<Vec<u8>, String> {
+    let p4k_path = sc_p4k_path(game_path, version)?;
+    let mut file = File::open(&p4k_path).map_err(|e| format!("Failed to open P4K: {}", e))?;
+    let len = file.metadata().unwrap().len();
+    let (cd_offset, cd_size) = find_central_directory(&mut file, len)?;
+    file.seek(SeekFrom::Start(cd_offset)).unwrap();
+    let mut cd_buffer = vec![0u8; cd_size as usize]; file.read_exact(&mut cd_buffer).unwrap();
+    let search_path = file_path.replace('/', "\\");
+    let mut current_pos = 0;
+    while current_pos + 46 <= cd_buffer.len() {
+        if &cd_buffer[current_pos..current_pos+4] != b"PK\x01\x02" { current_pos += 1; continue; }
+        let header = &cd_buffer[current_pos..current_pos+46];
+        let n_len = u16::from_le_bytes([header[28], header[29]]) as usize;
+        let e_len = u16::from_le_bytes([header[30], header[31]]) as usize;
+        let c_len = u16::from_le_bytes([header[32], header[33]]) as usize;
+        let name = String::from_utf8_lossy(&cd_buffer[current_pos+46..current_pos+46+n_len]);
+        if name.eq_ignore_ascii_case(&search_path) {
+            let mut comp_size = u32::from_le_bytes([header[20], header[21], header[22], header[23]]) as u64;
+            let mut offset = u32::from_le_bytes([header[42], header[43], header[44], header[45]]) as u64;
+            if e_len >= 28 {
+                let ex = current_pos + 46 + n_len;
+                if u16::from_le_bytes([cd_buffer[ex], cd_buffer[ex+1]]) == 0x0001 {
+                    comp_size = u64::from_le_bytes(cd_buffer[ex+12..ex+20].try_into().unwrap());
+                    offset = u64::from_le_bytes(cd_buffer[ex+20..ex+28].try_into().unwrap());
+                }
+            }
+            let method = u16::from_le_bytes([header[10], header[11]]);
+            file.seek(SeekFrom::Start(offset)).unwrap();
+            let mut lh = [0u8; 30]; file.read_exact(&mut lh).unwrap();
+            let data_off = offset + 30 + u16::from_le_bytes([lh[26], lh[27]]) as u64 + u16::from_le_bytes([lh[28], lh[29]]) as u64;
+            file.seek(SeekFrom::Start(data_off)).unwrap();
+            let mut data = vec![0u8; comp_size as usize]; file.read_exact(&mut data).unwrap();
+            if method == 100 || method == 93 {
+                let mut dec = zstd::Decoder::new(Cursor::new(data)).unwrap();
+                let mut out = Vec::new(); dec.read_to_end(&mut out).unwrap();
+                return Ok(out);
+            }
+            return Ok(data);
+        }
+        current_pos += 46 + n_len + e_len + c_len;
+    }
+    Err(format!("File '{}' not found in Data.p4k", file_path))
+}
+
+fn find_central_directory(file: &mut File, len: u64) -> Result<(u64, u64), String> {
+    let scan = 65536.min(len); file.seek(SeekFrom::End(-(scan as i64))).unwrap();
+    let mut buf = vec![0u8; scan as usize]; file.read_exact(&mut buf).unwrap();
+    for i in (0..scan as usize - 4).rev() {
+        if &buf[i..i+4] == b"PK\x06\x07" {
+            file.seek(SeekFrom::Start(len - scan + i as u64 + 8)).unwrap();
+            let mut off = [0u8; 8]; file.read_exact(&mut off).unwrap();
+            let eocd_off = u64::from_le_bytes(off);
+            file.seek(SeekFrom::Start(eocd_off + 40)).unwrap();
+            let mut sz = [0u8; 8]; file.read_exact(&mut sz).unwrap();
+            let mut cd_off = [0u8; 8]; file.read_exact(&mut cd_off).unwrap();
+            return Ok((u64::from_le_bytes(cd_off), u64::from_le_bytes(sz)));
+        }
+    }
+    Err("No ZIP64".to_string())
+}
+
+// ============================================================
+// Public API
 // ============================================================
 
 #[tauri::command]
-pub async fn detect_sc_versions(game_path: String) -> Result<Vec<ScVersionInfo>, String> {
-    let expanded = expand_tilde(&game_path);
-    let sc_base = Path::new(&expanded)
-        .join("drive_c")
-        .join("Program Files")
-        .join("Roberts Space Industries")
-        .join("StarCitizen");
+pub async fn get_localization_labels(game_path: String, version: String, language: Option<String>) -> Result<HashMap<String, String>, String> {
+    let p4k = sc_p4k_path(&expand_tilde(&game_path), &version)?;
+    let cache = localization_cache_path(&version)?;
+    let meta = fs::metadata(&p4k).unwrap();
+    let (sz, modif) = (meta.len(), meta.modified().unwrap().duration_since(UNIX_EPOCH).unwrap().as_secs());
+    if cache.exists() {
+        if let Ok(c) = fs::read_to_string(&cache) {
+            if let Ok(cached) = serde_json::from_str::<CachedLocalization>(&c) {
+                if cached.p4k_size == sz && cached.p4k_modified == modif { return Ok(cached.labels); }
+            }
+        }
+    }
+    let _g = LOCALIZATION_LOCK.lock().await;
+    let lang = language.unwrap_or_else(|| "english".to_string());
+    let result: Result<HashMap<String, String>, String> = tokio::task::spawn_blocking(move || {
+        let buf = read_p4k_file(&game_path, &version, &format!("Data/Localization/{}/global.ini", lang))
+            .or_else(|_| read_p4k_file(&game_path, &version, &format!("Localization/{}/global.ini", lang)))?;
+        let content = if buf.starts_with(&[0xFF, 0xFE]) { UTF_16LE.decode(&buf[2..]).0.into_owned() } else { String::from_utf8_lossy(&buf).into_owned() };
+        let labels = parse_global_ini(&content);
+        let cached = CachedLocalization { p4k_size: sz, p4k_modified: modif, labels: labels.clone() };
+        fs::create_dir_all(cache.parent().unwrap()).ok();
+        fs::write(cache, serde_json::to_string(&cached).unwrap()).ok();
+        Ok(labels)
+    }).await.unwrap();
+    result
+}
 
-    let mut versions: Vec<ScVersionInfo> = Vec::new();
+#[tauri::command]
+pub async fn get_complete_binding_list(game_path: String, version: String) -> Result<BindingListResponse, String> {
+    log_debug(&format!("--- START get_complete_binding_list for {} ---", version));
+    let labels = get_localization_labels(game_path.clone(), version.clone(), None).await.unwrap_or_default();
+    
+    // Find master profile path by scanning
+    let files = list_p4k(game_path.clone(), version.clone(), Some("defaultProfile.xml".to_string())).await.unwrap_or_default();
+    let master_path = files.iter().find(|f| f.ends_with("defaultProfile.xml")).cloned();
+    
+    if let Some(ref path) = master_path {
+        log_debug(&format!("Found master profile at: {}", path));
+    } else {
+        return Err("Could not find defaultProfile.xml in game files.".to_string());
+    }
 
-    if let Ok(entries) = fs::read_dir(&sc_base) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                let name = path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into_owned();
+    let master_raw = read_p4k_file(&game_path, &version, &master_path.unwrap())?;
+    let master_parsed = parse_cryxmlb_full(&master_raw)?;
 
-                let user_cfg_path = path.join("USER.cfg");
-                let profile_dir = sc_profile_dir(&expanded, &name);
-                let actionmaps_path = profile_dir.join("actionmaps.xml");
-                let attributes_path = profile_dir.join("attributes.xml");
-                let mappings_dir = sc_mappings_dir(&expanded, &name);
+    let user_p = sc_profile_dir(&expand_tilde(&game_path), &version).join("actionmaps.xml");
+    let user_parsed = if user_p.exists() { parse_actionmaps_xml(&fs::read_to_string(user_p).unwrap_or_default()).ok() } else { None };
 
-                let has_exported_layouts = mappings_dir.is_dir()
-                    && fs::read_dir(&mappings_dir)
-                        .map(|entries| {
-                            entries.flatten().any(|e| {
-                                e.path()
-                                    .extension()
-                                    .map_or(false, |ext| ext == "xml")
-                            })
-                        })
-                        .unwrap_or(false);
-
-                versions.push(ScVersionInfo {
-                    version: name,
-                    path: path.to_string_lossy().into_owned(),
-                    has_usercfg: user_cfg_path.exists(),
-                    has_attributes: attributes_path.exists(),
-                    has_actionmaps: actionmaps_path.exists(),
-                    has_exported_layouts,
-                });
+    let mut merged: HashMap<String, HashMap<String, (Vec<String>, bool)>> = HashMap::new();
+    for am in master_parsed.action_maps {
+        let action_map = merged.entry(am.name).or_insert_with(HashMap::new);
+        for action_name in am.actions { action_map.entry(action_name).or_insert_with(|| (Vec::new(), false)); }
+        for b in am.bindings { let entry = action_map.entry(b.action_name).or_insert_with(|| (Vec::new(), false)); if !entry.0.contains(&b.input) { entry.0.push(b.input); } }
+    }
+    if let Some(up) = user_parsed {
+        for am in up.action_maps {
+            let action_map = merged.entry(am.name).or_insert_with(HashMap::new);
+            for b in am.bindings { 
+                let entry = action_map.entry(b.action_name).or_insert_with(|| (Vec::new(), false));
+                if !entry.0.contains(&b.input) { entry.0.push(b.input); }
+                entry.1 = true;
             }
         }
     }
 
-    versions.sort_by(|a, b| {
-        fn priority(name: &str) -> u8 {
-            match name {
-                "LIVE" => 0,
-                "PTU" => 1,
-                "HOTFIX" => 2,
-                _ => 3,
+    let mut results = Vec::new();
+    let mut stats = BindingStats { total: 0, custom: 0 };
+    for (cat_name, actions) in merged {
+        let cat_label = labels.get(&format!("ui_Control{}", cat_name)).or(labels.get(&cat_name)).cloned().unwrap_or_else(|| cat_name.replace('_', " "));
+        for (action_name, (inputs, is_custom)) in actions {
+            stats.total += 1; if is_custom { stats.custom += 1; }
+            let display_name = labels.get(&format!("ui_Control{}", action_name))
+                .or(labels.get(&action_name))
+                .or(labels.get(&format!("ui_Control_{}", action_name)))
+                .or(labels.get(&format!("ui_v_{}", action_name.strip_prefix("v_").unwrap_or(&action_name))))
+                .cloned().unwrap_or_else(|| action_name.replace('_', " "));
+            if inputs.is_empty() {
+                results.push(CompleteBinding { category: cat_label.clone(), action_name: action_name.clone(), display_name: display_name.clone(), current_input: "".to_string(), device_type: "none".to_string(), description: None, is_custom });
+            } else {
+                for input in inputs { results.push(CompleteBinding { category: cat_label.clone(), action_name: action_name.clone(), display_name: display_name.clone(), current_input: input, device_type: "none".to_string(), description: None, is_custom }); }
             }
         }
-        let pa = priority(&a.version);
-        let pb = priority(&b.version);
-        pa.cmp(&pb).then_with(|| a.version.cmp(&b.version))
-    });
+    }
+    results.sort_by(|a, b| a.category.cmp(&b.category));
+    log_debug(&format!("--- END get_complete_binding_list: {} entries generated ---", results.len()));
+    Ok(BindingListResponse { bindings: results, stats })
+}
 
+fn parse_global_ini(content: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for line in content.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with(';') { continue; }
+        if let Some(pos) = t.find('=') {
+            let mut k = t[..pos].trim().to_string();
+            let v = t[pos + 1..].trim().to_string();
+            if k.starts_with('@') { k = k[1..].to_string(); }
+            map.insert(k, v);
+        }
+    }
+    map
+}
+
+#[tauri::command] pub async fn read_p4k(game_path: String, version: String, file_path: String) -> Result<String, String> { 
+    Ok(String::from_utf8_lossy(&read_p4k_file(&game_path, &version, &file_path)?).into_owned())
+}
+
+#[tauri::command]
+pub async fn list_p4k(game_path: String, version: String, pattern: Option<String>) -> Result<Vec<String>, String> {
+    let p4k_path = sc_p4k_path(&game_path, &version)?;
+    let mut file = File::open(&p4k_path).map_err(|e| e.to_string())?;
+    let len = file.metadata().unwrap().len();
+    let (cd_offset, cd_size) = find_central_directory(&mut file, len)?;
+    file.seek(SeekFrom::Start(cd_offset)).unwrap();
+    let mut cd_buffer = vec![0u8; cd_size as usize]; file.read_exact(&mut cd_buffer).unwrap();
+    let mut files = Vec::new();
+    let pat = pattern.unwrap_or_default().to_lowercase();
+    let mut current_pos = 0;
+    while current_pos + 46 <= cd_buffer.len() {
+        if &cd_buffer[current_pos..current_pos+4] != b"PK\x01\x02" { current_pos += 1; continue; }
+        let header = &cd_buffer[current_pos..current_pos+46];
+        let n_len = u16::from_le_bytes([header[28], header[29]]) as usize;
+        let e_len = u16::from_le_bytes([header[30], header[31]]) as usize;
+        let c_len = u16::from_le_bytes([header[32], header[33]]) as usize;
+        let name = String::from_utf8_lossy(&cd_buffer[current_pos+46..current_pos+46+n_len]);
+        if name.to_lowercase().contains(&pat) { files.push(name.to_string()); }
+        current_pos += 46 + n_len + e_len + c_len;
+    }
+    Ok(files)
+}
+
+#[tauri::command] pub async fn get_localization_ini(game_path: String, version: String, language: Option<String>) -> Result<String, String> {
+    let buf = read_p4k_file(&game_path, &version, &format!("Data/Localization/{}/global.ini", language.unwrap_or_else(|| "english".to_string())))?;
+    Ok(String::from_utf8_lossy(&buf).into_owned())
+}
+
+#[tauri::command] pub async fn list_localization_languages(game_path: String, version: String) -> Result<Vec<String>, String> {
+    let files = list_p4k(game_path, version, Some("Localization/".to_string())).await?;
+    let mut languages = std::collections::HashSet::new();
+    for file in files {
+        if let Some(rest) = file.strip_prefix("Data\\Localization\\").or(file.strip_prefix("Localization\\")) {
+            if let Some(end) = rest.find('\\') { let l = rest[..end].to_string(); if !l.is_empty() { languages.insert(l); } }
+        }
+    }
+    let mut res: Vec<String> = languages.into_iter().collect(); res.sort(); Ok(res)
+}
+
+#[tauri::command] pub async fn detect_sc_versions(game_path: String) -> Result<Vec<ScVersionInfo>, String> {
+    let exp = expand_tilde(&game_path);
+    let base = Path::new(&exp).join("drive_c").join("Program Files").join("Roberts Space Industries").join("StarCitizen");
+    let mut versions = Vec::new();
+    if let Ok(entries) = fs::read_dir(&base) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                let user_cfg = path.join("USER.cfg");
+                let profile = sc_profile_dir(&exp, &name);
+                versions.push(ScVersionInfo { version: name.clone(), path: path.to_string_lossy().into_owned(), has_usercfg: user_cfg.exists(), has_attributes: profile.join("attributes.xml").exists(), has_actionmaps: profile.join("actionmaps.xml").exists(), has_exported_layouts: sc_mappings_dir(&exp, &name).is_dir() });
+            }
+        }
+    }
+    versions.sort_by_key(|v| match v.version.as_str() { "LIVE" => 0, "PTU" => 1, "HOTFIX" => 2, _ => 3 });
     Ok(versions)
 }
 
-// ============================================================
-// USER.cfg Commands (unchanged paths — already correct)
-// ============================================================
-
-#[tauri::command]
-pub async fn read_user_cfg(game_path: String, version: String) -> Result<String, String> {
-    let expanded = expand_tilde(&game_path);
-    let user_cfg_path = sc_base_dir(&expanded, &version).join("USER.cfg");
-
-    if !user_cfg_path.exists() {
-        return Ok(String::new());
-    }
-
-    fs::read_to_string(&user_cfg_path)
-        .map_err(|e| format!("Failed to read USER.cfg: {}", e))
+#[tauri::command] pub async fn read_user_cfg(game_path: String, version: String) -> Result<String, String> {
+    let p = sc_base_dir(&expand_tilde(&game_path), &version).join("USER.cfg");
+    if !p.exists() { return Ok(String::new()); }
+    fs::read_to_string(p).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub async fn write_user_cfg(
-    game_path: String,
-    version: String,
-    content: String,
-) -> Result<(), String> {
-    let expanded = expand_tilde(&game_path);
-    let user_cfg_path = sc_base_dir(&expanded, &version).join("USER.cfg");
-
-    if let Some(parent) = user_cfg_path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create directory: {}", e))?;
-    }
-
-    fs::write(&user_cfg_path, content)
-        .map_err(|e| format!("Failed to write USER.cfg: {}", e))
+#[tauri::command] pub async fn write_user_cfg(game_path: String, version: String, content: String) -> Result<(), String> {
+    let p = sc_base_dir(&expand_tilde(&game_path), &version).join("USER.cfg");
+    if let Some(parent) = p.parent() { fs::create_dir_all(parent).ok(); }
+    fs::write(p, content).map_err(|e| e.to_string())
 }
 
-// ============================================================
-// Profile Listing (refactored paths)
-// ============================================================
-
-/// Information about a Star Citizen profile.
-#[derive(Serialize, Deserialize, Clone)]
-pub struct ScProfile {
-    pub name: String,
-    #[serde(rename = "lastPlayed")]
-    pub last_played: u64,
-}
-
-#[tauri::command]
-pub async fn list_profiles(game_path: String, version: String) -> Result<Vec<ScProfile>, String> {
-    let expanded = expand_tilde(&game_path);
-    let profiles_path = sc_user_dir(&expanded, &version).join("Profiles");
-
-    if !profiles_path.is_dir() {
-        return Ok(Vec::new());
-    }
-
-    let mut profiles = Vec::new();
-
-    if let Ok(entries) = fs::read_dir(&profiles_path) {
+#[tauri::command] pub async fn list_profiles(game_path: String, version: String) -> Result<Vec<ScProfile>, String> {
+    let p = sc_user_dir(&expand_tilde(&game_path), &version).join("Profiles");
+    if !p.is_dir() { return Ok(Vec::new()); }
+    let mut res = Vec::new();
+    if let Ok(entries) = fs::read_dir(p) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                let name = path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into_owned();
-
-                if name == "frontend" {
-                    continue;
+                let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                if name == "frontend" { continue; }
+                let mut last = 0;
+                if let Ok(c) = fs::read_to_string(path.join("attributes.xml")) {
+                    if let Some(s) = c.find("lastPlayed=\"") { if let Some(e) = c[s+12..].find('"') { last = c[s+12..s+12+e].parse().unwrap_or(0); } }
                 }
-
-                let mut last_played: u64 = 0;
-                let attrs_path = path.join("attributes.xml");
-                if attrs_path.exists() {
-                    if let Ok(content) = fs::read_to_string(&attrs_path) {
-                        if let Some(start) = content.find("lastPlayed=\"") {
-                            let rest = &content[start + 12..];
-                            if let Some(end) = rest.find('"') {
-                                if let Ok(ts) = rest[..end].parse::<u64>() {
-                                    last_played = ts;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                profiles.push(ScProfile { name, last_played });
+                res.push(ScProfile { name, last_played: last });
             }
         }
     }
-
-    profiles.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(profiles)
+    res.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(res)
 }
 
-// ============================================================
-// Attributes (refactored paths)
-// ============================================================
+#[derive(Serialize, Deserialize, Clone)] pub struct ScProfile { pub name: String, pub last_played: u64 }
 
-fn parse_attributes_xml(content: &str) -> ScAttributes {
-    let mut attrs = ScAttributes::default();
-
-    // Try "Version=" (actual SC format) and "version=" (fallback)
-    let version_marker = content
-        .find("Version=\"")
-        .map(|pos| (pos, 9))
-        .or_else(|| content.find("version=\"").map(|pos| (pos, 9)));
-    if let Some((start, prefix_len)) = version_marker {
-        let rest = &content[start + prefix_len..];
-        if let Some(end) = rest.find('"') {
-            attrs.version = rest[..end].to_string();
-        }
-    }
-
-    let mut search_pos = 0;
-    while let Some(start) = content[search_pos..].find("<Attr ") {
-        let start = search_pos + start;
-        if let Some(name_start) = content[start..].find("name=\"") {
-            let name_start = start + name_start + 6;
-            if let Some(name_end) = content[name_start..].find('"') {
-                let name = content[name_start..name_start + name_end].to_string();
-                if let Some(value_start) = content[name_start + name_end..].find("value=\"") {
-                    let value_start = name_start + name_end + value_start + 7;
-                    if let Some(value_end) = content[value_start..].find('"') {
-                        let value = content[value_start..value_start + value_end].to_string();
-                        attrs.attrs.push(ScAttribute { name, value });
-                    }
-                }
-            }
-        }
-        search_pos = start + 1;
-    }
-
-    attrs
-}
-
-fn serialize_attributes_xml(attrs: &ScAttributes) -> String {
-    let version_attr = if !attrs.version.is_empty() {
-        format!(" Version=\"{}\"", attrs.version)
-    } else {
-        String::new()
-    };
-
-    let mut xml = format!("<Attributes{}>\n", version_attr);
-
-    for attr in &attrs.attrs {
-        let name = attr
-            .name
-            .replace('&', "&amp;")
-            .replace('<', "&lt;")
-            .replace('>', "&gt;")
-            .replace('"', "&quot;");
-        let value = attr
-            .value
-            .replace('&', "&amp;")
-            .replace('<', "&lt;")
-            .replace('>', "&gt;")
-            .replace('"', "&quot;");
-        xml.push_str(&format!(
-            " <Attr name=\"{}\" value=\"{}\"/>\n",
-            name, value
-        ));
-    }
-
-    xml.push_str("</Attributes>\n");
-    xml
-}
-
-#[tauri::command]
-pub async fn read_attributes(
-    game_path: String,
-    version: String,
-) -> Result<ScAttributes, String> {
-    let expanded = expand_tilde(&game_path);
-    let attrs_path = sc_profile_dir(&expanded, &version).join("attributes.xml");
-
-    if !attrs_path.exists() {
-        return Ok(ScAttributes::default());
-    }
-
-    let content = fs::read_to_string(&attrs_path)
-        .map_err(|e| format!("Failed to read attributes.xml: {}", e))?;
-
+#[tauri::command] pub async fn read_attributes(game_path: String, version: String) -> Result<ScAttributes, String> {
+    let p = sc_profile_dir(&expand_tilde(&game_path), &version).join("attributes.xml");
+    if !p.exists() { return Ok(ScAttributes::default()); }
+    let content = fs::read_to_string(p).map_err(|e| e.to_string())?;
     Ok(parse_attributes_xml(&content))
 }
 
-#[tauri::command]
-pub async fn write_attributes(
-    game_path: String,
-    version: String,
-    attrs: ScAttributes,
-) -> Result<(), String> {
-    let expanded = expand_tilde(&game_path);
-    let attrs_path = sc_profile_dir(&expanded, &version).join("attributes.xml");
-
-    if let Some(parent) = attrs_path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create directory: {}", e))?;
+fn parse_attributes_xml(content: &str) -> ScAttributes {
+    let mut attrs = ScAttributes::default();
+    if let Some(s) = content.find("Version=\"").or(content.find("version=\"")) {
+        let start = s + 9; if let Some(e) = content[start..].find('"') { attrs.version = content[start..start+e].to_string(); }
     }
-
-    let content = serialize_attributes_xml(&attrs);
-    fs::write(&attrs_path, content)
-        .map_err(|e| format!("Failed to write attributes.xml: {}", e))
-}
-
-// ============================================================
-// Export / Import Profile (refactored paths)
-// ============================================================
-
-#[tauri::command]
-pub async fn export_profile(
-    game_path: String,
-    version: String,
-    dest_path: String,
-) -> Result<(), String> {
-    let expanded = expand_tilde(&game_path);
-    let source_path = sc_profile_dir(&expanded, &version);
-
-    if !source_path.exists() {
-        return Err("Profile directory does not exist".to_string());
-    }
-
-    let dest = Path::new(&dest_path);
-
-    // Security: Validate destination is within allowed directory
-    // For export, we allow any path user chooses but sanitize it
-    let dest_canonical = dest.canonicalize()
-        .or_else(|_| {
-            // If dest doesn't exist, create parent and try again
-            if let Some(parent) = dest.parent() {
-                fs::create_dir_all(parent).ok();
-                dest.canonicalize()
-            } else {
-                Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Invalid path"))
-            }
-        })
-        .map_err(|e| format!("Invalid destination path: {}", e))?;
-
-    // Get the user's home directory as a safety boundary
-    let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
-    if !dest_canonical.starts_with(&home) && !dest_canonical.starts_with("/tmp") {
-        return Err("Destination must be within user home or /tmp".to_string());
-    }
-
-    fs::create_dir_all(dest)
-        .map_err(|e| format!("Failed to create destination directory: {}", e))?;
-
-    for filename in &["actionmaps.xml", "attributes.xml", "profile.xml"] {
-        let src = source_path.join(filename);
-        if src.exists() {
-            // Security: Validate source path is within game directory
-            validate_path_inside_base_str(&src, &expanded)?;
-
-            fs::copy(&src, dest.join(filename))
-                .map_err(|e| format!("Failed to copy {}: {}", filename, e))?;
-        }
-    }
-
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn import_profile(
-    game_path: String,
-    version: String,
-    source_path: String,
-) -> Result<(), String> {
-    let expanded = expand_tilde(&game_path);
-    let dest_path = sc_profile_dir(&expanded, &version);
-    let source = Path::new(&source_path);
-
-    if !source.exists() {
-        return Err(format!("Source path '{}' does not exist", source_path));
-    }
-
-    fs::create_dir_all(&dest_path)
-        .map_err(|e| format!("Failed to create profile directory: {}", e))?;
-
-    for filename in &["actionmaps.xml", "attributes.xml", "profile.xml"] {
-        let src = source.join(filename);
-        if src.exists() {
-            // Security: Validate source is within allowed directory (home or /tmp)
-            let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
-            let src_canonical = src.canonicalize()
-                .map_err(|e| format!("Invalid source path: {}", e))?;
-            if !src_canonical.starts_with(&home) && !src_canonical.starts_with("/tmp") {
-                return Err("Source must be within user home or /tmp".to_string());
-            }
-
-            // Security: Validate destination stays within game directory
-            validate_path_inside_base_str(&dest_path.join(filename), &expanded)?;
-
-            fs::copy(&src, dest_path.join(filename))
-                .map_err(|e| format!("Failed to copy {}: {}", filename, e))?;
-        }
-    }
-
-    Ok(())
-}
-
-// ============================================================
-// Parse actionmaps.xml
-// ============================================================
-
-fn parse_product_string(product_str: &str) -> (String, String) {
-    // Product string format: "VKBsim Gladiator NXT R  {0200231D-0000-0000-0000-504944564944}"
-    // or sometimes: "Name {GUID}"
-    if let Some(guid_start) = product_str.rfind('{') {
-        let name = product_str[..guid_start].trim().to_string();
-        let guid = product_str[guid_start..].trim().to_string();
-        (name, guid)
-    } else {
-        (product_str.trim().to_string(), String::new())
-    }
-}
-
-fn get_attr_value(e: &quick_xml::events::BytesStart, attr_name: &[u8]) -> Option<String> {
-    for attr in e.attributes().flatten() {
-        if attr.key.as_ref() == attr_name {
-            return String::from_utf8(attr.value.to_vec()).ok();
-        }
-    }
-    None
-}
-
-fn handle_start_or_empty_tag(
-    e: &quick_xml::events::BytesStart,
-    result: &mut ParsedActionMaps,
-    current_actionmap: &mut Option<ScActionMap>,
-    current_action_name: &mut Option<String>,
-    current_device_options: &mut Option<ScDeviceOptions>,
-) {
-    let tag_name = String::from_utf8_lossy(e.name().as_ref()).to_string();
-
-    match tag_name.as_str() {
-        // Handle both <ActionMaps> and <ActionProfiles> as metadata sources
-        "ActionMaps" | "ActionProfiles" => {
-            if let Some(v) = get_attr_value(e, b"version") {
-                result.version = v;
-            }
-            // Try camelCase (actual SC format) and snake_case
-            if let Some(v) = get_attr_value(e, b"profileName") {
-                result.profile_name = v;
-            } else if let Some(v) = get_attr_value(e, b"profile_name") {
-                result.profile_name = v;
-            }
-        }
-        "options" => {
-            let device_type = get_attr_value(e, b"type").unwrap_or_default();
-            let instance = get_attr_value(e, b"instance")
-                .and_then(|v| v.parse::<u32>().ok())
-                .unwrap_or(0);
-            let product_raw = get_attr_value(e, b"Product").unwrap_or_default();
-
-            // Only include devices that have a Product string (skip empty placeholder slots)
-            if !product_raw.is_empty() {
-                let (product, guid) = parse_product_string(&product_raw);
-                result.devices.push(ScDevice {
-                    device_type,
-                    instance,
-                    product,
-                    guid,
-                });
-            }
-        }
-        "deviceoptions" => {
-            let name = get_attr_value(e, b"name").unwrap_or_default();
-            *current_device_options = Some(ScDeviceOptions {
-                name,
-                options: Vec::new(),
-            });
-        }
-        "option" => {
-            if let Some(ref mut dev_opts) = current_device_options {
-                let input = get_attr_value(e, b"input").unwrap_or_default();
-                let deadzone = get_attr_value(e, b"deadzone")
-                    .and_then(|v| v.parse::<f64>().ok());
-                let saturation = get_attr_value(e, b"saturation")
-                    .and_then(|v| v.parse::<f64>().ok());
-                dev_opts.options.push(ScDeviceOption {
-                    input,
-                    deadzone,
-                    saturation,
-                });
-            }
-        }
-        "actionmap" => {
-            let name = get_attr_value(e, b"name").unwrap_or_default();
-            *current_actionmap = Some(ScActionMap {
-                name,
-                bindings: Vec::new(),
-            });
-        }
-        "action" => {
-            *current_action_name = get_attr_value(e, b"name");
-        }
-        "rebind" => {
-            if let (Some(ref action_name), Some(ref mut am)) =
-                (current_action_name, current_actionmap)
-            {
-                let input = get_attr_value(e, b"input").unwrap_or_default();
-                if !input.is_empty() {
-                    am.bindings.push(ScBinding {
-                        action_name: action_name.clone(),
-                        input,
-                    });
+    let mut pos = 0;
+    while let Some(s) = content[pos..].find("<Attr ") {
+        let s = pos + s;
+        if let Some(ns) = content[s..].find("name=\"") {
+            let ns = s + ns + 6;
+            if let Some(ne) = content[ns..].find('"') {
+                let name = content[ns..ns+ne].to_string();
+                if let Some(vs) = content[ns+ne..].find("value=\"") {
+                    let vs = ns + ne + vs + 7;
+                    if let Some(ve) = content[vs..].find('"') { attrs.attrs.push(ScAttribute { name, value: content[vs..vs+ve].to_string() }); }
                 }
             }
         }
-        _ => {}
+        pos = s + 1;
     }
+    attrs
+}
+
+#[tauri::command] pub async fn write_attributes(game_path: String, version: String, attrs: ScAttributes) -> Result<(), String> {
+    let p = sc_profile_dir(&expand_tilde(&game_path), &version).join("attributes.xml");
+    if let Some(parent) = p.parent() { fs::create_dir_all(parent).ok(); }
+    let mut xml = format!("<Attributes Version=\"{}\">\n", attrs.version);
+    for a in attrs.attrs { xml.push_str(&format!(" <Attr name=\"{}\" value=\"{}\"/>\n", a.name, a.value)); }
+    xml.push_str("</Attributes>\n");
+    fs::write(p, xml).map_err(|e| e.to_string())
+}
+
+#[tauri::command] pub async fn export_profile(game_path: String, version: String, dest_path: String) -> Result<(), String> {
+    let exp = expand_tilde(&game_path); let src = sc_profile_dir(&exp, &version); let dest = Path::new(&dest_path);
+    fs::create_dir_all(dest).map_err(|e| e.to_string())?;
+    for f in &["actionmaps.xml", "attributes.xml", "profile.xml"] { if src.join(f).exists() { fs::copy(src.join(f), dest.join(f)).map_err(|e| e.to_string())?; } }
+    Ok(())
+}
+
+#[tauri::command] pub async fn import_profile(game_path: String, version: String, source_path: String) -> Result<(), String> {
+    let exp = expand_tilde(&game_path); let dest = sc_profile_dir(&exp, &version); let src = Path::new(&source_path);
+    fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
+    for f in &["actionmaps.xml", "attributes.xml", "profile.xml"] { if src.join(f).exists() { fs::copy(src.join(f), dest.join(f)).map_err(|e| e.to_string())?; } }
+    Ok(())
 }
 
 fn parse_actionmaps_xml(content: &str) -> Result<ParsedActionMaps, String> {
-    let mut reader = Reader::from_str(content);
-
-    let mut result = ParsedActionMaps {
-        version: String::new(),
-        profile_name: String::new(),
-        devices: Vec::new(),
-        device_options: Vec::new(),
-        action_maps: Vec::new(),
-    };
-
-    let mut current_actionmap: Option<ScActionMap> = None;
-    let mut current_action_name: Option<String> = None;
-    let mut current_device_options: Option<ScDeviceOptions> = None;
-
+    let trimmed = content.trim().trim_matches('\0'); if trimmed.is_empty() { return Err("Empty XML".to_string()); }
+    let mut reader = Reader::from_str(trimmed); reader.config_mut().trim_text(true);
+    let mut result = ParsedActionMaps::default();
+    let (mut current_am, mut current_action, mut current_opts) = (None, None, None);
     let mut buf = Vec::new();
-
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Eof) => break,
-            Ok(Event::Empty(ref e)) => {
-                handle_start_or_empty_tag(
-                    e,
-                    &mut result,
-                    &mut current_actionmap,
-                    &mut current_action_name,
-                    &mut current_device_options,
-                );
-            }
-            Ok(Event::Start(ref e)) => {
-                handle_start_or_empty_tag(
-                    e,
-                    &mut result,
-                    &mut current_actionmap,
-                    &mut current_action_name,
-                    &mut current_device_options,
-                );
-            }
-            Ok(Event::End(ref e)) => {
-                let tag_name = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                match tag_name.as_str() {
-                    "actionmap" => {
-                        if let Some(am) = current_actionmap.take() {
-                            if !am.bindings.is_empty() {
-                                result.action_maps.push(am);
-                            }
+            Ok(Event::Empty(ref e)) | Ok(Event::Start(ref e)) => {
+                let tag_owned = String::from_utf8_lossy(e.name().as_ref()).into_owned();
+                let tag = tag_owned.as_str();
+                match tag {
+                    "ActionMaps" | "ActionProfiles" => {
+                        if let Some(v) = get_attr(e, b"version") { result.version = v; }
+                        if let Some(v) = get_attr(e, b"profileName").or(get_attr(e, b"profile_name")) { result.profile_name = v; }
+                    }
+                    "options" => {
+                        let t = get_attr(e, b"type").unwrap_or_default();
+                        let i = get_attr(e, b"instance").and_then(|v| v.parse().ok()).unwrap_or(0);
+                        let p_raw = get_attr(e, b"Product").unwrap_or_default();
+                        if !p_raw.is_empty() {
+                            let (prod, guid) = if let Some(gs) = p_raw.rfind('{') { (p_raw[..gs].trim().to_string(), p_raw[gs..].trim().to_string()) } else { (p_raw.trim().to_string(), String::new()) };
+                            result.devices.push(ScDevice { device_type: t, instance: i, product: prod, guid });
                         }
                     }
-                    "action" => {
-                        current_action_name = None;
-                    }
-                    "deviceoptions" => {
-                        if let Some(opts) = current_device_options.take() {
-                            result.device_options.push(opts);
-                        }
-                    }
+                    "deviceoptions" => { current_opts = Some(ScDeviceOptions { name: get_attr(e, b"name").unwrap_or_default(), options: Vec::new() }); }
+                    "option" => { if let Some(ref mut o) = current_opts { o.options.push(ScDeviceOption { input: get_attr(e, b"input").unwrap_or_default(), deadzone: get_attr(e, b"deadzone").and_then(|v| v.parse().ok()), saturation: get_attr(e, b"saturation").and_then(|v| v.parse().ok()) }); } }
+                    "actionmap" => { current_am = Some(ScActionMap { name: get_attr(e, b"name").unwrap_or_default(), bindings: Vec::new(), actions: Vec::new() }); }
+                    "action" => { let name = get_attr(e, b"name").unwrap_or_default(); if let Some(ref mut am) = current_am { if !name.is_empty() { am.actions.push(name.clone()); } } current_action = Some(name); }
+                    "rebind" => { if let (Some(ref a), Some(ref mut am)) = (current_action.as_ref(), current_am.as_mut()) { let i = get_attr(e, b"input").unwrap_or_default(); if !i.is_empty() { am.bindings.push(ScBinding { action_name: a.to_string(), input: i }); } } }
                     _ => {}
                 }
             }
-            Err(e) => {
-                return Err(format!("XML parse error: {}", e));
+            Ok(Event::End(ref e)) => {
+                let tag_owned = String::from_utf8_lossy(e.name().as_ref()).into_owned();
+                let tag = tag_owned.as_str();
+                match tag {
+                    "actionmap" => { if let Some(am) = current_am.take() { result.action_maps.push(am); } }
+                    "action" => { current_action = None; }
+                    "deviceoptions" => { if let Some(o) = current_opts.take() { result.device_options.push(o); } }
+                    _ => {}
+                }
             }
-            _ => {}
+            Err(e) => return Err(e.to_string()), _ => {}
         }
         buf.clear();
     }
-
     Ok(result)
 }
 
-#[tauri::command]
-pub async fn parse_actionmaps(
-    game_path: String,
-    version: String,
-    source: Option<String>,
-) -> Result<ParsedActionMaps, String> {
-    let expanded = expand_tilde(&game_path);
-
-    let xml_path = match source {
-        Some(ref filename) => sc_mappings_dir(&expanded, &version).join(filename),
-        None => sc_profile_dir(&expanded, &version).join("actionmaps.xml"),
-    };
-
-    if !xml_path.exists() {
-        return Err(format!(
-            "File not found: {}",
-            xml_path.to_string_lossy()
-        ));
-    }
-
-    let content = fs::read_to_string(&xml_path)
-        .map_err(|e| format!("Failed to read file: {}", e))?;
-
-    parse_actionmaps_xml(&content)
+fn get_attr(e: &BytesStart, name: &[u8]) -> Option<String> {
+    for a in e.attributes().flatten() { if a.key.as_ref() == name { return String::from_utf8(a.value.to_vec()).ok(); } }
+    None
 }
 
-// ============================================================
-// Reorder Devices
-// ============================================================
+#[tauri::command] pub async fn reorder_devices(game_path: String, version: String, new_order: Vec<DeviceReorderEntry>) -> Result<(), String> {
+    let exp = expand_tilde(&game_path); let p = sc_profile_dir(&exp, &version).join("actionmaps.xml");
+    if !p.exists() { return Err("Not found".to_string()); }
+    let mut content = fs::read_to_string(&p).map_err(|e| e.to_string())?;
+    for entry in &new_order { let old = format!("instance=\"{}\"", entry.old_instance); let placeholder = format!("instance=\"__REMAP_{}__\"", entry.new_instance); content = content.replace(&old, &placeholder); }
+    for entry in &new_order { let placeholder = format!("instance=\"__REMAP_{}__\"", entry.new_instance); let final_val = format!("instance=\"{}\"", entry.new_instance); content = content.replace(&placeholder, &final_val); }
+    fs::write(p, content).map_err(|e| e.to_string())
+}
 
-/// Find the full extent of an `<options ... >...</options>` or `<options ... />`
-/// block for a joystick with the given instance number.
-fn find_options_block(content: &str, instance: u32) -> Option<(usize, usize)> {
-    let instance_str = format!("instance=\"{}\"", instance);
-    let mut search_from = 0;
+#[tauri::command] pub fn get_action_definitions() -> ActionDefinitions { ActionDefinitions::new() }
 
-    loop {
-        let rel = content[search_from..].find("<options ")?;
-        let tag_start = search_from + rel;
-        let rest = &content[tag_start..];
+#[tauri::command] pub async fn assign_binding(game_path: String, version: String, action_name: String, category: String, input: String) -> Result<(), String> {
+    let p = sc_profile_dir(&expand_tilde(&game_path), &version).join("actionmaps.xml");
+    if !p.exists() { return Err("Not found".to_string()); }
+    let mut parsed = parse_actionmaps_xml(&fs::read_to_string(&p).map_err(|e| e.to_string())?)?;
+    let mut found = false;
+    for am in &mut parsed.action_maps { if let Some(b) = am.bindings.iter_mut().find(|b| b.action_name == action_name) { b.input = input.clone(); found = true; break; } }
+    if !found {
+        let cat = if !category.is_empty() { category } else { "general".to_string() };
+        if let Some(am) = parsed.action_maps.iter_mut().find(|am| am.name == cat) { am.bindings.push(ScBinding { action_name: action_name.clone(), input }); }
+        else { parsed.action_maps.push(ScActionMap { name: cat, bindings: vec![ScBinding { action_name: action_name.clone(), input }], actions: vec![action_name] }); }
+    }
+    write_actionmaps_xml(&p, &parsed)
+}
 
-        // Find the end of the opening tag: either "/>" (self-closing) or ">"
-        let self_close = rest.find("/>");
-        let open_close = rest.find('>');
+#[tauri::command] pub async fn remove_binding(game_path: String, version: String, action_name: String, input: String, _category: String) -> Result<(), String> {
+    let p = sc_profile_dir(&expand_tilde(&game_path), &version).join("actionmaps.xml");
+    let mut parsed = parse_actionmaps_xml(&fs::read_to_string(&p).map_err(|e| e.to_string())?)?;
+    for am in &mut parsed.action_maps { am.bindings.retain(|b| !(b.action_name == action_name && b.input == input)); }
+    write_actionmaps_xml(&p, &parsed)
+}
 
-        let (is_self_closing, tag_end_rel) = match (self_close, open_close) {
-            (Some(sc), Some(oc)) if sc < oc => (true, sc),
-            (Some(sc), Some(oc)) if sc == oc + 1 => (true, oc), // "/>": > is at oc, / is at oc-1 — actually "/>" means sc = position of '/'
-            (_, Some(oc)) => {
-                // Check if the char before '>' is '/'
-                if oc > 0 && rest.as_bytes()[oc - 1] == b'/' {
-                    (true, oc - 1)
-                } else {
-                    (false, oc)
-                }
-            }
-            _ => {
-                search_from = tag_start + 1;
-                continue;
-            }
-        };
-
-        let tag_header = &rest[..tag_end_rel];
-
-        if tag_header.contains("type=\"joystick\"") && tag_header.contains(&instance_str) {
-            if is_self_closing {
-                // Self-closing: ends at "/>" + 2 chars
-                let block_end = tag_start
-                    + rest.find("/>").map(|i| i + 2).unwrap_or(tag_end_rel + 2);
-                return Some((tag_start, block_end));
-            } else {
-                // Has children: find </options>
-                let close_tag = rest.find("</options>")?;
-                let block_end = tag_start + close_tag + "</options>".len();
-                return Some((tag_start, block_end));
-            }
+fn write_actionmaps_xml(path: &Path, parsed: &ParsedActionMaps) -> Result<(), String> {
+    let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
+    writer.write_event(Event::Decl(quick_xml::events::BytesDecl::new("1.0", Some("UTF-8"), None))).ok();
+    let mut root = BytesStart::new("ActionMaps");
+    root.push_attribute(("version", "1"));
+    writer.write_event(Event::Start(root)).ok();
+    for am in &parsed.action_maps {
+        let mut am_tag = BytesStart::new("actionmap");
+        am_tag.push_attribute(("name", am.name.as_str()));
+        writer.write_event(Event::Start(am_tag)).ok();
+        for b in &am.bindings {
+            let mut a_tag = BytesStart::new("action");
+            a_tag.push_attribute(("name", b.action_name.as_str()));
+            writer.write_event(Event::Start(a_tag)).ok();
+            let mut r_tag = BytesStart::new("rebind");
+            r_tag.push_attribute(("input", b.input.as_str()));
+            writer.write_event(Event::Empty(r_tag)).ok();
+            writer.write_event(Event::End(quick_xml::events::BytesEnd::new("action"))).ok();
         }
-
-        search_from = tag_start + 1;
+        writer.write_event(Event::End(quick_xml::events::BytesEnd::new("actionmap"))).ok();
     }
+    writer.write_event(Event::End(quick_xml::events::BytesEnd::new("ActionMaps"))).ok();
+    let res = writer.into_inner().into_inner();
+    fs::write(path, String::from_utf8(res).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub async fn reorder_devices(
-    game_path: String,
-    version: String,
-    new_order: Vec<DeviceReorderEntry>,
-) -> Result<(), String> {
-    let expanded = expand_tilde(&game_path);
-    let actionmaps_path = sc_profile_dir(&expanded, &version).join("actionmaps.xml");
-
-    if !actionmaps_path.exists() {
-        return Err("actionmaps.xml not found".to_string());
-    }
-
-    // TODO: Auto-backup before modifying (disabled for now)
-    // backup_profile_internal(&expanded, &version, "auto-pre-reorder", "")?;
-
-    let content = fs::read_to_string(&actionmaps_path)
-        .map_err(|e| format!("Failed to read actionmaps.xml: {}", e))?;
-
-    let mut result = content.clone();
-
-    // Step 1: Physically swap the <options> blocks for each pair
-    // (new_order always contains pairs, e.g. [{1→2}, {2→1}])
-    // We only need to process one direction of the swap
-    let mut swapped: std::collections::HashSet<(u32, u32)> = std::collections::HashSet::new();
-    for entry in &new_order {
-        let pair = if entry.old_instance < entry.new_instance {
-            (entry.old_instance, entry.new_instance)
-        } else {
-            (entry.new_instance, entry.old_instance)
-        };
-        if swapped.contains(&pair) {
-            continue;
-        }
-        swapped.insert(pair);
-
-        let block_a = find_options_block(&result, entry.old_instance)
-            .ok_or_else(|| {
-                format!(
-                    "Could not find <options> block for joystick instance {}",
-                    entry.old_instance
-                )
-            })?;
-        let block_b = find_options_block(&result, entry.new_instance)
-            .ok_or_else(|| {
-                format!(
-                    "Could not find <options> block for joystick instance {}",
-                    entry.new_instance
-                )
-            })?;
-
-        let text_a = result[block_a.0..block_a.1].to_string();
-        let text_b = result[block_b.0..block_b.1].to_string();
-
-        // Swap: replace the later block first to preserve earlier offsets
-        let (first, second, first_text, second_text) = if block_a.0 < block_b.0 {
-            (block_a, block_b, text_a, text_b)
-        } else {
-            (block_b, block_a, text_b, text_a)
-        };
-
-        let mut swapped_content = String::with_capacity(result.len());
-        swapped_content.push_str(&result[..first.0]);
-        swapped_content.push_str(&second_text);
-        swapped_content.push_str(&result[first.1..second.0]);
-        swapped_content.push_str(&first_text);
-        swapped_content.push_str(&result[second.1..]);
-        result = swapped_content;
-    }
-
-    // Step 2: Swap instance="X" attributes — ONLY for joystick <options> tags
-    // Must scope to type="joystick" to avoid corrupting keyboard/gamepad/mouse instances
-    for entry in &new_order {
-        let old_pattern = format!("type=\"joystick\" instance=\"{}\"", entry.old_instance);
-        let placeholder = format!(
-            "type=\"joystick\" instance=\"__REMAP_{}__\"",
-            entry.new_instance
-        );
-        result = result.replace(&old_pattern, &placeholder);
-    }
-    for entry in &new_order {
-        let placeholder = format!(
-            "type=\"joystick\" instance=\"__REMAP_{}__\"",
-            entry.new_instance
-        );
-        let final_val = format!("type=\"joystick\" instance=\"{}\"", entry.new_instance);
-        result = result.replace(&placeholder, &final_val);
-    }
-
-    // Step 2b: Swap <deviceoptions name="joystickN"> references
-    for entry in &new_order {
-        let old_name = format!("name=\"joystick{}\"", entry.old_instance);
-        let placeholder = format!("name=\"__JOYSTICK_REMAP_{}__\"", entry.new_instance);
-        result = result.replace(&old_name, &placeholder);
-    }
-    for entry in &new_order {
-        let placeholder = format!("name=\"__JOYSTICK_REMAP_{}__\"", entry.new_instance);
-        let final_name = format!("name=\"joystick{}\"", entry.new_instance);
-        result = result.replace(&placeholder, &final_name);
-    }
-
-    // Step 3: Swap jsX_ binding prefixes
-    for entry in &new_order {
-        let old_prefix = format!("js{}_", entry.old_instance);
-        let placeholder = format!("__JS_REMAP_{}_", entry.new_instance);
-        result = result.replace(&old_prefix, &placeholder);
-    }
-    for entry in &new_order {
-        let placeholder = format!("__JS_REMAP_{}_", entry.new_instance);
-        let final_prefix = format!("js{}_", entry.new_instance);
-        result = result.replace(&placeholder, &final_prefix);
-    }
-
-    // Write to temp file, then atomic rename
-    let tmp_path = actionmaps_path.with_extension("xml.tmp");
-    fs::write(&tmp_path, &result)
-        .map_err(|e| format!("Failed to write temp file: {}", e))?;
-
-    fs::rename(&tmp_path, &actionmaps_path)
-        .map_err(|e| format!("Failed to rename temp file: {}", e))?;
-
-    Ok(())
+#[tauri::command] pub async fn backup_profile_manual(game_path: String, version: String, label: String) -> Result<BackupInfo, String> {
+    backup_profile(game_path, version, Some("manual".to_string()), Some(label)).await
 }
 
-// ============================================================
-// Backup / Restore
-// ============================================================
-
-fn backup_profile_internal(
-    game_path: &str,
-    version: &str,
-    backup_type: &str,
-    label: &str,
-) -> Result<BackupInfo, String> {
+#[tauri::command] pub async fn backup_profile(game_path: String, version: String, backup_type: Option<String>, label: Option<String>) -> Result<BackupInfo, String> {
     let now = Local::now();
     let id = now.format("%Y-%m-%dT%H-%M-%S").to_string();
-    let created_at = now.format("%Y-%m-%d %H:%M:%S").to_string();
-    let timestamp = now.timestamp() as u64;
-
-    let backup_dir = backup_version_dir(version)?.join(&id);
-    fs::create_dir_all(&backup_dir)
-        .map_err(|e| format!("Failed to create backup directory: {}", e))?;
-
-    let profile_dir = sc_profile_dir(game_path, version);
-    let base_dir = sc_base_dir(game_path, version);
-    let user_dir = sc_user_dir(game_path, version);
-    let controls_dir = sc_controls_dir(game_path, version);
-
-    let files_to_backup = [
-        (profile_dir.join("actionmaps.xml"), "actionmaps.xml"),
-        (profile_dir.join("attributes.xml"), "attributes.xml"),
-        (profile_dir.join("profile.xml"), "profile.xml"),
-        (base_dir.join("USER.cfg"), "USER.cfg"),
-    ];
-
-    let mut backed_up_files = Vec::new();
-
-    for (src, name) in &files_to_backup {
-        if src.exists() {
-            fs::copy(src, backup_dir.join(name))
-                .map_err(|e| format!("Failed to copy {}: {}", name, e))?;
-            backed_up_files.push(name.to_string());
-        }
+    let b_dir = backup_version_dir(&version)?.join(&id);
+    fs::create_dir_all(&b_dir).map_err(|e| e.to_string())?;
+    let p_dir = sc_profile_dir(&expand_tilde(&game_path), &version);
+    let mut files = Vec::new();
+    for f in &["actionmaps.xml", "attributes.xml", "profile.xml"] {
+        if p_dir.join(f).exists() { fs::copy(p_dir.join(f), b_dir.join(f)).ok(); files.push(f.to_string()); }
     }
-
-    // Backup controls folder (recursively)
-    if controls_dir.is_dir() {
-        let controls_backup_dir = backup_dir.join("controls");
-        copy_dir(&controls_dir, &controls_backup_dir)?;
-        backed_up_files.push("controls/".to_string());
-    }
-
-    // Backup CustomCharacters folder (recursively)
-    let custom_chars_dir = user_dir.join("CustomCharacters");
-    if custom_chars_dir.is_dir() {
-        let custom_chars_backup_dir = backup_dir.join("CustomCharacters");
-        copy_dir(&custom_chars_dir, &custom_chars_backup_dir)?;
-        backed_up_files.push("CustomCharacters/".to_string());
-    }
-
-    if backed_up_files.is_empty() {
-        // Clean up empty backup dir
-        let _ = fs::remove_dir(&backup_dir);
-        return Err("No profile files found to backup".to_string());
-    }
-
-    let info = BackupInfo {
-        id,
-        created_at,
-        timestamp,
-        version: version.to_string(),
-        backup_type: backup_type.to_string(),
-        files: backed_up_files,
-        label: label.to_string(),
-    };
-
-    // Write metadata
-    let meta_json = serde_json::to_string_pretty(&info)
-        .map_err(|e| format!("Failed to serialize backup metadata: {}", e))?;
-    fs::write(backup_dir.join("backup_meta.json"), meta_json)
-        .map_err(|e| format!("Failed to write backup metadata: {}", e))?;
-
+    let info = BackupInfo { id, created_at: now.format("%Y-%m-%d %H:%M:%S").to_string(), timestamp: now.timestamp() as u64, version, backup_type: backup_type.unwrap_or("manual".to_string()), files, label: label.unwrap_or_default() };
+    fs::write(b_dir.join("backup_meta.json"), serde_json::to_string_pretty(&info).unwrap()).ok();
     Ok(info)
 }
 
-#[tauri::command]
-pub async fn backup_profile(
-    game_path: String,
-    version: String,
-    backup_type: Option<String>,
-    label: Option<String>,
-) -> Result<BackupInfo, String> {
-    let expanded = expand_tilde(&game_path);
-    let bt = backup_type.unwrap_or_else(|| "manual".to_string());
-    let lbl = label.unwrap_or_default();
-    backup_profile_internal(&expanded, &version, &bt, &lbl)
-}
-
-#[tauri::command]
-pub async fn restore_profile(
-    game_path: String,
-    version: String,
-    backup_id: String,
-) -> Result<(), String> {
-    let expanded = expand_tilde(&game_path);
-
-    // TODO: Safety backup before restoring (disabled for now)
-    // let _ = backup_profile_internal(&expanded, &version, "auto-pre-restore", "");
-
-    let backup_dir = backup_version_dir(&version)?.join(&backup_id);
-    if !backup_dir.is_dir() {
-        return Err(format!("Backup '{}' not found", backup_id));
+#[tauri::command] pub async fn restore_profile(game_path: String, version: String, backup_id: String) -> Result<(), String> {
+    let b_dir = backup_version_dir(&version)?.join(backup_id);
+    let p_dir = sc_profile_dir(&expand_tilde(&game_path), &version);
+    fs::create_dir_all(&p_dir).ok();
+    for f in &["actionmaps.xml", "attributes.xml", "profile.xml"] {
+        if b_dir.join(f).exists() { fs::copy(b_dir.join(f), p_dir.join(f)).ok(); }
     }
-
-    let profile_dir = sc_profile_dir(&expanded, &version);
-    let base_dir = sc_base_dir(&expanded, &version);
-    let user_dir = sc_user_dir(&expanded, &version);
-    let controls_dir = sc_controls_dir(&expanded, &version);
-
-    fs::create_dir_all(&profile_dir)
-        .map_err(|e| format!("Failed to create profile directory: {}", e))?;
-
-    let files_to_restore = [
-        ("actionmaps.xml", profile_dir.join("actionmaps.xml")),
-        ("attributes.xml", profile_dir.join("attributes.xml")),
-        ("profile.xml", profile_dir.join("profile.xml")),
-        ("USER.cfg", base_dir.join("USER.cfg")),
-    ];
-
-    for (name, dest) in &files_to_restore {
-        let src = backup_dir.join(name);
-        if src.exists() {
-            if let Some(parent) = dest.parent() {
-                fs::create_dir_all(parent)
-                    .map_err(|e| format!("Failed to create directory: {}", e))?;
-            }
-            fs::copy(&src, dest)
-                .map_err(|e| format!("Failed to restore {}: {}", name, e))?;
-        }
-    }
-
-    // Restore controls folder (recursively)
-    let controls_backup_dir = backup_dir.join("controls");
-    if controls_backup_dir.is_dir() {
-        copy_dir(&controls_backup_dir, &controls_dir)?;
-    }
-
-    // Restore CustomCharacters folder (recursively)
-    let custom_chars_backup_dir = backup_dir.join("CustomCharacters");
-    let custom_chars_dir = user_dir.join("CustomCharacters");
-    if custom_chars_backup_dir.is_dir() {
-        copy_dir(&custom_chars_backup_dir, &custom_chars_dir)?;
-    }
-
     Ok(())
 }
 
-#[tauri::command]
-pub async fn list_backups(version: String) -> Result<Vec<BackupInfo>, String> {
-    let backup_dir = backup_version_dir(&version)?;
-
-    if !backup_dir.is_dir() {
-        return Ok(Vec::new());
-    }
-
-    let mut backups = Vec::new();
-
-    if let Ok(entries) = fs::read_dir(&backup_dir) {
+#[tauri::command] pub async fn list_backups(version: String) -> Result<Vec<BackupInfo>, String> {
+    let d = backup_version_dir(&version)?;
+    if !d.is_dir() { return Ok(Vec::new()); }
+    let mut res = Vec::new();
+    if let Ok(entries) = fs::read_dir(d) {
         for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                let meta_path = path.join("backup_meta.json");
-                if meta_path.exists() {
-                    if let Ok(content) = fs::read_to_string(&meta_path) {
-                        if let Ok(info) = serde_json::from_str::<BackupInfo>(&content) {
-                            backups.push(info);
-                        }
-                    }
-                }
+            if let Ok(c) = fs::read_to_string(entry.path().join("backup_meta.json")) {
+                if let Ok(info) = serde_json::from_str::<BackupInfo>(&c) { res.push(info); }
             }
         }
     }
-
-    // Sort by timestamp descending (newest first)
-    backups.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-    Ok(backups)
+    res.sort_by_key(|b| std::cmp::Reverse(b.timestamp));
+    Ok(res)
 }
 
-#[tauri::command]
-pub async fn update_backup_label(
-    version: String,
-    backup_id: String,
-    label: String,
-) -> Result<(), String> {
-    let backup_dir = backup_version_dir(&version)?.join(&backup_id);
-    let meta_path = backup_dir.join("backup_meta.json");
-
-    if !meta_path.exists() {
-        return Err(format!("Backup '{}' not found", backup_id));
-    }
-
-    let content = fs::read_to_string(&meta_path)
-        .map_err(|e| format!("Failed to read backup metadata: {}", e))?;
-
-    let mut info: BackupInfo = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse backup metadata: {}", e))?;
-
+#[tauri::command] pub async fn update_backup_label(version: String, backup_id: String, label: String) -> Result<(), String> {
+    let p = backup_version_dir(&version)?.join(backup_id).join("backup_meta.json");
+    let mut info: BackupInfo = serde_json::from_str(&fs::read_to_string(&p).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     info.label = label;
-
-    let meta_json = serde_json::to_string_pretty(&info)
-        .map_err(|e| format!("Failed to serialize backup metadata: {}", e))?;
-
-    fs::write(&meta_path, meta_json)
-        .map_err(|e| format!("Failed to write backup metadata: {}", e))?;
-
-    Ok(())
+    fs::write(p, serde_json::to_string_pretty(&info).unwrap()).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub async fn delete_backup(version: String, backup_id: String) -> Result<(), String> {
-    // Security: Validate backup_id to prevent path traversal
-    if backup_id.contains("..") || backup_id.contains('/') || backup_id.contains('\\') {
-        return Err("Invalid backup ID".to_string());
-    }
-
-    let backup_dir = backup_version_dir(&version)?.join(&backup_id);
-
-    // Security: Validate path stays within backup directory
-    validate_path_inside_base_str(&backup_dir, &backup_version_dir(&version)?.to_string_lossy())?;
-
-    if !backup_dir.is_dir() {
-        return Err(format!("Backup '{}' not found", backup_id));
-    }
-
-    fs::remove_dir_all(&backup_dir)
-        .map_err(|e| format!("Failed to delete backup: {}", e))
+#[tauri::command] pub async fn delete_backup(version: String, backup_id: String) -> Result<(), String> {
+    let p = backup_version_dir(&version)?.join(backup_id);
+    if p.is_dir() { fs::remove_dir_all(p).map_err(|e| e.to_string()) } else { Ok(()) }
 }
 
-// ============================================================
-// List Exported Layouts
-// ============================================================
-
-#[tauri::command]
-pub async fn list_exported_layouts(
-    game_path: String,
-    version: String,
-) -> Result<Vec<ExportedLayout>, String> {
-    let expanded = expand_tilde(&game_path);
-    let mappings_dir = sc_mappings_dir(&expanded, &version);
-
-    if !mappings_dir.is_dir() {
-        return Ok(Vec::new());
-    }
-
-    let mut layouts = Vec::new();
-
-    if let Ok(entries) = fs::read_dir(&mappings_dir) {
+#[tauri::command] pub async fn list_exported_layouts(game_path: String, version: String) -> Result<Vec<ExportedLayout>, String> {
+    let d = sc_mappings_dir(&expand_tilde(&game_path), &version);
+    if !d.is_dir() { return Ok(Vec::new()); }
+    let mut res = Vec::new();
+    if let Ok(entries) = fs::read_dir(d) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().map_or(false, |ext| ext == "xml") {
-                let filename = path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into_owned();
-
-                // Create a friendly label from the filename
-                let label = filename
-                    .trim_end_matches(".xml")
-                    .replace('_', " ")
-                    .to_string();
-
-                let modified = path
-                    .metadata()
-                    .ok()
-                    .and_then(|m| m.modified().ok())
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0);
-
-                layouts.push(ExportedLayout {
-                    filename,
-                    label,
-                    modified,
-                });
+                let filename = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                let modified = path.metadata().ok().and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_secs()).unwrap_or(0);
+                res.push(ExportedLayout { label: filename.trim_end_matches(".xml").replace('_', " "), filename, modified });
             }
         }
     }
+    res.sort_by_key(|l| std::cmp::Reverse(l.modified));
+    Ok(res)
+}
 
-    layouts.sort_by(|a, b| b.modified.cmp(&a.modified));
-    Ok(layouts)
+#[tauri::command] pub async fn parse_actionmaps(game_path: String, version: String, source: Option<String>) -> Result<ParsedActionMaps, String> {
+    let exp = expand_tilde(&game_path);
+    let p = match source { Some(f) => sc_mappings_dir(&exp, &version).join(f), None => sc_profile_dir(&exp, &version).join("actionmaps.xml") };
+    if !p.exists() { return Err("File not found".to_string()); }
+    parse_actionmaps_xml(&fs::read_to_string(p).map_err(|e| e.to_string())?)
 }
