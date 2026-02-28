@@ -66,7 +66,7 @@ pub struct ScDeviceOption { pub input: String, pub deadzone: Option<f64>, pub sa
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ScDeviceOptions { pub name: String, pub options: Vec<ScDeviceOption> }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 pub struct ParsedActionMaps {
     pub version: String,
     #[serde(rename = "profileName")] pub profile_name: String,
@@ -78,7 +78,11 @@ pub struct ParsedActionMaps {
 #[derive(Serialize, Deserialize)]
 struct CachedLocalization { p4k_size: u64, p4k_modified: u64, labels: HashMap<String, String> }
 
+#[derive(Serialize, Deserialize)]
+struct CachedMasterBindings { p4k_size: u64, p4k_modified: u64, data: ParsedActionMaps }
+
 static LOCALIZATION_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+static MASTER_BINDINGS_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
 // ============================================================
 // Helper Functions
@@ -126,6 +130,10 @@ fn localization_cache_path(version: &str) -> Result<PathBuf, String> {
     dirs::cache_dir().map(|p| p.join("star-control").join("localization").join(version).join("labels.json")).ok_or_else(|| "Could not determine cache directory".to_string())
 }
 
+fn master_bindings_cache_path(version: &str) -> Result<PathBuf, String> {
+    dirs::cache_dir().map(|p| p.join("star-control").join("localization").join(version).join("master_bindings.json")).ok_or_else(|| "Could not determine cache directory".to_string())
+}
+
 fn backup_base_dir() -> Result<PathBuf, String> {
     dirs::config_dir().map(|p| p.join("star-control").join("backups")).ok_or_else(|| "Could not determine config directory".to_string())
 }
@@ -146,7 +154,7 @@ fn parse_cryxmlb_full(buffer: &[u8]) -> Result<ParsedActionMaps, String> {
     if !buffer.starts_with(b"CryXmlB") { return Err("Not a CryXmlB file".to_string()); }
     
     let nt_off = u32::from_le_bytes(buffer[12..16].try_into().unwrap()) as usize;
-    let nt_cnt = u32::from_le_bytes(buffer[16..20].try_into().unwrap()) as usize;
+    let _nt_cnt = u32::from_le_bytes(buffer[16..20].try_into().unwrap()) as usize;
     let at_off = u32::from_le_bytes(buffer[20..24].try_into().unwrap()) as usize;
     let ct_off = u32::from_le_bytes(buffer[28..32].try_into().unwrap()) as usize;
     let ct_cnt = u32::from_le_bytes(buffer[32..36].try_into().unwrap()) as usize;
@@ -355,12 +363,10 @@ pub async fn get_localization_labels(game_path: String, version: String, languag
 
 #[tauri::command]
 pub async fn get_complete_binding_list(game_path: String, version: String) -> Result<BindingListResponse, String> {
+    log_debug(&format!("--- START get_complete_binding_list for {} ---", version));
     let labels = get_localization_labels(game_path.clone(), version.clone(), None).await.unwrap_or_default();
-    let files = list_p4k(game_path.clone(), version.clone(), Some("defaultProfile.xml".to_string())).await.unwrap_or_default();
-    let master_path = files.iter().find(|f| f.ends_with("defaultProfile.xml")).cloned();
-    if master_path.is_none() { return Err("Could not find defaultProfile.xml".to_string()); }
-    let master_raw = read_p4k_file(&game_path, &version, &master_path.unwrap())?;
-    let master_parsed = parse_cryxmlb_full(&master_raw)?;
+    
+    let master_parsed = get_cached_master_bindings(game_path.clone(), version.clone()).await?;
 
     let user_p = sc_profile_dir(&expand_tilde(&game_path), &version).join("actionmaps.xml");
     let user_parsed = if user_p.exists() { parse_actionmaps_xml(&fs::read_to_string(user_p).unwrap_or_default()).ok() } else { None };
@@ -431,9 +437,43 @@ fn parse_global_ini(content: &str) -> HashMap<String, String> {
     Ok(String::from_utf8_lossy(&read_p4k_file(&game_path, &version, &file_path)?).into_owned())
 }
 
-#[tauri::command]
-pub async fn list_p4k(game_path: String, version: String, pattern: Option<String>) -> Result<Vec<String>, String> {
-    let p4k_path = sc_p4k_path(&game_path, &version)?;
+async fn get_cached_master_bindings(game_path: String, version: String) -> Result<ParsedActionMaps, String> {
+    let p4k = sc_p4k_path(&expand_tilde(&game_path), &version)?;
+    let cache = master_bindings_cache_path(&version)?;
+    let meta = fs::metadata(&p4k).map_err(|e| e.to_string())?;
+    let (sz, modif) = (meta.len(), meta.modified().unwrap().duration_since(UNIX_EPOCH).unwrap().as_secs());
+    
+    if cache.exists() {
+        if let Ok(c) = fs::read_to_string(&cache) {
+            if let Ok(cached) = serde_json::from_str::<CachedMasterBindings>(&c) {
+                if cached.p4k_size == sz && cached.p4k_modified == modif {
+                    log_debug(&format!("Loaded master bindings from cache for {}", version));
+                    return Ok(cached.data);
+                }
+            }
+        }
+    }
+    
+    let _g = MASTER_BINDINGS_LOCK.lock().await;
+    let result: Result<ParsedActionMaps, String> = tokio::task::spawn_blocking(move || {
+        log_debug(&format!("Extracting master bindings from P4K for {}", version));
+        let files = list_p4k_file(&game_path, &version, Some("defaultProfile.xml".to_string()))?;
+        let master_path = files.iter().find(|f| f.ends_with("defaultProfile.xml")).cloned()
+            .ok_or("Could not find defaultProfile.xml in P4K")?;
+        
+        let master_raw = read_p4k_file(&game_path, &version, &master_path)?;
+        let data = parse_cryxmlb_full(&master_raw)?;
+        
+        let cached = CachedMasterBindings { p4k_size: sz, p4k_modified: modif, data: data.clone() };
+        fs::create_dir_all(cache.parent().unwrap()).ok();
+        fs::write(cache, serde_json::to_string(&cached).unwrap()).ok();
+        Ok(data)
+    }).await.unwrap();
+    result
+}
+
+pub fn list_p4k_file(game_path: &str, version: &str, pattern: Option<String>) -> Result<Vec<String>, String> {
+    let p4k_path = sc_p4k_path(game_path, version)?;
     let mut file = File::open(&p4k_path).map_err(|e| e.to_string())?;
     let len = file.metadata().unwrap().len();
     let (cd_offset, cd_size) = find_central_directory(&mut file, len)?;
@@ -453,6 +493,11 @@ pub async fn list_p4k(game_path: String, version: String, pattern: Option<String
         current_pos += 46 + n_len + e_len + c_len;
     }
     Ok(files)
+}
+
+#[tauri::command]
+pub async fn list_p4k(game_path: String, version: String, pattern: Option<String>) -> Result<Vec<String>, String> {
+    list_p4k_file(&game_path, &version, pattern)
 }
 
 #[tauri::command] pub async fn get_localization_ini(game_path: String, version: String, language: Option<String>) -> Result<String, String> {
