@@ -31,4 +31,5 @@ Thumbs.db
 
 Other-Tools/
 Packages/
+Packages.local/
 build-packages.sh

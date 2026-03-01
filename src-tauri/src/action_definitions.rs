@@ -22,9 +22,10 @@ impl ActionDefinitions {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompleteBinding {
-    pub category: String,
-    pub action_name: String,
-    pub display_name: String,
+    pub category: String,        // Technical name (e.g., spaceship_general)
+    pub category_label: String,  // Display name (e.g., Space Ship - General)
+    pub action_name: String,     // Technical name (e.g., v_flightready)
+    pub display_name: String,    // Translated name (e.g., Flight Ready)
     pub current_input: String,
     pub device_type: String,
     pub description: Option<String>,
