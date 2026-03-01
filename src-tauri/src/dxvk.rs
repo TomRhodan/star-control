@@ -83,7 +83,7 @@ pub async fn fetch_dxvk_releases() -> Result<Vec<DxvkRelease>, String> {
     let token = load_github_token();
 
     let client = reqwest::Client::builder()
-        .user_agent("star-control/0.1.3")
+        .user_agent("star-control/0.1.4")
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 
@@ -205,7 +205,7 @@ pub async fn install_dxvk(
 
     // Download
     let client = reqwest::Client::builder()
-        .user_agent("star-control/0.1.3")
+        .user_agent("star-control/0.1.4")
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 

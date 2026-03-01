@@ -58,19 +58,27 @@
 }
 
 .binding-search {
-  width: 250px;
+  width: 400px;
   background: rgba(0, 0, 0, 0.2);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 6px 12px;
-  border-radius: 4px;
+  padding: 14px 18px 14px 44px;
+  border-radius: 10px;
   color: #fff;
-  font-size: 13px;
+  font-size: 16px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.5)' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'%3E%3C/circle%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'%3E%3C/line%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 14px center;
 }
 
 .binding-search:focus {
   border-color: var(--primary-color, #00d2ff);
   outline: none;
   background: rgba(0, 0, 0, 0.3);
+}
+
+.binding-search::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 15px;
 }
 
 .binding-unbound {
@@ -107,14 +115,16 @@
 }
 
 .custom-badge {
-  font-size: 9px;
+  font-size: 11px;
   text-transform: uppercase;
   background: var(--primary-color, #00d2ff);
   color: #000;
-  padding: 1px 4px;
-  border-radius: 3px;
+  padding: 4px 10px;
+  border-radius: 4px;
   margin-left: 8px;
-  font-weight: bold;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  letter-spacing: 0.5px;
 }
 
 .sidebar-hidden {
@@ -1889,10 +1899,10 @@
 
 /* Danger Button (small) */
 .btn-danger-sm {
-  padding: 4px 12px;
-  font-size: 11px;
+  padding: 6px 14px;
+  font-size: 13px;
   border-radius: var(--radius-sm);
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   font-family: var(--font-sans);
   transition: all 0.15s ease;
@@ -3477,7 +3487,7 @@
 }
 
 .bindings-table-wrap {
-  max-height: 420px;
+  max-height: 520px;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -3486,7 +3496,7 @@
 .bindings-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .bindings-table thead {
@@ -3496,9 +3506,9 @@
 }
 
 .bindings-table th {
-  padding: 8px 12px;
+  padding: 12px 16px;
   text-align: left;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -3508,9 +3518,10 @@
 }
 
 .bindings-table td {
-  padding: 6px 12px;
+  padding: 12px 16px;
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border);
+  vertical-align: middle;
 }
 
 .bindings-table tbody tr:hover {
@@ -3523,16 +3534,17 @@
 
 .binding-input {
   font-family: var(--font-mono);
-  font-size: 11px;
-  padding: 2px 6px;
+  font-size: 13px;
+  padding: 4px 10px;
   border-radius: var(--radius-sm);
   background: var(--bg-card);
   border: 1px solid var(--border);
   color: var(--accent);
+  display: inline-block;
 }
 
 .binding-device-cell {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
@@ -3576,6 +3588,9 @@
 .binding-unbound {
   color: var(--text-muted);
   font-style: italic;
+  font-size: 15px;
+  padding: 6px 12px;
+  font-weight: 500;
 }
 
 .binding-none {
@@ -3599,31 +3614,60 @@
 }
 
 .binding-actions-cell .btn-icon {
-  padding: 4px;
-  margin-right: 2px;
+  padding: 6px;
+  margin-right: 4px;
+}
+
+.binding-actions-cell .btn-icon svg {
+  width: 18px;
+  height: 18px;
 }
 
 /* Multiple bindings per row */
 .binding-device-tag {
-  display: inline-block;
-  padding: 2px 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  font-size: 10px;
-  margin-right: 4px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  margin-right: 8px;
   white-space: nowrap;
 }
 
+.binding-device-tag .device-icon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.binding-device-tag .device-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.binding-device-tag.keyboard { background: rgba(0, 210, 255, 0.15); border-color: #00d2ff; color: #00d2ff; }
+.binding-device-tag.mouse { background: rgba(255, 0, 255, 0.15); border-color: #ff00ff; color: #ff00ff; }
+.binding-device-tag.joystick { background: rgba(255, 200, 0, 0.15); border-color: #ffc800; color: #ffc800; }
+.binding-device-tag.gamepad { background: rgba(0, 255, 100, 0.15); border-color: #00ff64; color: #00ff64; }
+
 .binding-inputs-cell {
-  min-width: 150px;
+  min-width: 280px;
 }
 
 .binding-input-row {
   display: flex;
   align-items: center;
-  gap: 4px;
-  margin-bottom: 4px;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 6px 8px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
 }
 
 .binding-input-row:last-child {
@@ -3632,15 +3676,22 @@
 
 .binding-input-row .binding-input {
   flex: 1;
+  font-size: 16px;
+  font-weight: 500;
+  padding: 8px 14px;
 }
 
 .binding-input-row .btn-icon {
-  padding: 2px;
-  opacity: 0.6;
+  padding: 6px;
+  opacity: 0.8;
+  width: 28px;
+  height: 28px;
 }
 
 .binding-input-row .btn-icon:hover {
   opacity: 1;
+  background: var(--bg-hover);
+  border-radius: 4px;
 }
 
 /* ============================
@@ -4802,7 +4853,7 @@
 
 .action-buttons-flex {
   display: flex;
-  gap: 6px;
+  gap: 12px;
   align-items: center;
 }
 
@@ -4810,13 +4861,15 @@
   background: rgba(255, 59, 48, 0.1);
   border: 1px solid rgba(255, 59, 48, 0.3);
   color: #ff3b30;
-  padding: 4px;
-  border-radius: 4px;
+  padding: 8px 12px;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: all 0.15s;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .btn-danger-sm:hover {
@@ -5198,12 +5251,6 @@
   color: var(--text-secondary);
 }
 
-/* Old profiles-bar removed - using new profile-manager-section */
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  font-size: 13px;
-}
-
 .profile-chip.active {
   background: var(--color-primary);
   color: white;
@@ -5382,10 +5429,22 @@
   border-collapse: collapse;
 }
 
-.binding-category-content .bindings-table td {
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
+.binding-category-content .bindings-table thead th {
+  padding: 14px 24px;
   font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-bottom: 2px solid var(--border);
+}
+
+.binding-category-content .bindings-table td {
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border);
+  font-size: 16px;
+  vertical-align: middle;
 }
 
 .binding-category-content .bindings-table tr:last-child td {
@@ -5396,18 +5455,26 @@
   background: var(--bg-hover);
 }
 
+.binding-category-content .bindings-table tbody tr {
+  transition: background-color 0.15s ease;
+}
+
 .binding-action-cell {
-  min-width: 150px;
+  min-width: 240px;
 }
 
 .binding-action-name {
-  font-weight: 500;
+  font-weight: 600;
+  font-size: 18px;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+  letter-spacing: 0.3px;
 }
 
 .binding-action-key {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--text-muted);
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 
 .binding-device-cell {
@@ -5514,16 +5581,6 @@
   color: var(--text-secondary);
 }
 
-/* Old profiles-bar removed */
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  font-size: 13px;
-}
-
 .chip-action {
   background: none;
   border: none;
@@ -5539,8 +5596,9 @@
 }
 
 .btn-xs {
-  padding: 4px 10px;
-  font-size: 12px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .btn-outline {
