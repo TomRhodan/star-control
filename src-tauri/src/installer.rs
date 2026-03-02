@@ -478,7 +478,7 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
 
     let tmp_dir = Path::new(&install_path).join(".tmp");
     let client = reqwest::Client::builder()
-        .user_agent("star-control/0.1.4")
+        .user_agent("star-control/0.1.5")
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 

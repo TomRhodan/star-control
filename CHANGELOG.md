@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-03-02
+
+### Fixed
+- **Binding Export** — Fixed v_pitch and other bindings not appearing in exported actionmaps.xml when they didn't exist in the original SC bindings
+- **Device Instance Mapping** — Fixed bindings being exported to wrong joystick instances by properly matching devices via product name and GUID
+
+### Added
+- **Device Reconciliation** — New "Reconcile Devices" button on Profiles page that syncs device instances with current SC actionmaps.xml configuration. This handles cases where device order changes (e.g., input-remapper changes joystick assignments)
+
 ## [0.1.4] - 2026-03-02
 
 ### Changed

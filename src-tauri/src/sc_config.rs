@@ -46,31 +46,192 @@ fn parse_global_ini(c: &str) -> HashMap<String, String> { let mut m = HashMap::n
 
 fn parse_actionmaps_xml(c: &str) -> Result<ParsedActionMaps, String> {
     let mut r = Reader::from_str(c.trim().trim_matches('\0')); r.config_mut().trim_text(true);
-    let mut res = ParsedActionMaps::default(); let (mut cp, mut cm, mut ca) = (None, None, None); let mut buf = Vec::new();
-    loop { match r.read_event_into(&mut buf) { Ok(Event::Eof) => break, Ok(Event::Start(ref e)) | Ok(Event::Empty(ref e)) => { let tag = String::from_utf8_lossy(e.name().as_ref()).to_lowercase();
-            match tag.as_str() { "actionmaps" => { res.version = get_attr(e, b"version").unwrap_or("1".into()); }
-                "actionprofiles" => { cp = Some(ScActionProfile { profile_name: get_attr(e, b"profileName").or(get_attr(e, b"profile_name")).unwrap_or_default(), version: get_attr(e, b"version").unwrap_or("1".into()), options_version: get_attr(e, b"optionsVersion").unwrap_or("2".into()), rebind_version: get_attr(e, b"rebindVersion").unwrap_or("2".into()), devices: vec![], device_options: vec![], action_maps: vec![] }); }
-                "options" => { if let Some(ref mut p) = cp { let mut product = get_attr(e, b"Product").unwrap_or_default(); let guid = if product.contains('{') { product.split('{').nth(1).and_then(|s| s.strip_suffix('}')).map(|s| s.to_string()) } else { None }; // Remove GUID from product name: "Device {GUID}" -> "Device"
-                if let Some(ref g) = guid { let pattern = format!("{{{}}}", g); if let Some(start) = product.find(&pattern) { let end_pos = start + pattern.len(); if end_pos <= product.len() { product = format!("{}{}", &product[..start].trim_end(), &product[end_pos..]); } else { product = product[..start].trim_end().to_string(); } } } p.devices.push(ScDevice { device_type: get_attr(e, b"type").unwrap_or_default(), instance: get_attr(e, b"instance").and_then(|v| v.parse().ok()).unwrap_or(0), product: product.trim().to_string(), guid }); } }
-                "actionmap" => { cm = Some(ScActionMap { name: get_attr(e, b"name").unwrap_or_default(), bindings: vec![], actions: vec![] }); }
-                "action" => { let n = get_attr(e, b"name").unwrap_or_default(); ca = Some(n.clone()); if let Some(ref mut m) = cm { m.actions.push(ScAction { name: n, label: get_attr(e, b"label") }); } }
-                "rebind" => { if let (Some(ref mut m), Some(ref a)) = (cm.as_mut(), ca.as_ref()) { m.bindings.push(ScBinding { action_name: a.to_string(), input: get_attr(e, b"input").unwrap_or_default() }); } }
-                _ => {} } } Ok(Event::End(ref e)) => { let tag = String::from_utf8_lossy(e.name().as_ref()).to_lowercase();
-            match tag.as_str() { "actionmap" => { if let (Some(m), Some(ref mut p)) = (cm.take(), cp.as_mut()) { p.action_maps.push(m); } }
-                "actionprofiles" => { if let Some(p) = cp.take() { res.profiles.push(p); } } "action" => { ca = None; } _ => {} } } _ => {} } buf.clear(); } Ok(res)
+    let mut res = ParsedActionMaps::default();
+    let mut current_device_options: Option<ScDeviceOptions> = None;
+    let (mut cp, mut cm, mut ca) = (None, None, None);
+    let mut buf = Vec::new();
+    loop {
+        match r.read_event_into(&mut buf) {
+            Ok(Event::Eof) => break,
+            Ok(Event::Start(ref e)) | Ok(Event::Empty(ref e)) => {
+                let tag = String::from_utf8_lossy(e.name().as_ref()).to_lowercase();
+                match tag.as_str() {
+                    "actionmaps" => { res.version = get_attr(e, b"version").unwrap_or("1".into()); }
+                    "actionprofiles" => {
+                        cp = Some(ScActionProfile {
+                            profile_name: get_attr(e, b"profileName").or(get_attr(e, b"profile_name")).unwrap_or_default(),
+                            version: get_attr(e, b"version").unwrap_or("1".into()),
+                            options_version: get_attr(e, b"optionsVersion").unwrap_or("2".into()),
+                            rebind_version: get_attr(e, b"rebindVersion").unwrap_or("2".into()),
+                            devices: vec![],
+                            device_options: vec![],
+                            action_maps: vec![]
+                        });
+                    }
+                    "options" => {
+                        if let Some(ref mut p) = cp {
+                            let mut product = get_attr(e, b"Product").unwrap_or_default();
+                            let guid = if product.contains('{') {
+                                product.split('{').nth(1).and_then(|s| s.strip_suffix('}')).map(|s| s.to_string())
+                            } else { None };
+                            // Remove GUID from product name: "Device {GUID}" -> "Device"
+                            if let Some(ref g) = guid {
+                                let pattern = format!("{{{}}}", g);
+                                if let Some(start) = product.find(&pattern) {
+                                    let end_pos = start + pattern.len();
+                                    if end_pos <= product.len() {
+                                        product = format!("{}{}", &product[..start].trim_end(), &product[end_pos..]);
+                                    } else {
+                                        product = product[..start].trim_end().to_string();
+                                    }
+                                }
+                            }
+                            p.devices.push(ScDevice {
+                                device_type: get_attr(e, b"type").unwrap_or_default(),
+                                instance: get_attr(e, b"instance").and_then(|v| v.parse().ok()).unwrap_or(0),
+                                product: product.trim().to_string(),
+                                guid,
+                            });
+                        }
+                    }
+                    "deviceoptions" => {
+                        let name = get_attr(e, b"name").unwrap_or_default();
+                        current_device_options = Some(ScDeviceOptions {
+                            name,
+                            options: vec![],
+                        });
+                    }
+                    "option" => {
+                        if let Some(ref mut do_opts) = current_device_options {
+                            let input = get_attr(e, b"input").unwrap_or_default();
+                            let deadzone = get_attr(e, b"deadzone").and_then(|v| v.parse().ok());
+                            let saturation = get_attr(e, b"saturation").and_then(|v| v.parse().ok());
+                            do_opts.options.push(ScDeviceOption {
+                                input: input.clone(),
+                                deadzone,
+                                saturation,
+                            });
+                        }
+                    }
+                    "actionmap" => { cm = Some(ScActionMap { name: get_attr(e, b"name").unwrap_or_default(), bindings: vec![], actions: vec![] }); }
+                    "action" => {
+                        let n = get_attr(e, b"name").unwrap_or_default();
+                        ca = Some(n.clone());
+                        if let Some(ref mut m) = cm {
+                            m.actions.push(ScAction { name: n, label: get_attr(e, b"label") });
+                        }
+                    }
+                    "rebind" => {
+                        if let (Some(ref mut m), Some(ref a)) = (cm.as_mut(), ca.as_ref()) {
+                            m.bindings.push(ScBinding { action_name: a.to_string(), input: get_attr(e, b"input").unwrap_or_default() });
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::End(ref e)) => {
+                let tag = String::from_utf8_lossy(e.name().as_ref()).to_lowercase();
+                match tag.as_str() {
+                    "actionmap" => { if let (Some(m), Some(ref mut p)) = (cm.take(), cp.as_mut()) { p.action_maps.push(m); } }
+                    "actionprofiles" => { if let Some(p) = cp.take() { res.profiles.push(p); } }
+                    "action" => { ca = None; }
+                    "deviceoptions" => {
+                        if let Some(do_opts) = current_device_options.take() {
+                            if let Some(ref mut p) = cp {
+                                p.device_options.push(do_opts);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+        buf.clear();
+    }
+    Ok(res)
 }
 
 fn write_actionmaps_xml(p: &Path, parsed: &ParsedActionMaps) -> Result<(), String> {
-    let mut w = Writer::new_with_indent(Cursor::new(vec![]), b' ', 1); w.write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), None))).ok();
-    let mut root = BytesStart::new("ActionMaps"); root.push_attribute(("version", parsed.version.as_str())); w.write_event(Event::Start(root)).ok();
-    for po in &parsed.profiles { let mut p_tag = BytesStart::new("ActionProfiles"); p_tag.push_attribute(("version", po.version.as_str())); p_tag.push_attribute(("optionsVersion", po.options_version.as_str())); p_tag.push_attribute(("rebindVersion", po.rebind_version.as_str())); p_tag.push_attribute(("profileName", po.profile_name.as_str())); w.write_event(Event::Start(p_tag)).ok();
-        for d in &po.devices { let mut d_tag = BytesStart::new("options"); d_tag.push_attribute(("type", d.device_type.as_str())); d_tag.push_attribute(("instance", d.instance.to_string().as_str())); if !d.product.is_empty() { d_tag.push_attribute(("Product", d.product.as_str())); } w.write_event(Event::Empty(d_tag)).ok(); }
+    let mut w = Writer::new_with_indent(Cursor::new(vec![]), b' ', 1);
+    w.write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), None))).ok();
+    let mut root = BytesStart::new("ActionMaps");
+    root.push_attribute(("version", parsed.version.as_str()));
+    w.write_event(Event::Start(root)).ok();
+
+    for po in &parsed.profiles {
+        let mut p_tag = BytesStart::new("ActionProfiles");
+        p_tag.push_attribute(("version", po.version.as_str()));
+        p_tag.push_attribute(("optionsVersion", po.options_version.as_str()));
+        p_tag.push_attribute(("rebindVersion", po.rebind_version.as_str()));
+        p_tag.push_attribute(("profileName", po.profile_name.as_str()));
+        w.write_event(Event::Start(p_tag)).ok();
+
+        // Write devices with GUID in Product attribute
+        for d in &po.devices {
+            let mut d_tag = BytesStart::new("options");
+            d_tag.push_attribute(("type", d.device_type.as_str()));
+            d_tag.push_attribute(("instance", d.instance.to_string().as_str()));
+            if !d.product.is_empty() {
+                // Include GUID in Product attribute if available
+                let product_with_guid = if let Some(ref guid) = d.guid {
+                    format!("{} {{{}}}", d.product.trim(), guid)
+                } else {
+                    d.product.clone()
+                };
+                d_tag.push_attribute(("Product", product_with_guid.as_str()));
+            }
+            w.write_event(Event::Empty(d_tag)).ok();
+        }
+
+        // Write device options (deadzone, saturation)
+        for do_opts in &po.device_options {
+            let mut do_tag = BytesStart::new("deviceoptions");
+            do_tag.push_attribute(("name", do_opts.name.as_str()));
+            w.write_event(Event::Start(do_tag)).ok();
+
+            for opt in &do_opts.options {
+                let mut o_tag = BytesStart::new("option");
+                o_tag.push_attribute(("input", opt.input.as_str()));
+                if let Some(dz) = opt.deadzone {
+                    o_tag.push_attribute(("deadzone", format!("{}", dz).as_str()));
+                }
+                if let Some(sat) = opt.saturation {
+                    o_tag.push_attribute(("saturation", format!("{}", sat).as_str()));
+                }
+                w.write_event(Event::Empty(o_tag)).ok();
+            }
+
+            w.write_event(Event::End(BytesEnd::new("deviceoptions"))).ok();
+        }
+
         w.write_event(Event::Empty(BytesStart::new("modifiers"))).ok();
-        for am in &po.action_maps { let mut am_tag = BytesStart::new("actionmap"); am_tag.push_attribute(("name", am.name.as_str())); w.write_event(Event::Start(am_tag)).ok();
-            for b in &am.bindings { let mut a_tag = BytesStart::new("action"); a_tag.push_attribute(("name", b.action_name.as_str())); w.write_event(Event::Start(a_tag)).ok();
-                let mut r_tag = BytesStart::new("rebind"); r_tag.push_attribute(("input", b.input.as_str())); w.write_event(Event::Empty(r_tag)).ok(); w.write_event(Event::End(BytesEnd::new("action"))).ok(); }
-            w.write_event(Event::End(BytesEnd::new("actionmap"))).ok(); } w.write_event(Event::End(BytesEnd::new("ActionProfiles"))).ok(); }
-    w.write_event(Event::End(BytesEnd::new("ActionMaps"))).ok(); fs::write(p, String::from_utf8(w.into_inner().into_inner()).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+
+        for am in &po.action_maps {
+            let mut am_tag = BytesStart::new("actionmap");
+            am_tag.push_attribute(("name", am.name.as_str()));
+            w.write_event(Event::Start(am_tag)).ok();
+
+            for b in &am.bindings {
+                let mut a_tag = BytesStart::new("action");
+                a_tag.push_attribute(("name", b.action_name.as_str()));
+                w.write_event(Event::Start(a_tag)).ok();
+
+                let mut r_tag = BytesStart::new("rebind");
+                r_tag.push_attribute(("input", b.input.as_str()));
+                w.write_event(Event::Empty(r_tag)).ok();
+
+                w.write_event(Event::End(BytesEnd::new("action"))).ok();
+            }
+
+            w.write_event(Event::End(BytesEnd::new("actionmap"))).ok();
+        }
+
+        w.write_event(Event::End(BytesEnd::new("ActionProfiles"))).ok();
+    }
+
+    w.write_event(Event::End(BytesEnd::new("ActionMaps"))).ok();
+    fs::write(p, String::from_utf8(w.into_inner().into_inner()).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
 }
 
 fn find_central_directory(f: &mut File, l: u64) -> Result<(u64, u64), String> {
@@ -122,11 +283,11 @@ fn parse_cryxmlb_full(b: &[u8]) -> Result<ParsedActionMaps, String> {
 #[tauri::command] pub async fn read_user_cfg(gp: String, v: String) -> Result<String, String> { let p = sc_base_dir(&expand_tilde(&gp), &v).join("USER.cfg"); if !p.exists() { return Ok("".into()); } fs::read_to_string(p).map_err(|e| e.to_string()) }
 #[tauri::command] pub async fn write_user_cfg(gp: String, v: String, c: String) -> Result<(), String> { let p = sc_base_dir(&expand_tilde(&gp), &v).join("USER.cfg"); if let Some(parent) = p.parent() { fs::create_dir_all(parent).ok(); } fs::write(p, c).map_err(|e| e.to_string()) }
 #[tauri::command] pub async fn detect_sc_versions(gp: String) -> Result<Vec<ScVersionInfo>, String> {
-    eprintln!("[detect_sc_versions] ========== START ==========");
-    eprintln!("[detect_sc_versions] Input game_path: '{}'", gp);
+    log::debug!("[detect_sc_versions] ========== START ==========");
+    log::debug!("[detect_sc_versions] Input game_path: '{}'", gp);
 
     let exp = expand_tilde(&gp);
-    eprintln!("[detect_sc_versions] Expanded path: '{}'", exp);
+    log::debug!("[detect_sc_versions] Expanded path: '{}'", exp);
 
     // Try multiple possible paths
     let paths_to_try: Vec<PathBuf> = vec![
@@ -139,8 +300,8 @@ fn parse_cryxmlb_full(b: &[u8]) -> Result<ParsedActionMaps, String> {
     ];
 
     for base in paths_to_try.iter() {
-        eprintln!("[detect_sc_versions] Checking path: {}", base.display());
-        eprintln!("[detect_sc_versions]   Exists: {}, IsDir: {}", base.exists(), base.is_dir());
+        log::debug!("[detect_sc_versions] Checking path: {}", base.display());
+        log::debug!("[detect_sc_versions]   Exists: {}, IsDir: {}", base.exists(), base.is_dir());
 
         if base.exists() && base.is_dir() {
             // List contents of directory for debugging
@@ -149,7 +310,7 @@ fn parse_cryxmlb_full(b: &[u8]) -> Result<ParsedActionMaps, String> {
                     .map(|e| e.file_name().to_string_lossy().to_string())
                     .take(10)
                     .collect();
-                eprintln!("[detect_sc_versions]   First 10 entries: {:?}", entry_names);
+                log::debug!("[detect_sc_versions]   First 10 entries: {:?}", entry_names);
 
                 let has_version_folders: bool = entry_names.iter().any(|name| {
                     let n = name.to_lowercase();
@@ -157,23 +318,23 @@ fn parse_cryxmlb_full(b: &[u8]) -> Result<ParsedActionMaps, String> {
                 });
 
                 if has_version_folders {
-                    eprintln!("[detect_sc_versions] Found valid SC installation at: {}", base.display());
+                    log::debug!("[detect_sc_versions] Found valid SC installation at: {}", base.display());
                     return detect_sc_versions_from_path(base);
                 } else {
-                    eprintln!("[detect_sc_versions]   No version folders found in this directory");
+                    log::debug!("[detect_sc_versions]   No version folders found in this directory");
                 }
             }
         }
     }
 
     // Return error with path info for debugging
-    eprintln!("[detect_sc_versions] ========== END - NOT FOUND ==========");
+    log::debug!("[detect_sc_versions] ========== END - NOT FOUND ==========");
     Err(format!("StarCitizen directory not found. Game path: '{}'", gp))
 }
 
 fn detect_sc_versions_from_path(base: &Path) -> Result<Vec<ScVersionInfo>, String> {
     let mut res = vec![];
-    eprintln!("[detect_sc_versions] Reading directory: {}", base.display());
+    log::debug!("[detect_sc_versions] Reading directory: {}", base.display());
 
     match fs::read_dir(base) {
         Ok(es) => {
@@ -183,7 +344,7 @@ fn detect_sc_versions_from_path(base: &Path) -> Result<Vec<ScVersionInfo>, Strin
                     continue;
                 }
                 let n = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
-                eprintln!("[detect_sc_versions] Found version folder: {}", n);
+                log::debug!("[detect_sc_versions] Found version folder: {}", n);
 
                 // Check profiles path
                 let profiles_path = path.join("user/client/0/Profiles/default");
@@ -191,7 +352,7 @@ fn detect_sc_versions_from_path(base: &Path) -> Result<Vec<ScVersionInfo>, Strin
                 let has_attributes = profiles_path.join("attributes.xml").exists();
                 let has_actionmaps = profiles_path.join("actionmaps.xml").exists();
                 let has_exported_layouts = path.join("user/client/0/controls/mappings").is_dir();
-                eprintln!("[detect_sc_versions]   has_usercfg: {}, has_attributes: {}, has_actionmaps: {}", has_usercfg, has_attributes, has_actionmaps);
+                log::debug!("[detect_sc_versions]   has_usercfg: {}, has_attributes: {}, has_actionmaps: {}", has_usercfg, has_attributes, has_actionmaps);
                 res.push(ScVersionInfo {
                     version: n,
                     path: path.to_string_lossy().into_owned(),
@@ -203,7 +364,7 @@ fn detect_sc_versions_from_path(base: &Path) -> Result<Vec<ScVersionInfo>, Strin
             }
         }
         Err(e) => {
-            eprintln!("[detect_sc_versions] Failed to read directory: {} - Error: {}", base.display(), e);
+            log::debug!("[detect_sc_versions] Failed to read directory: {} - Error: {}", base.display(), e);
         }
     }
 
@@ -213,7 +374,7 @@ fn detect_sc_versions_from_path(base: &Path) -> Result<Vec<ScVersionInfo>, Strin
         "HOTFIX" => 2,
         _ => 3
     });
-    eprintln!("[detect_sc_versions] Returning {} versions", res.len());
+    log::debug!("[detect_sc_versions] Returning {} versions", res.len());
     Ok(res)
 }
 #[tauri::command] pub async fn list_profiles(gp: String, v: String) -> Result<Vec<ScProfile>, String> { let p = sc_base_dir(&expand_tilde(&gp), &v).join("user/client/0/Profiles"); if !p.is_dir() { return Ok(vec![]); } let mut res = vec![]; if let Ok(es) = fs::read_dir(p) { for e in es.flatten() { let path = e.path(); if !path.is_dir() || path.file_name().unwrap_or_default() == "frontend" { continue; } let n = path.file_name().unwrap_or_default().to_string_lossy().into_owned(); let mut last = 0; if let Ok(c) = fs::read_to_string(path.join("attributes.xml")) { if let Some(s) = c.find("lastPlayed=\"") { if let Some(e) = c[s+12..].find('"') { last = c[s+12..s+12+e].parse().unwrap_or(0); } } } res.push(ScProfile { name: n, last_played: last }); } } res.sort_by(|a, b| a.name.cmp(&b.name)); Ok(res) }

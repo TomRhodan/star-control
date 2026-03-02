@@ -35,6 +35,74 @@ mod sc_config;
 mod system_check;
 mod action_definitions;
 
+use simplelog::{CombinedLogger, WriteLogger, LevelFilter, Config};
+use std::fs::File;
+
+/// Initialize the logging system with file output.
+/// Logs are written to ~/.config/star-control/logs/debug.log
+fn init_logging() {
+    let log_dir = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("star-control")
+        .join("logs");
+
+    // Create log directory if it doesn't exist
+    let _ = std::fs::create_dir_all(&log_dir);
+
+    let log_file_path = log_dir.join("debug.log");
+
+    // Create or open log file in append mode
+    let log_file = match File::options()
+        .create(true)
+        .append(true)
+        .open(&log_file_path)
+    {
+        Ok(file) => file,
+        Err(e) => {
+            eprintln!("Failed to open log file: {}", e);
+            return;
+        }
+    };
+
+    // Initialize combined logger (file + terminal)
+    let logger = CombinedLogger::init(vec![
+        WriteLogger::new(LevelFilter::Debug, Config::default(), log_file),
+    ]);
+
+    match logger {
+        Ok(_) => {
+            log::info!("Logging initialized. Log file: {:?}", log_file_path);
+        }
+        Err(e) => {
+            eprintln!("Failed to initialize logger: {}", e);
+        }
+    }
+}
+
+/// Log a message from JavaScript with category and level
+#[tauri::command]
+fn app_log(level: String, category: String, message: String) {
+    let full_message = format!("[{}] {}", category, message);
+    match level.as_str() {
+        "error" => log::error!("{}", full_message),
+        "warn" => log::warn!("{}", full_message),
+        "info" => log::info!("{}", full_message),
+        _ => log::debug!("{}", full_message),
+    }
+}
+
+/// Get the path to the debug log file
+#[tauri::command]
+fn get_log_file_path() -> String {
+    dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("star-control")
+        .join("logs")
+        .join("debug.log")
+        .to_string_lossy()
+        .to_string()
+}
+
 /// Simple greeting command for testing Tauri command infrastructure.
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -146,6 +214,9 @@ fn restore_window_state(window: &tauri::WebviewWindow) {
 /// Main entry point for the Tauri application.
 /// Initializes all plugins, commands, and sets up window event handlers.
 pub fn run() {
+    // Initialize logging first
+    init_logging();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -161,6 +232,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            app_log,
+            get_log_file_path,
             system_check::run_system_check,
             system_check::fix_mapcount,
             system_check::fix_filelimit,
@@ -226,6 +299,7 @@ pub fn run() {
             sc_config::list_exported_layouts,
             binding_capture::start_input_capture,
             binding_capture::stop_input_capture,
+            binding_capture::list_connected_devices,
             binding_database::import_binding_profile,
             binding_database::get_human_readable_bindings_cmd,
             binding_database::list_binding_profiles,
@@ -235,6 +309,7 @@ pub fn run() {
             binding_database::update_binding_in_profile,
             binding_database::rename_binding_profile,
             binding_database::export_binding_to_actionmaps,
+            binding_database::reconcile_devices,
             binding_database::set_device_alias,
             binding_database::get_device_aliases,
             localization::check_localization_update,

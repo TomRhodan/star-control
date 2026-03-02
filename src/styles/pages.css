@@ -4794,6 +4794,23 @@
   margin-top: 10px;
 }
 
+.capture-device-select {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 10px;
+  border-radius: 4px;
+  font-size: 0.95rem;
+  outline: none;
+  cursor: pointer;
+}
+
+.capture-device-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
 .capture-input {
   flex: 1;
   background: rgba(0, 0, 0, 0.3);
