@@ -60,8 +60,8 @@
 </p>
 
 <p align="center">
-  <img src="docs/star-control.de/assets/screenshots/controller.png" alt="Controller" width="720"><br>
-  <em>Controller — Connected devices, keybindings, and joystick reordering</em>
+  <img src="docs/star-control.de/assets/screenshots/controllers.png" alt="Controllers" width="720"><br>
+  <em>Controllers — Connected devices, keybindings, joystick reordering, and binding profiles</em>
 </p>
 
 <p align="center">
@@ -85,7 +85,7 @@
 - **Wine Runner Management** — Download and manage Wine/Proton runners from multiple community sources (LUG, LUG Experimental, Kron4ek, RawFox, Mactan)
 - **DXVK Management** — Install and update DXVK versions with automatic DLL deployment
 - **Profile Management** — Backup and restore Star Citizen profiles (actionmaps.xml, attributes.xml, USER.cfg)
-- **Controller Configuration** — View connected devices, keybindings, and reorder joystick instances
+- **Controllers Page** — View connected devices, keybindings, reorder joystick instances, and manage binding profiles
 - **USER.cfg Editor** — Visual editor for all Star Citizen graphics, performance, and quality settings
 - **Localization** — Install community translations with one click, with automatic update detection
 - **Prefix Tools** — Winecfg, DPI scaling, PowerShell installation via winetricks
@@ -187,7 +187,8 @@ The built binary will be in `src-tauri/target/release/` and packages in `src-tau
 
 ### Profiles & Settings
 
-- Use the **Profiles** page to manage backups, keybindings, and USER.cfg settings
+- Use the **Profiles** page to manage backups and USER.cfg settings
+- Use the **Controllers** page to manage connected devices, keybindings, and binding profiles
 - Create backups before making changes
 - Use the visual USER.cfg editor to tune graphics settings
 
