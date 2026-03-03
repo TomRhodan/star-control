@@ -132,7 +132,8 @@ pub fn start_input_capture(app: AppHandle) {
                                             .unwrap_or_else(|| "unknown".to_string())
                                     }
                                 };
-                                Some((btn_name, "button".to_string()))
+                                let itype = if btn_name.starts_with("hat") { "hat" } else { "button" };
+                                Some((btn_name, itype.to_string()))
                             }
                             EventType::AxisChanged(axis, val, code) if val.abs() > 0.8 => { // Threshold 0.8
                                 let code_str = format!("{:?}", code);
@@ -200,6 +201,10 @@ fn format_gilrs_button(btn: Button) -> String {
         Button::RightTrigger => "button6".to_string(),
         Button::Select => "button7".to_string(),
         Button::Start => "button8".to_string(),
+        Button::DPadUp => "hat1_up".to_string(),
+        Button::DPadDown => "hat1_down".to_string(),
+        Button::DPadLeft => "hat1_left".to_string(),
+        Button::DPadRight => "hat1_right".to_string(),
         _ => format!("button{:?}", btn).to_lowercase(),
     }
 }

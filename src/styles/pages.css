@@ -268,6 +268,57 @@
   width: 90%;
 }
 
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.modal-header h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.modal-close {
+  width: 32px; height: 32px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.modal-close:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.modal-footer-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
 .modal-title {
   font-size: 18px;
   font-weight: 700;
@@ -3738,104 +3789,72 @@
    ============================ */
 
 .binding-editor-modal {
-  width: 480px;
+  width: 440px;
   max-width: 95vw;
 }
 
-.binding-editor-info {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-bottom: 20px;
-  padding: 12px;
-  background: var(--bg-secondary);
-  border-radius: 6px;
-}
-
-.binding-editor-action label,
-.binding-editor-category label {
-  display: block;
-  font-size: 11px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  margin-bottom: 4px;
-}
-
-.binding-editor-action-value,
-.binding-editor-category-value {
-  font-weight: 500;
-  font-size: 14px;
-}
-
-.binding-editor-device-tabs {
+.binding-editor-context {
   display: flex;
+  align-items: center;
   gap: 8px;
-  margin-bottom: 20px;
-}
-
-.device-tab {
-  flex: 1;
   padding: 8px 12px;
   background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  cursor: pointer;
+  border-radius: var(--radius-sm);
   font-size: 13px;
+}
+
+.binding-editor-context-action {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.binding-editor-context-sep {
+  color: var(--text-muted);
+}
+
+.binding-editor-context-category {
   color: var(--text-secondary);
-  transition: all 0.15s;
 }
 
-.device-tab:hover {
-  background: var(--bg-hover);
-}
-
-.device-tab.active {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: white;
-}
-
-.binding-editor-capture label {
-  display: block;
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
-}
-
-.capture-prompt {
-  padding: 16px;
-  background: var(--bg-secondary);
+.capture-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 16px;
   border: 2px dashed var(--border);
-  border-radius: 8px;
-  text-align: center;
-  font-family: monospace;
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.15s;
-  min-height: 24px;
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  transition: border-color 0.3s ease, background 0.3s ease;
 }
 
-.capture-prompt:hover {
-  border-color: var(--color-primary);
-  background: var(--bg-hover);
+.capture-zone:focus-within {
+  border-color: var(--accent);
+  border-style: solid;
+  background: rgba(6, 182, 212, 0.04);
 }
 
-.capture-prompt.capturing {
-  border-color: var(--color-primary);
-  background: rgba(59, 130, 246, 0.1);
-  animation: pulse 1s infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
-}
-
-.capture-instructions {
-  margin-top: 12px;
+.capture-zone-label {
   font-size: 12px;
   color: var(--text-muted);
-  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.capture-zone-input-wrap {
+  width: 100%;
+  max-width: 320px;
+}
+
+.binding-editor-device {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.binding-editor-device label {
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 /* ============================
@@ -4823,26 +4842,54 @@
    Binding Editor Modal
    ============================ */
 
-.binding-editor-modal {
-  max-width: 550px !important;
+.capture-input {
+  width: 100%;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 1.2rem;
+  font-weight: 600;
+  text-align: center;
+  outline: none;
+  cursor: default;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.capture-flex {
-  display: flex;
-  gap: 10px;
-  margin-top: 10px;
+.capture-input::placeholder {
+  color: var(--text-muted);
+  font-weight: 400;
+  font-size: 0.9rem;
+  animation: capturePulseText 2s ease-in-out infinite;
+}
+
+.capture-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+@keyframes capturePulseText {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
 }
 
 .capture-device-select {
   width: 100%;
-  background: rgba(0, 0, 0, 0.3);
+  background: var(--bg-secondary);
   border: 1px solid var(--border);
-  color: var(--text-primary);
-  padding: 10px;
-  border-radius: 4px;
-  font-size: 0.95rem;
+  color: var(--text-secondary);
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
   outline: none;
   cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%235a6a7a' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
 }
 
 .capture-device-select:focus {
@@ -4850,22 +4897,9 @@
   box-shadow: 0 0 0 2px var(--accent-dim);
 }
 
-.capture-input {
-  flex: 1;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid var(--border);
+.capture-device-select option {
+  background: var(--bg-card);
   color: var(--text-primary);
-  padding: 12px;
-  border-radius: 4px;
-  font-family: var(--font-mono);
-  font-size: 1.1rem;
-  text-align: center;
-  outline: none;
-}
-
-.capture-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-dim);
 }
 
 .joystick-helper {
@@ -4888,13 +4922,6 @@
   padding: 5px;
   border-radius: 4px;
   font-size: 12px;
-}
-
-.capture-instructions {
-  margin-top: 8px;
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  font-style: italic;
 }
 
 @keyframes capturedPulse {
@@ -5737,58 +5764,45 @@
   min-height: 80px;
 }
 
-.profile-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
+/* Profile list */
+.profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 400px;
+  overflow-y: auto;
 }
 
-.profile-card {
+.profile-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px;
+  padding: 8px 12px;
   background: var(--bg-primary);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  transition: all 0.2s ease;
-  cursor: pointer;
+  border-left: 3px solid transparent;
+  border-radius: 6px;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-.profile-card:hover {
-  border-color: var(--color-primary);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+.profile-row:hover {
+  background: var(--bg-hover);
 }
 
-.profile-card.active {
-  border-color: var(--color-primary);
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.05) 100%);
+.profile-row.active {
+  border-left-color: var(--accent);
+  background: var(--accent-dim);
 }
 
-.profile-card-icon {
-  flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-secondary);
-  border-radius: 8px;
-  color: var(--text-muted);
-}
-
-.profile-card.active .profile-card-icon {
-  background: var(--color-primary);
-  color: white;
-}
-
-.profile-card-info {
+.profile-row-info {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
-.profile-card-name {
+.profile-row-name {
   font-weight: 600;
   font-size: 14px;
   color: var(--text-primary);
@@ -5797,51 +5811,62 @@
   text-overflow: ellipsis;
 }
 
-.profile-card-meta {
+.profile-row-meta {
   font-size: 12px;
   color: var(--text-muted);
-  margin-top: 2px;
 }
 
-.profile-card-actions {
-  display: flex;
-  gap: 6px;
+.profile-row-status {
   flex-shrink: 0;
 }
 
-.pm-btn {
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
+.profile-active-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 10px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+.profile-row-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.profile-row:hover .profile-row-actions,
+.profile-row.active .profile-row-actions {
+  opacity: 1;
+}
+
+.pm-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
-.pm-btn:hover {
-  background: var(--bg-hover);
-  border-color: var(--color-primary);
+.pm-action-btn:hover {
+  background: var(--bg-secondary);
+  border-color: var(--border);
+  color: var(--text-primary);
 }
 
-.pm-btn.active {
-  background: var(--color-primary);
-  color: white;
-  border-color: var(--color-primary);
-}
-
-.pm-btn-icon {
-  padding: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.pm-btn-danger:hover {
-  border-color: var(--color-danger);
-  color: var(--color-danger);
+.pm-action-btn-danger:hover {
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .profile-empty-state {
@@ -5895,7 +5920,27 @@
     flex-direction: column;
   }
 
-  .profile-grid {
-    grid-template-columns: 1fr;
+  .profile-row-actions {
+    opacity: 1;
   }
+}
+
+/* === UX Improvements === */
+
+/* 6.1 Loading skeleton */
+.profiles-loading-skeleton {
+  padding: 20px;
+}
+
+/* 6.3 Import suggestion empty state */
+.profile-empty-state strong {
+  color: var(--color-primary);
+}
+
+/* 6.6 Inline rename */
+.profile-row-name.editing {
+  outline: 2px solid var(--accent);
+  border-radius: 3px;
+  background: var(--bg-hover);
+  padding: 2px 4px;
 }
