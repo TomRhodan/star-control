@@ -26,20 +26,25 @@ let unlistenLaunchStarted = null;
 let unlistenLaunchExited = null;
 
 const LAUNCH_OPTIONS = [
-  { group: 'Performance', options: [
-    { key: 'esync', label: 'ESync', tooltip: 'Eventfd-based synchronization — reduces CPU overhead in Wine' },
-    { key: 'fsync', label: 'FSync', tooltip: 'Futex-based synchronization — faster than ESync on supported kernels' },
-    { key: 'dxvk_async', label: 'DXVK Async', tooltip: 'Asynchronous shader compilation — reduces stutter' },
-  ]},
-  { group: 'Display', options: [
-    { key: 'wayland', label: 'Wayland', tooltip: 'Enable Wayland protocol support in Wine' },
-    { key: 'hdr', label: 'HDR', tooltip: 'High Dynamic Range rendering (PROTON_ENABLE_HDR + DXVK_HDR)' },
-    { key: 'fsr', label: 'FSR', tooltip: 'AMD FidelityFX Super Resolution upscaling' },
-  ]},
-  { group: 'Overlays', options: [
-    { key: 'mangohud', label: 'MangoHUD', tooltip: 'On-screen performance overlay (FPS, CPU, GPU, RAM)' },
-    { key: 'dxvk_hud', label: 'DXVK HUD', tooltip: 'DXVK-specific overlay showing draw calls and compiler activity' },
-  ]},
+  {
+    group: 'Performance', options: [
+      { key: 'esync', label: 'ESync', tooltip: 'Eventfd-based synchronization — reduces CPU overhead in Wine' },
+      { key: 'fsync', label: 'FSync', tooltip: 'Futex-based synchronization — faster than ESync on supported kernels' },
+      { key: 'dxvk_async', label: 'DXVK Async', tooltip: 'Asynchronous shader compilation — reduces stutter' },
+    ]
+  },
+  {
+    group: 'Display', options: [
+      { key: 'hdr', label: 'HDR', tooltip: 'High Dynamic Range rendering (PROTON_ENABLE_HDR + DXVK_HDR)' },
+      { key: 'fsr', label: 'FSR', tooltip: 'AMD FidelityFX Super Resolution upscaling' },
+    ]
+  },
+  {
+    group: 'Overlays', options: [
+      { key: 'mangohud', label: 'MangoHUD', tooltip: 'On-screen performance overlay (FPS, CPU, GPU, RAM)' },
+      { key: 'dxvk_hud', label: 'DXVK HUD', tooltip: 'DXVK-specific overlay showing draw calls and compiler activity' },
+    ]
+  },
 ];
 
 // --- Auto-Launch Flag ---
@@ -121,12 +126,12 @@ function listenForExit(container) {
     launchStatus = 'ready';
     renderPage(container);
     cleanup();
-  }).then(fn => { unlistenLaunchExited = fn; }).catch(() => {});
+  }).then(fn => { unlistenLaunchExited = fn; }).catch(() => { });
 
   listen('launch-log', (event) => {
     launchLog.push(event.payload);
     appendLogLine(event.payload);
-  }).then(fn => { unlistenLaunchLog = fn; }).catch(() => {});
+  }).then(fn => { unlistenLaunchLog = fn; }).catch(() => { });
 }
 
 function renderPage(container) {
@@ -260,31 +265,47 @@ function renderOptionsGrid() {
   const perf = launchConfig?.performance || {};
   const fractional = hasFractionalScaling();
 
+  const waylandTooltip = fractional
+    ? 'Fractional scaling detected — Wayland mode is not compatible and has been disabled. Set all monitors to 100% scale to use this option.'
+    : 'Enable Wayland protocol support in Wine';
+
   return `
     <div class="launch-options-grid">
       ${LAUNCH_OPTIONS.map(group => `
         <div class="launch-option-group">
           <div class="launch-option-group-title">${group.group}</div>
           ${group.options.map(opt => {
-            const blockedByScaling = opt.key === 'wayland' && fractional;
-            const isDisabled = disabled || blockedByScaling;
-            const tooltip = blockedByScaling
-              ? 'Fractional scaling detected — Wayland mode is not compatible and has been disabled. Set all monitors to 100% scale to use this option.'
-              : (opt.tooltip || '');
-            return `
-              <label class="toggle-option ${blockedByScaling ? 'toggle-blocked' : ''}" ${tooltip ? `data-tooltip="${tooltip}"` : ''}>
+    const isDisabled = disabled;
+    const tooltip = opt.tooltip || '';
+    return `
+              <label class="toggle-option" ${tooltip ? `data-tooltip="${tooltip}"` : ''}>
                 <input type="checkbox" data-key="${opt.key}"
-                  ${!blockedByScaling && perf[opt.key] ? 'checked' : ''}
+                  ${perf[opt.key] ? 'checked' : ''}
                   ${isDisabled ? 'disabled' : ''} />
                 <span>${opt.label}</span>
               </label>
             `;
-          }).join('')}
+  }).join('')}
         </div>
       `).join('')}
     </div>
+
+    <div class="launch-wayland-area">
+      <div class="launch-wayland-header">
+        <h4>Wayland <span class="badge-experimental">Experimental</span></h4>
+        <p class="wayland-warning-text">These settings are completely experimental and may have no effect depending on your runner.</p>
+      </div>
+      <div class="launch-wayland-content">
+        <label class="toggle-option ${fractional ? 'toggle-blocked' : ''}" data-tooltip="${waylandTooltip}">
+          <input type="checkbox" data-key="wayland"
+            ${!fractional && perf.wayland ? 'checked' : ''}
+            ${disabled || fractional ? 'disabled' : ''} />
+          <span>Enable Wayland</span>
+        </label>
+        ${renderMonitorSelect(disabled, perf)}
+      </div>
+    </div>
     ${fractional ? '<div class="launch-scaling-warning">Fractional scaling active — Wayland mode disabled</div>' : ''}
-    ${renderMonitorSelect(disabled, perf)}
   `;
 }
 

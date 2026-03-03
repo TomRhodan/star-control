@@ -1530,15 +1530,54 @@
   margin-top: 8px;
 }
 
+/* Launch Wayland Area */
+.launch-wayland-area {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.launch-wayland-header {
+  margin-bottom: 12px;
+}
+
+.launch-wayland-header h4 {
+  font-size: 13px;
+  margin: 0 0 4px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+}
+
+.badge-experimental {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(232, 167, 53, 0.1);
+  color: var(--warning, #e8a735);
+  border: 1px solid rgba(232, 167, 53, 0.2);
+}
+
+.wayland-warning-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.launch-wayland-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 /* Launch Monitor Row */
 .launch-monitor-row {
-  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-  margin-top: 12px;
 }
 
 .launch-monitor-select-wrap {
