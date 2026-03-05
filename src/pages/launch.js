@@ -154,9 +154,15 @@ function renderPage(container) {
     </div>
     <div class="card log-panel-flex">
       <h3>Log Output</h3>
-      <pre class="log-output log-output-flex" id="launch-log-output"><code>${launchLog.length > 0 ? escapeHtml(launchLog.join('\n')) : 'Waiting for launch...'}</code></pre>
+      <pre class="log-output log-output-flex" id="launch-log-output"><code>Waiting for launch...</code></pre>
     </div>
   `;
+
+  // Populate log via textContent (preserves newlines, auto-escapes HTML)
+  if (launchLog.length > 0) {
+    const code = container.querySelector('#launch-log-output code');
+    if (code) code.textContent = launchLog.join('\n');
+  }
 
   bindEvents(container);
   scrollLog();

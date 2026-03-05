@@ -54,3 +54,14 @@ pub struct BindingListResponse {
     pub bindings: Vec<CompleteBinding>,
     pub stats: BindingStats,
 }
+
+/// Maps a physical device to its Star Citizen identity within a profile.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceMapping {
+    pub product_name: String,
+    pub device_type: String,
+    pub sc_guid: Option<String>,
+    pub sc_instance: u32,
+    #[serde(default)]
+    pub alias: Option<String>,
+}

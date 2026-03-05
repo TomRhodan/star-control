@@ -29,7 +29,7 @@ mod installer;
 mod localization;
 mod prefix_tools;
 mod binding_capture;
-mod binding_database;
+// binding_database removed — bindings are now managed via profile-scoped commands in sc_config
 mod runners;
 mod sc_config;
 mod system_check;
@@ -296,6 +296,12 @@ pub fn run() {
                 sc_config::get_localization_labels,
                 sc_config::get_localization_ini,
                 sc_config::list_localization_languages,
+                sc_config::get_profile_bindings,
+                sc_config::assign_profile_binding,
+                sc_config::remove_profile_binding,
+                sc_config::apply_profile_to_sc,
+                sc_config::set_profile_device_alias,
+                sc_config::migrate_binding_database,
                 sc_config::reorder_devices,
                 sc_config::backup_profile,
                 sc_config::restore_profile,
@@ -308,22 +314,11 @@ pub fn run() {
                 sc_config::update_backup_label,
                 sc_config::list_importable_versions,
                 sc_config::import_from_version,
+                sc_config::import_version_as_profile,
                 sc_config::list_exported_layouts,
                 binding_capture::start_input_capture,
                 binding_capture::stop_input_capture,
                 binding_capture::list_connected_devices,
-                binding_database::import_binding_profile,
-                binding_database::get_human_readable_bindings_cmd,
-                binding_database::list_binding_profiles,
-                binding_database::get_binding_profile,
-                binding_database::delete_binding_profile,
-                binding_database::save_binding_profile,
-                binding_database::update_binding_in_profile,
-                binding_database::rename_binding_profile,
-                binding_database::export_binding_to_actionmaps,
-                binding_database::reconcile_devices,
-                binding_database::set_device_alias,
-                binding_database::get_device_aliases,
                 localization::check_localization_update,
                 localization::get_available_languages,
                 localization::get_localization_status,

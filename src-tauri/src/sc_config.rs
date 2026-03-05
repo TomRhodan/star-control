@@ -31,6 +31,7 @@ use crate::action_definitions::{
     BindingStats,
     BindingListResponse,
     ActionDefinitions,
+    DeviceMapping,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -113,6 +114,10 @@ pub struct BackupInfo {
     pub label: String,
     #[serde(default)]
     pub file_hashes: HashMap<String, String>,
+    #[serde(default)]
+    pub device_map: Vec<DeviceMapping>,
+    #[serde(default)]
+    pub dirty: bool,
 }
 #[derive(Serialize, Deserialize, Clone)]
 pub struct VersionImportInfo {
@@ -1443,6 +1448,152 @@ pub async fn get_complete_binding_list(
     );
     Ok(BindingListResponse { bindings: results, stats })
 }
+
+/// Derives a device_map from the <options> tags in a parsed actionmaps.xml.
+fn derive_device_map(parsed: &ParsedActionMaps) -> Vec<DeviceMapping> {
+    let mut map = vec![];
+    for profile in &parsed.profiles {
+        for dev in &profile.devices {
+            if dev.product.is_empty() { continue; }
+            map.push(DeviceMapping {
+                product_name: dev.product.clone(),
+                device_type: dev.device_type.clone(),
+                sc_guid: dev.guid.clone(),
+                sc_instance: dev.instance,
+                alias: None,
+            });
+        }
+    }
+    map
+}
+
+/// Reads and saves backup metadata, returning the updated BackupInfo.
+fn save_backup_meta(bdir: &Path, info: &BackupInfo) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(info).map_err(|e| e.to_string())?;
+    fs::write(bdir.join("backup_meta.json"), json).map_err(|e| e.to_string())
+}
+
+/// Returns all bindings from a profile's actionmaps.xml merged with master defaults.
+#[tauri::command]
+pub async fn get_profile_bindings(
+    gp: String,
+    v: String,
+    profile_id: String
+) -> Result<BindingListResponse, String> {
+    let bdir = backup_version_dir(&v)?.join(&profile_id);
+    let actionmaps_path = bdir.join("actionmaps.xml");
+
+    if !actionmaps_path.exists() {
+        return Ok(BindingListResponse {
+            bindings: vec![],
+            stats: BindingStats { total: 0, custom: 0 },
+        });
+    }
+
+    // Parse profile's actionmaps.xml
+    let user_xml = fs::read_to_string(&actionmaps_path).map_err(|e| e.to_string())?;
+    let user_parsed = parse_actionmaps_xml(&user_xml)?;
+
+    // Derive and persist device_map if missing from backup_meta
+    let meta_path = bdir.join("backup_meta.json");
+    if meta_path.exists() {
+        let meta_json = fs::read_to_string(&meta_path).map_err(|e| e.to_string())?;
+        let mut meta: BackupInfo = serde_json::from_str(&meta_json).map_err(|e| e.to_string())?;
+        if meta.device_map.is_empty() {
+            meta.device_map = derive_device_map(&user_parsed);
+            save_backup_meta(&bdir, &meta)?;
+        }
+    }
+
+    // Get master bindings and localization labels
+    let labels = get_localization_labels(gp.clone(), v.clone(), None).await.unwrap_or_default();
+    let master = get_master_bindings(gp, v).await?;
+    let master_profile = &master.profiles[0];
+
+    let user_profile = user_parsed.profiles.iter()
+        .find(|p| p.profile_name == "default" || p.profile_name.is_empty());
+
+    // Build merged binding list (same logic as get_complete_binding_list)
+    type MergedActions = HashMap<String, (Vec<String>, Option<String>, bool)>;
+    let mut merged: HashMap<String, MergedActions> = HashMap::new();
+
+    for am in &master_profile.action_maps {
+        let map = merged.entry(am.name.clone()).or_default();
+        for a in &am.actions {
+            map.entry(a.name.clone()).or_insert_with(|| (vec![], a.label.clone(), false));
+        }
+        for b in &am.bindings {
+            let entry = map.entry(b.action_name.clone()).or_insert_with(|| (vec![], None, false));
+            if !entry.0.contains(&b.input) {
+                entry.0.push(b.input.clone());
+            }
+        }
+    }
+
+    if let Some(up) = user_profile {
+        for am in &up.action_maps {
+            let map = merged.entry(am.name.clone()).or_default();
+            for b in &am.bindings {
+                let entry = map.entry(b.action_name.clone()).or_insert_with(|| (vec![], None, false));
+                if !entry.0.contains(&b.input) {
+                    entry.0.push(b.input.clone());
+                }
+                entry.2 = true;
+            }
+        }
+    }
+
+    let mut results = vec![];
+    let mut stats = BindingStats { total: 0, custom: 0 };
+    for (cat_name, actions) in merged {
+        let cat_label = labels
+            .get(&format!("ui_Control{}", cat_name))
+            .or(labels.get(&cat_name))
+            .cloned()
+            .unwrap_or_else(|| cat_name.replace('_', " "));
+        for (an, (inputs, alabel, is_custom)) in actions {
+            stats.total += 1;
+            if is_custom { stats.custom += 1; }
+            let dn = alabel.as_ref()
+                .and_then(|l| labels.get(l.strip_prefix('@').unwrap_or(l)))
+                .or(labels.get(&format!("ui_Control{}", an)))
+                .or(labels.get(&an))
+                .cloned()
+                .unwrap_or_else(|| an.replace('_', " "));
+            if inputs.is_empty() {
+                results.push(CompleteBinding {
+                    category: cat_name.clone(),
+                    category_label: cat_label.clone(),
+                    action_name: an.clone(),
+                    display_name: dn.clone(),
+                    current_input: "".into(),
+                    device_type: "none".into(),
+                    description: None,
+                    is_custom,
+                });
+            } else {
+                for input in inputs {
+                    results.push(CompleteBinding {
+                        category: cat_name.clone(),
+                        category_label: cat_label.clone(),
+                        action_name: an.clone(),
+                        display_name: dn.clone(),
+                        current_input: input,
+                        device_type: "none".into(),
+                        description: None,
+                        is_custom,
+                    });
+                }
+            }
+        }
+    }
+    results.sort_by(|a, b|
+        a.category_label.to_lowercase().cmp(&b.category_label.to_lowercase())
+            .then(a.display_name.to_lowercase().cmp(&b.display_name.to_lowercase()))
+    );
+    Ok(BindingListResponse { bindings: results, stats })
+}
+
 #[derive(Deserialize)]
 pub struct AssignBindingArgs {
     pub game_path: String,
@@ -1546,6 +1697,183 @@ pub async fn remove_binding(args: RemoveBindingArgs) -> Result<(), String> {
     }
     write_actionmaps_xml(&p, &parsed)
 }
+
+/// Helper: sets dirty flag and recalculates hash for actionmaps.xml in a backup.
+fn mark_backup_dirty(bdir: &Path) -> Result<(), String> {
+    let meta_path = bdir.join("backup_meta.json");
+    let meta_json = fs::read_to_string(&meta_path).map_err(|e| e.to_string())?;
+    let mut meta: BackupInfo = serde_json::from_str(&meta_json).map_err(|e| e.to_string())?;
+    meta.dirty = true;
+    let actionmaps_path = bdir.join("actionmaps.xml");
+    if let Some(h) = hash_file(&actionmaps_path) {
+        meta.file_hashes.insert("actionmaps.xml".into(), h);
+    }
+    save_backup_meta(bdir, &meta)
+}
+
+/// Assigns an input binding to an action in a profile's actionmaps.xml.
+#[tauri::command]
+pub async fn assign_profile_binding(
+    v: String,
+    profile_id: String,
+    action_map: String,
+    action_name: String,
+    new_input: String,
+    old_input: Option<String>,
+) -> Result<(), String> {
+    let bdir = backup_version_dir(&v)?.join(&profile_id);
+    let actionmaps_path = bdir.join("actionmaps.xml");
+    if !actionmaps_path.exists() {
+        return Err("Profile has no actionmaps.xml".into());
+    }
+
+    let mut parsed = parse_actionmaps_xml(
+        &fs::read_to_string(&actionmaps_path).map_err(|e| e.to_string())?
+    )?;
+
+    let profile = parsed.profiles.iter_mut()
+        .find(|pr| pr.profile_name == "default" || pr.profile_name.is_empty())
+        .ok_or("No profile")?;
+
+    let mut found = false;
+    for am in &mut profile.action_maps {
+        if am.name == action_map {
+            if let Some(ref old) = old_input {
+                if let Some(b) = am.bindings.iter_mut()
+                    .find(|b| b.action_name == action_name && b.input == *old)
+                {
+                    b.input = new_input.clone();
+                    found = true;
+                    break;
+                }
+            } else if let Some(b) = am.bindings.iter_mut()
+                .find(|b| b.action_name == action_name)
+            {
+                b.input = new_input.clone();
+                found = true;
+                break;
+            }
+        }
+    }
+
+    if !found {
+        if let Some(am) = profile.action_maps.iter_mut().find(|am| am.name == action_map) {
+            am.bindings.push(ScBinding {
+                action_name: action_name.clone(),
+                input: new_input,
+            });
+        } else {
+            profile.action_maps.push(ScActionMap {
+                name: action_map,
+                bindings: vec![ScBinding { action_name: action_name.clone(), input: new_input }],
+                actions: vec![ScAction { name: action_name, label: None }],
+            });
+        }
+    }
+
+    write_actionmaps_xml(&actionmaps_path, &parsed)?;
+    mark_backup_dirty(&bdir)
+}
+
+/// Removes a binding from a profile's actionmaps.xml.
+#[tauri::command]
+pub async fn remove_profile_binding(
+    v: String,
+    profile_id: String,
+    action_map: String,
+    action_name: String,
+) -> Result<(), String> {
+    let bdir = backup_version_dir(&v)?.join(&profile_id);
+    let actionmaps_path = bdir.join("actionmaps.xml");
+    if !actionmaps_path.exists() {
+        return Err("Profile has no actionmaps.xml".into());
+    }
+
+    let mut parsed = parse_actionmaps_xml(
+        &fs::read_to_string(&actionmaps_path).map_err(|e| e.to_string())?
+    )?;
+
+    let profile = parsed.profiles.iter_mut()
+        .find(|pr| pr.profile_name == "default" || pr.profile_name.is_empty())
+        .ok_or("No profile")?;
+
+    for am in &mut profile.action_maps {
+        if am.name == action_map {
+            am.bindings.retain(|b| b.action_name != action_name);
+        }
+    }
+
+    write_actionmaps_xml(&actionmaps_path, &parsed)?;
+    mark_backup_dirty(&bdir)
+}
+
+/// Applies a profile's files to the live SC directory and clears dirty flag.
+#[tauri::command]
+pub async fn apply_profile_to_sc(
+    gp: String,
+    v: String,
+    profile_id: String,
+) -> Result<(), String> {
+    // Reuse existing restore_profile logic
+    restore_profile(gp, v.clone(), profile_id.clone()).await?;
+
+    // Clear dirty flag
+    let bdir = backup_version_dir(&v)?.join(&profile_id);
+    let meta_path = bdir.join("backup_meta.json");
+    if meta_path.exists() {
+        let meta_json = fs::read_to_string(&meta_path).map_err(|e| e.to_string())?;
+        let mut meta: BackupInfo = serde_json::from_str(&meta_json).map_err(|e| e.to_string())?;
+        meta.dirty = false;
+        save_backup_meta(&bdir, &meta)?;
+    }
+
+    // Update active_profiles.json
+    save_active_profile(v, profile_id).await
+}
+
+/// Sets a user-defined alias for a device in a profile's device_map.
+#[tauri::command]
+pub async fn set_profile_device_alias(
+    v: String,
+    profile_id: String,
+    product_name: String,
+    alias: String,
+) -> Result<(), String> {
+    let bdir = backup_version_dir(&v)?.join(&profile_id);
+    let meta_path = bdir.join("backup_meta.json");
+    if !meta_path.exists() {
+        return Err("Profile metadata not found".into());
+    }
+
+    let meta_json = fs::read_to_string(&meta_path).map_err(|e| e.to_string())?;
+    let mut meta: BackupInfo = serde_json::from_str(&meta_json).map_err(|e| e.to_string())?;
+
+    let alias_val = if alias.trim().is_empty() { None } else { Some(alias) };
+    if let Some(dm) = meta.device_map.iter_mut().find(|dm| dm.product_name == product_name) {
+        dm.alias = alias_val;
+    } else {
+        return Err(format!("Device '{}' not found in profile device map", product_name));
+    }
+
+    save_backup_meta(&bdir, &meta)
+}
+
+/// Migrates old binding_database.json by renaming it to .bak.
+/// Returns true if migration was performed, false if no old file found.
+#[tauri::command]
+pub async fn migrate_binding_database() -> Result<bool, String> {
+    let config_dir = dirs::config_dir().ok_or("No config dir")?;
+    let db_path = config_dir.join("star-control/bindings/binding_database.json");
+    if db_path.exists() {
+        let bak_path = config_dir.join("star-control/bindings/binding_database.json.bak");
+        fs::rename(&db_path, &bak_path).map_err(|e| e.to_string())?;
+        log::info!("Migrated binding_database.json → .bak");
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
 /// Reads a text file from the Data.p4k archive and returns its contents as a string.
 #[tauri::command]
 pub async fn read_p4k(
@@ -1804,6 +2132,15 @@ pub async fn backup_profile(
         }
     }
 
+    // Derive device_map from the backed-up actionmaps.xml
+    let device_map = if target.join("actionmaps.xml").exists() {
+        if let Ok(xml) = fs::read_to_string(target.join("actionmaps.xml")) {
+            if let Ok(parsed) = parse_actionmaps_xml(&xml) {
+                derive_device_map(&parsed)
+            } else { vec![] }
+        } else { vec![] }
+    } else { vec![] };
+
     let info = BackupInfo {
         id,
         created_at: now.format("%Y-%m-%d %H:%M:%S").to_string(),
@@ -1813,6 +2150,8 @@ pub async fn backup_profile(
         files: fs_list,
         label: l.unwrap_or_default(),
         file_hashes: hashes,
+        device_map,
+        dirty: false,
     };
 
     if let Ok(json) = serde_json::to_string_pretty(&info) {
@@ -1867,6 +2206,156 @@ pub async fn restore_profile(gp: String, v: String, bid: String) -> Result<(), S
 
     Ok(())
 }
+
+/// Imports settings from another version as a new saved profile in the target version.
+/// If `bid` is provided, copies from that saved profile; otherwise copies from the source version's live SC files.
+/// Does NOT overwrite any SC files — only creates a new profile that the user can then load.
+#[tauri::command]
+pub async fn import_version_as_profile(
+    gp: String,
+    source_version: String,
+    target_version: String,
+    bid: Option<String>,
+    label: Option<String>,
+) -> Result<BackupInfo, String> {
+    let now = Local::now();
+    let id = now.format("%Y-%m-%dT%H-%M-%S").to_string();
+    let bdir = backup_version_dir(&target_version)?;
+    let target = bdir.join(&id);
+    fs::create_dir_all(&target).ok();
+
+    let auto_label = label.unwrap_or_else(|| format!("Imported from {}", source_version));
+    let mut fs_list = vec![];
+    let mut hashes = HashMap::new();
+
+    if let Some(ref backup_id) = bid {
+        // Copy from a saved profile in the source version
+        let src_backup = backup_version_dir(&source_version)?.join(backup_id);
+        if !src_backup.is_dir() {
+            return Err(format!("Backup {} not found in version {}", backup_id, source_version));
+        }
+        for f in &["actionmaps.xml", "attributes.xml", "profile.xml"] {
+            let src = src_backup.join(f);
+            if src.exists() {
+                if let Some(h) = hash_file(&src) { hashes.insert(f.to_string(), h); }
+                fs::copy(&src, target.join(f)).ok();
+                fs_list.push(f.to_string());
+            }
+        }
+        if src_backup.join("controls_mappings").is_dir() {
+            let tc = target.join("controls_mappings");
+            fs::create_dir_all(&tc).ok();
+            if let Ok(entries) = fs::read_dir(src_backup.join("controls_mappings")) {
+                for e in entries.flatten() {
+                    let path = e.path();
+                    if let Some(name) = path.file_name() {
+                        let key = format!("controls_mappings/{}", name.to_string_lossy());
+                        if let Some(h) = hash_file(&path) { hashes.insert(key.clone(), h); }
+                        fs::copy(&path, tc.join(name)).ok();
+                        fs_list.push(key);
+                    }
+                }
+            }
+        }
+        if src_backup.join("custom_characters").is_dir() {
+            let tc = target.join("custom_characters");
+            fs::create_dir_all(&tc).ok();
+            if let Ok(entries) = fs::read_dir(src_backup.join("custom_characters")) {
+                for e in entries.flatten() {
+                    let path = e.path();
+                    if let Some(name) = path.file_name() {
+                        let key = format!("custom_characters/{}", name.to_string_lossy());
+                        if let Some(h) = hash_file(&path) { hashes.insert(key.clone(), h); }
+                        fs::copy(&path, tc.join(name)).ok();
+                        fs_list.push(key);
+                    }
+                }
+            }
+        }
+    } else {
+        // Copy from the source version's live SC files
+        let expanded = expand_tilde(&gp);
+        let source_base = sc_base_dir(&expanded, &source_version).join("user/client/0");
+        let pdir = source_base.join("Profiles/default");
+        for f in &["actionmaps.xml", "attributes.xml", "profile.xml"] {
+            let src = pdir.join(f);
+            if src.exists() {
+                if let Some(h) = hash_file(&src) { hashes.insert(f.to_string(), h); }
+                fs::copy(&src, target.join(f)).ok();
+                fs_list.push(f.to_string());
+            }
+        }
+        if let Some(controls_dir) = find_dir_case_insensitive(&source_base, &["Controls/Mappings", "controls/mappings", "controls/Mappings"]) {
+            let tc = target.join("controls_mappings");
+            fs::create_dir_all(&tc).ok();
+            if let Ok(entries) = fs::read_dir(&controls_dir) {
+                for e in entries.flatten() {
+                    let path = e.path();
+                    if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("xml")) {
+                        if let Some(name) = path.file_name() {
+                            let key = format!("controls_mappings/{}", name.to_string_lossy());
+                            if let Some(h) = hash_file(&path) { hashes.insert(key.clone(), h); }
+                            fs::copy(&path, tc.join(name)).ok();
+                            fs_list.push(key);
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(chars_dir) = find_dir_case_insensitive(&source_base, &["CustomCharacters", "customcharacters"]) {
+            let tc = target.join("custom_characters");
+            fs::create_dir_all(&tc).ok();
+            if let Ok(entries) = fs::read_dir(&chars_dir) {
+                for e in entries.flatten() {
+                    let path = e.path();
+                    if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("chf")) {
+                        if let Some(name) = path.file_name() {
+                            let key = format!("custom_characters/{}", name.to_string_lossy());
+                            if let Some(h) = hash_file(&path) { hashes.insert(key.clone(), h); }
+                            fs::copy(&path, tc.join(name)).ok();
+                            fs_list.push(key);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if fs_list.is_empty() {
+        // Clean up empty backup dir
+        fs::remove_dir_all(&target).ok();
+        return Err("No files found to import.".into());
+    }
+
+    // Derive device_map from actionmaps.xml if present
+    let device_map = if target.join("actionmaps.xml").exists() {
+        if let Ok(xml) = fs::read_to_string(target.join("actionmaps.xml")) {
+            if let Ok(parsed) = parse_actionmaps_xml(&xml) {
+                derive_device_map(&parsed)
+            } else { vec![] }
+        } else { vec![] }
+    } else { vec![] };
+
+    let info = BackupInfo {
+        id,
+        created_at: now.format("%Y-%m-%d %H:%M:%S").to_string(),
+        timestamp: now.timestamp() as u64,
+        version: target_version,
+        backup_type: "imported".into(),
+        files: fs_list,
+        label: auto_label,
+        file_hashes: hashes,
+        device_map,
+        dirty: false,
+    };
+
+    if let Ok(json) = serde_json::to_string_pretty(&info) {
+        fs::write(target.join("backup_meta.json"), json).ok();
+    }
+
+    Ok(info)
+}
+
 /// Lists all profile backups for a given version, sorted newest first.
 #[tauri::command]
 pub async fn list_backups(v: String) -> Result<Vec<BackupInfo>, String> {

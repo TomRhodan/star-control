@@ -14,7 +14,6 @@ import { renderInstallation } from './pages/installation.js';
 import { renderRunners } from './pages/runners.js';
 import { renderLaunch } from './pages/launch.js';
 import { renderProfiles } from './pages/profiles.js';
-import { renderControllers } from './pages/controllers.js';
 import { renderSettings } from './pages/settings.js';
 import { renderAbout } from './pages/about.js';
 import { renderSetup } from './pages/setup.js';
@@ -29,7 +28,6 @@ const routes = {
   runners: renderRunners,
   launch: renderLaunch,
   profiles: renderProfiles,
-  controllers: renderControllers,
   settings: renderSettings,
   about: renderAbout,
 };
@@ -38,7 +36,7 @@ const routes = {
 const PRE_INSTALL_PAGES = ['dashboard', 'installation', 'settings'];
 
 // Pages visible when an instance IS installed
-const POST_INSTALL_PAGES = ['dashboard', 'launch', 'runners', 'profiles', 'controllers', 'settings'];
+const POST_INSTALL_PAGES = ['dashboard', 'launch', 'runners', 'profiles', 'settings'];
 
 let setupActive = false;
 let installed = false;
@@ -53,12 +51,6 @@ async function navigate(page) {
   const content = document.getElementById('content');
   const renderFn = routes[page];
   if (!renderFn) return;
-
-  // Reset standalone mode before rendering profiles page
-  if (page === 'profiles') {
-    const profilesModule = await import('./pages/profiles.js');
-    profilesModule.setProfilesStandalone(false, 'Profiles');
-  }
 
   content.innerHTML = '';
   renderFn(content);
