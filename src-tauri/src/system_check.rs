@@ -11,7 +11,7 @@
 //!
 //! It also provides fix commands for configurable system settings.
 
-use serde::{Deserialize, Serialize};
+use serde::{ Deserialize, Serialize };
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -67,8 +67,8 @@ fn check_memory() -> CheckResult {
         }
     }
 
-    let ram_gib = ram_kb as f64 / 1_048_576.0;
-    let swap_gib = swap_kb as f64 / 1_048_576.0;
+    let ram_gib = (ram_kb as f64) / 1_048_576.0;
+    let swap_gib = (swap_kb as f64) / 1_048_576.0;
     let combined_gib = ram_gib + swap_gib;
 
     let status = if ram_gib < 16.0 {
@@ -81,7 +81,9 @@ fn check_memory() -> CheckResult {
 
     let detail = format!(
         "{:.0} GiB RAM + {:.0} GiB Swap = {:.0} GiB total",
-        ram_gib, swap_gib, combined_gib
+        ram_gib,
+        swap_gib,
+        combined_gib
     );
 
     CheckResult {
@@ -103,11 +105,10 @@ fn parse_meminfo_value(line: &str) -> u64 {
 
 /// Checks CPU AVX instruction support.
 fn check_avx() -> CheckResult {
-    let has_avx = fs::read_to_string("/proc/cpuinfo")
+    let has_avx = fs
+        ::read_to_string("/proc/cpuinfo")
         .map(|contents| {
-            contents
-                .lines()
-                .any(|line| line.starts_with("flags") && line.contains(" avx"))
+            contents.lines().any(|line| line.starts_with("flags") && line.contains(" avx"))
         })
         .unwrap_or(false);
 
@@ -132,16 +133,13 @@ fn check_avx() -> CheckResult {
 fn check_mapcount() -> CheckResult {
     let required: u64 = 16_777_216;
 
-    let current = fs::read_to_string("/proc/sys/vm/max_map_count")
+    let current = fs
+        ::read_to_string("/proc/sys/vm/max_map_count")
         .ok()
         .and_then(|s| s.trim().parse::<u64>().ok())
         .unwrap_or(0);
 
-    let status = if current >= required {
-        CheckStatus::Pass
-    } else {
-        CheckStatus::Fail
-    };
+    let status = if current >= required { CheckStatus::Pass } else { CheckStatus::Fail };
 
     let detail = format!(
         "Current: {} (required: {})",
@@ -170,18 +168,10 @@ fn check_filelimit() -> CheckResult {
     };
 
     let hard_limit = unsafe {
-        if libc::getrlimit(libc::RLIMIT_NOFILE, &mut rlim) == 0 {
-            rlim.rlim_max
-        } else {
-            0
-        }
+        if libc::getrlimit(libc::RLIMIT_NOFILE, &mut rlim) == 0 { rlim.rlim_max } else { 0 }
     };
 
-    let status = if hard_limit >= required {
-        CheckStatus::Pass
-    } else {
-        CheckStatus::Fail
-    };
+    let status = if hard_limit >= required { CheckStatus::Pass } else { CheckStatus::Fail };
 
     let detail = format!(
         "Hard limit: {} (required: {})",
@@ -203,9 +193,10 @@ fn check_filelimit() -> CheckResult {
 /// Checks Vulkan support.
 fn check_vulkan() -> CheckResult {
     let has_vulkaninfo = Path::new("/usr/bin/vulkaninfo").exists();
-    let has_libvulkan = Path::new("/usr/lib/libvulkan.so.1").exists()
-        || Path::new("/usr/lib64/libvulkan.so.1").exists()
-        || Path::new("/usr/lib/x86_64-linux-gnu/libvulkan.so.1").exists();
+    let has_libvulkan =
+        Path::new("/usr/lib/libvulkan.so.1").exists() ||
+        Path::new("/usr/lib64/libvulkan.so.1").exists() ||
+        Path::new("/usr/lib/x86_64-linux-gnu/libvulkan.so.1").exists();
 
     let detected = has_vulkaninfo || has_libvulkan;
 
@@ -243,16 +234,9 @@ fn check_disk_space(install_path: &str) -> CheckResult {
 
     let free_gb = get_free_space_gb(&check_path);
 
-    let status = if free_gb >= required_gb {
-        CheckStatus::Pass
-    } else {
-        CheckStatus::Fail
-    };
+    let status = if free_gb >= required_gb { CheckStatus::Pass } else { CheckStatus::Fail };
 
-    let detail = format!(
-        "{} GB free at {} (required: {} GB)",
-        free_gb, check_path, required_gb
-    );
+    let detail = format!("{} GB free at {} (required: {} GB)", free_gb, check_path, required_gb);
 
     CheckResult {
         id: "diskspace".into(),
@@ -268,8 +252,12 @@ fn find_existing_parent(path: &str) -> String {
     let mut p = Path::new(path);
     while !p.exists() {
         match p.parent() {
-            Some(parent) => p = parent,
-            None => return "/".into(),
+            Some(parent) => {
+                p = parent;
+            }
+            None => {
+                return "/".into();
+            }
         }
     }
     p.to_string_lossy().into_owned()
@@ -281,13 +269,15 @@ fn get_free_space_gb(path: &str) -> u64 {
 
     let c_path = match CString::new(path) {
         Ok(p) => p,
-        Err(_) => return 0,
+        Err(_) => {
+            return 0;
+        }
     };
 
     unsafe {
         let mut stat: libc::statvfs = std::mem::zeroed();
         if libc::statvfs(c_path.as_ptr(), &mut stat) == 0 {
-            let free_bytes = stat.f_bavail as u64 * stat.f_frsize as u64;
+            let free_bytes = stat.f_bavail * stat.f_frsize;
             free_bytes / (1024 * 1024 * 1024)
         } else {
             0
@@ -330,44 +320,41 @@ pub struct MonitorInfo {
 
 #[tauri::command]
 pub async fn detect_monitors() -> Result<Vec<MonitorInfo>, String> {
-    tokio::task::spawn_blocking(move || {
-        let is_wayland = std::env::var("XDG_SESSION_TYPE")
-            .map(|v| v == "wayland")
-            .unwrap_or(false);
+    tokio::task
+        ::spawn_blocking(move || {
+            let is_wayland = std::env
+                ::var("XDG_SESSION_TYPE")
+                .map(|v| v == "wayland")
+                .unwrap_or(false);
 
-        if is_wayland {
-            // Try Wayland-native detection (KDE → GNOME → wlroots → xrandr)
-            if let Some(monitors) = detect_monitors_kscreen() {
-                if !monitors.is_empty() {
-                    return monitors;
+            if is_wayland {
+                // Try Wayland-native detection (KDE → GNOME → wlroots → xrandr)
+                if let Some(monitors) = detect_monitors_kscreen() {
+                    if !monitors.is_empty() {
+                        return monitors;
+                    }
+                }
+                if let Some(monitors) = detect_monitors_gnome() {
+                    if !monitors.is_empty() {
+                        return monitors;
+                    }
+                }
+                if let Some(monitors) = detect_monitors_wlr_randr() {
+                    if !monitors.is_empty() {
+                        return monitors;
+                    }
                 }
             }
-            if let Some(monitors) = detect_monitors_gnome() {
-                if !monitors.is_empty() {
-                    return monitors;
-                }
-            }
-            if let Some(monitors) = detect_monitors_wlr_randr() {
-                if !monitors.is_empty() {
-                    return monitors;
-                }
-            }
-        }
 
-        // Fallback: xrandr (works on X11 and XWayland)
-        detect_monitors_xrandr()
-    })
-    .await
-    .map_err(|e| format!("Task failed: {}", e))
+            // Fallback: xrandr (works on X11 and XWayland)
+            detect_monitors_xrandr()
+        }).await
+        .map_err(|e| format!("Task failed: {}", e))
 }
 
 /// KDE Plasma Wayland: `kscreen-doctor --outputs`
 fn detect_monitors_kscreen() -> Option<Vec<MonitorInfo>> {
-    let output = Command::new("kscreen-doctor")
-        .arg("--outputs")
-        .env("LANG", "C")
-        .output()
-        .ok()?;
+    let output = Command::new("kscreen-doctor").arg("--outputs").env("LANG", "C").output().ok()?;
 
     if !output.status.success() {
         return None;
@@ -441,10 +428,7 @@ fn detect_monitors_kscreen() -> Option<Vec<MonitorInfo>> {
 
 /// GNOME Wayland: `gnome-monitor-config list`
 fn detect_monitors_gnome() -> Option<Vec<MonitorInfo>> {
-    let output = Command::new("gnome-monitor-config")
-        .arg("list")
-        .output()
-        .ok()?;
+    let output = Command::new("gnome-monitor-config").arg("list").output().ok()?;
 
     if !output.status.success() {
         return None;
@@ -535,10 +519,7 @@ fn detect_monitors_wlr_randr() -> Option<Vec<MonitorInfo>> {
                     scale: None,
                 });
             }
-            current_name = trimmed.split_whitespace()
-                .next()
-                .unwrap_or("")
-                .to_string();
+            current_name = trimmed.split_whitespace().next().unwrap_or("").to_string();
             current_resolution = String::new();
         } else if current_resolution.is_empty() && trimmed.contains("current") {
             // "  2560x1440 px, 59.951 Hz (current)"
@@ -565,7 +546,9 @@ fn detect_monitors_wlr_randr() -> Option<Vec<MonitorInfo>> {
 fn detect_monitors_xrandr() -> Vec<MonitorInfo> {
     let output = match Command::new("xrandr").arg("--query").output() {
         Ok(o) => o,
-        Err(_) => return Vec::new(),
+        Err(_) => {
+            return Vec::new();
+        }
     };
 
     if !output.status.success() {
@@ -583,14 +566,18 @@ fn detect_monitors_xrandr() -> Vec<MonitorInfo> {
 
         let name = match line.split_whitespace().next() {
             Some(n) => n.to_string(),
-            None => continue,
+            None => {
+                continue;
+            }
         };
 
         let primary = line.contains(" primary ");
 
         let mut resolution = String::new();
-        for j in (i + 1)..lines.len() {
-            let mode_line = lines[j].trim();
+        for mode_line in lines
+            .iter()
+            .skip(i + 1)
+            .map(|l| l.trim()) {
             if mode_line.contains(" connected") || mode_line.contains(" disconnected") {
                 break;
             }
@@ -635,126 +622,132 @@ fn strip_ansi(s: &str) -> String {
 
 #[tauri::command]
 pub async fn run_system_check(install_path: String) -> Result<SystemCheckResult, String> {
-    tokio::task::spawn_blocking(move || {
-        let checks = vec![
-            check_memory(),
-            check_avx(),
-            check_mapcount(),
-            check_filelimit(),
-            check_vulkan(),
-            check_disk_space(&install_path),
-        ];
+    tokio::task
+        ::spawn_blocking(move || {
+            let checks = vec![
+                check_memory(),
+                check_avx(),
+                check_mapcount(),
+                check_filelimit(),
+                check_vulkan(),
+                check_disk_space(&install_path)
+            ];
 
-        let all_passed = checks.iter().all(|c| c.status != CheckStatus::Fail);
-        let has_warnings = checks.iter().any(|c| c.status == CheckStatus::Warn);
+            let all_passed = checks.iter().all(|c| c.status != CheckStatus::Fail);
+            let has_warnings = checks.iter().any(|c| c.status == CheckStatus::Warn);
 
-        SystemCheckResult {
-            checks,
-            all_passed,
-            has_warnings,
-        }
-    })
-    .await
-    .map_err(|e| format!("Task failed: {}", e))
+            SystemCheckResult {
+                checks,
+                all_passed,
+                has_warnings,
+            }
+        }).await
+        .map_err(|e| format!("Task failed: {}", e))
 }
 
 #[tauri::command]
 pub async fn fix_mapcount() -> Result<FixResult, String> {
-    tokio::task::spawn_blocking(move || {
-        // Check if pkexec is available
-        if !Path::new("/usr/bin/pkexec").exists() {
-            return FixResult {
-                success: false,
-                message: "pkexec not found. Manually run: sudo sysctl -w vm.max_map_count=16777216 && echo 'vm.max_map_count = 16777216' | sudo tee /etc/sysctl.d/99-starcitizen-max_map_count.conf".into(),
-            };
-        }
+    tokio::task
+        ::spawn_blocking(move || {
+            // Check if pkexec is available
+            if !Path::new("/usr/bin/pkexec").exists() {
+                return FixResult {
+                    success: false,
+                    message: "pkexec not found. Manually run: sudo sysctl -w vm.max_map_count=16777216 && echo 'vm.max_map_count = 16777216' | sudo tee /etc/sysctl.d/99-starcitizen-max_map_count.conf".into(),
+                };
+            }
 
-        let result = Command::new("pkexec")
-            .arg("sh")
-            .arg("-c")
-            .arg("printf 'vm.max_map_count = 16777216\\n' > /etc/sysctl.d/99-starcitizen-max_map_count.conf && sysctl --quiet --system")
-            .output();
+            let result = Command::new("pkexec")
+                .arg("sh")
+                .arg("-c")
+                .arg(
+                    "printf 'vm.max_map_count = 16777216\\n' > /etc/sysctl.d/99-starcitizen-max_map_count.conf && sysctl --quiet --system"
+                )
+                .output();
 
-        match result {
-            Ok(output) => {
-                if output.status.success() {
-                    FixResult {
-                        success: true,
-                        message: "vm.max_map_count set to 16,777,216 (persistent)".into(),
-                    }
-                } else {
-                    let code = output.status.code().unwrap_or(-1);
-                    if code == 126 || code == 127 {
+            match result {
+                Ok(output) => {
+                    if output.status.success() {
                         FixResult {
-                            success: false,
-                            message: "Authentication cancelled".into(),
+                            success: true,
+                            message: "vm.max_map_count set to 16,777,216 (persistent)".into(),
                         }
                     } else {
-                        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                        FixResult {
-                            success: false,
-                            message: format!("Failed (exit {}): {}", code, stderr.trim()),
+                        let code = output.status.code().unwrap_or(-1);
+                        if code == 126 || code == 127 {
+                            FixResult {
+                                success: false,
+                                message: "Authentication cancelled".into(),
+                            }
+                        } else {
+                            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                            FixResult {
+                                success: false,
+                                message: format!("Failed (exit {}): {}", code, stderr.trim()),
+                            }
                         }
                     }
                 }
+                Err(e) =>
+                    FixResult {
+                        success: false,
+                        message: format!("Failed to execute pkexec: {}", e),
+                    },
             }
-            Err(e) => FixResult {
-                success: false,
-                message: format!("Failed to execute pkexec: {}", e),
-            },
-        }
-    })
-    .await
-    .map_err(|e| format!("Task failed: {}", e))
+        }).await
+        .map_err(|e| format!("Task failed: {}", e))
 }
 
 #[tauri::command]
 pub async fn fix_filelimit() -> Result<FixResult, String> {
-    tokio::task::spawn_blocking(move || {
-        if !Path::new("/usr/bin/pkexec").exists() {
-            return FixResult {
-                success: false,
-                message: "pkexec not found. Manually create /etc/systemd/system.conf.d/99-starcitizen-filelimit.conf with:\n[Manager]\nDefaultLimitNOFILE=524288".into(),
-            };
-        }
+    tokio::task
+        ::spawn_blocking(move || {
+            if !Path::new("/usr/bin/pkexec").exists() {
+                return FixResult {
+                    success: false,
+                    message: "pkexec not found. Manually create /etc/systemd/system.conf.d/99-starcitizen-filelimit.conf with:\n[Manager]\nDefaultLimitNOFILE=524288".into(),
+                };
+            }
 
-        let result = Command::new("pkexec")
-            .arg("sh")
-            .arg("-c")
-            .arg("mkdir -p /etc/systemd/system.conf.d && printf '[Manager]\\nDefaultLimitNOFILE=524288\\n' > /etc/systemd/system.conf.d/99-starcitizen-filelimit.conf && systemctl daemon-reexec")
-            .output();
+            let result = Command::new("pkexec")
+                .arg("sh")
+                .arg("-c")
+                .arg(
+                    "mkdir -p /etc/systemd/system.conf.d && printf '[Manager]\\nDefaultLimitNOFILE=524288\\n' > /etc/systemd/system.conf.d/99-starcitizen-filelimit.conf && systemctl daemon-reexec"
+                )
+                .output();
 
-        match result {
-            Ok(output) => {
-                if output.status.success() {
-                    FixResult {
-                        success: true,
-                        message: "File descriptor limit set to 524,288 (persistent, effective after re-login)".into(),
-                    }
-                } else {
-                    let code = output.status.code().unwrap_or(-1);
-                    if code == 126 || code == 127 {
+            match result {
+                Ok(output) => {
+                    if output.status.success() {
                         FixResult {
-                            success: false,
-                            message: "Authentication cancelled".into(),
+                            success: true,
+                            message: "File descriptor limit set to 524,288 (persistent, effective after re-login)".into(),
                         }
                     } else {
-                        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                        FixResult {
-                            success: false,
-                            message: format!("Failed (exit {}): {}", code, stderr.trim()),
+                        let code = output.status.code().unwrap_or(-1);
+                        if code == 126 || code == 127 {
+                            FixResult {
+                                success: false,
+                                message: "Authentication cancelled".into(),
+                            }
+                        } else {
+                            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                            FixResult {
+                                success: false,
+                                message: format!("Failed (exit {}): {}", code, stderr.trim()),
+                            }
                         }
                     }
                 }
+                Err(e) =>
+                    FixResult {
+                        success: false,
+                        message: format!("Failed to execute pkexec: {}", e),
+                    },
             }
-            Err(e) => FixResult {
-                success: false,
-                message: format!("Failed to execute pkexec: {}", e),
-            },
-        }
-    })
-    .await
-    .map_err(|e| format!("Task failed: {}", e))
+        }).await
+        .map_err(|e| format!("Task failed: {}", e))
 }
 
 #[tauri::command]

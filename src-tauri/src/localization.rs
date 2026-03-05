@@ -8,12 +8,12 @@
 //!
 //! Supported languages include German, French, Spanish, Italian, and Portuguese.
 
-use crate::sc_config::{expand_tilde, sc_base_dir};
+use crate::sc_config::{ expand_tilde, sc_base_dir };
 use chrono::Local;
-use serde::{Deserialize, Serialize};
+use serde::{ Deserialize, Serialize };
 use std::fs;
 use std::path::PathBuf;
-use tauri::{AppHandle, Emitter};
+use tauri::{ AppHandle, Emitter };
 
 // ============================================================
 // Data Structures
@@ -74,10 +74,7 @@ pub struct LocalizationProgress {
 
 /// Returns the path to the localization directory for a specific language.
 fn sc_localization_dir(game_path: &str, version: &str, language_code: &str) -> PathBuf {
-    sc_base_dir(game_path, version)
-        .join("data")
-        .join("Localization")
-        .join(language_code)
+    sc_base_dir(game_path, version).join("data").join("Localization").join(language_code)
 }
 
 /// Returns the directory where localization metadata is stored.
@@ -106,13 +103,17 @@ fn build_download_url(source_repo: &str, language_code: &str, version: &str) -> 
         let folder = if branch == "ptu" { "ptu" } else { "live" };
         format!(
             "https://raw.githubusercontent.com/{}/{}/{}/global.ini",
-            source_repo, "main", folder
+            source_repo,
+            "main",
+            folder
         )
     } else {
         // Dymerz/StarCitizen-Localization
         format!(
             "https://raw.githubusercontent.com/{}/{}/data/Localization/{}/global.ini",
-            source_repo, branch, language_code
+            source_repo,
+            branch,
+            language_code
         )
     }
 }
@@ -124,18 +125,20 @@ fn build_download_url(source_repo: &str, language_code: &str, version: &str) -> 
 fn update_user_cfg_language(
     game_path: &str,
     version: &str,
-    language_code: &str,
+    language_code: &str
 ) -> Result<(), String> {
     let cfg_path = sc_base_dir(game_path, version).join("USER.cfg");
 
     let content = if cfg_path.exists() {
-        fs::read_to_string(&cfg_path)
-            .map_err(|e| format!("Failed to read USER.cfg: {}", e))?
+        fs::read_to_string(&cfg_path).map_err(|e| format!("Failed to read USER.cfg: {}", e))?
     } else {
         String::new()
     };
 
-    let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+    let mut lines: Vec<String> = content
+        .lines()
+        .map(|l| l.to_string())
+        .collect();
 
     let mut found_lang = false;
     let mut found_audio = false;
@@ -160,15 +163,10 @@ fn update_user_cfg_language(
 
     let result = lines.join("\n");
     // Ensure trailing newline
-    let result = if result.ends_with('\n') {
-        result
-    } else {
-        format!("{}\n", result)
-    };
+    let result = if result.ends_with('\n') { result } else { format!("{}\n", result) };
 
     if let Some(parent) = cfg_path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create directory: {}", e))?;
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
     }
 
     fs::write(&cfg_path, result).map_err(|e| format!("Failed to write USER.cfg: {}", e))
@@ -181,24 +179,23 @@ fn remove_user_cfg_language(game_path: &str, version: &str) -> Result<(), String
         return Ok(());
     }
 
-    let content =
-        fs::read_to_string(&cfg_path).map_err(|e| format!("Failed to read USER.cfg: {}", e))?;
+    let content = fs
+        ::read_to_string(&cfg_path)
+        .map_err(|e| format!("Failed to read USER.cfg: {}", e))?;
 
     let lines: Vec<&str> = content
         .lines()
         .filter(|line| {
             let trimmed = line.trim();
-            !(trimmed.starts_with("g_language") && trimmed.contains('='))
-                && !(trimmed.starts_with("g_languageAudio") && trimmed.contains('='))
+            !(
+                (trimmed.starts_with("g_language") && trimmed.contains('=')) ||
+                (trimmed.starts_with("g_languageAudio") && trimmed.contains('='))
+            )
         })
         .collect();
 
     let result = lines.join("\n");
-    let result = if result.ends_with('\n') {
-        result
-    } else {
-        format!("{}\n", result)
-    };
+    let result = if result.ends_with('\n') { result } else { format!("{}\n", result) };
 
     fs::write(&cfg_path, result).map_err(|e| format!("Failed to write USER.cfg: {}", e))
 }
@@ -228,10 +225,10 @@ fn parse_cfg_value(content: &str, key: &str) -> Option<String> {
 fn save_meta(version: &str, meta: &LocalizationMeta) -> Result<(), String> {
     let path = meta_path(version)?;
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create meta directory: {}", e))?;
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create meta directory: {}", e))?;
     }
-    let json = serde_json::to_string_pretty(meta)
+    let json = serde_json
+        ::to_string_pretty(meta)
         .map_err(|e| format!("Failed to serialize meta: {}", e))?;
     fs::write(&path, json).map_err(|e| format!("Failed to write meta: {}", e))
 }
@@ -264,10 +261,9 @@ pub struct LocalizationUpdateCheck {
 #[tauri::command]
 pub async fn check_localization_update(
     game_path: String,
-    version: String,
+    version: String
 ) -> Result<LocalizationUpdateCheck, String> {
-    let meta = load_meta(&version)
-        .ok_or_else(|| "No localization installed".to_string())?;
+    let meta = load_meta(&version).ok_or_else(|| "No localization installed".to_string())?;
 
     let languages = get_available_languages().await?;
     let source = languages
@@ -280,8 +276,7 @@ pub async fn check_localization_update(
     let client = reqwest::Client::new();
     let resp = client
         .head(&url)
-        .send()
-        .await
+        .send().await
         .map_err(|e| format!("HEAD request failed: {}", e))?;
 
     let remote_size = resp
@@ -293,9 +288,9 @@ pub async fn check_localization_update(
 
     // Also check local file size on disk (not just meta) for accuracy
     let expanded = expand_tilde(&game_path);
-    let ini_path = sc_localization_dir(&expanded, &version, &meta.language_code)
-        .join("global.ini");
-    let local_size = std::fs::metadata(&ini_path)
+    let ini_path = sc_localization_dir(&expanded, &version, &meta.language_code).join("global.ini");
+    let local_size = std::fs
+        ::metadata(&ini_path)
         .map(|m| m.len())
         .unwrap_or(meta.file_size);
 
@@ -308,56 +303,58 @@ pub async fn check_localization_update(
 
 #[tauri::command]
 pub async fn get_available_languages() -> Result<Vec<LanguageSource>, String> {
-    Ok(vec![
-        LanguageSource {
-            language_code: "german_(germany)".to_string(),
-            language_name: "Deutsch".to_string(),
-            flag: "DE".to_string(),
-            source_repo: "rjcncpt/StarCitizen-Deutsch-INI".to_string(),
-            source_label: "rjcncpt German".to_string(),
-        },
-        LanguageSource {
-            language_code: "german_(germany)".to_string(),
-            language_name: "Deutsch".to_string(),
-            flag: "DE".to_string(),
-            source_repo: "Dymerz/StarCitizen-Localization".to_string(),
-            source_label: "Community Localization".to_string(),
-        },
-        LanguageSource {
-            language_code: "french_(france)".to_string(),
-            language_name: "Fran\u{00e7}ais".to_string(),
-            flag: "FR".to_string(),
-            source_repo: "Dymerz/StarCitizen-Localization".to_string(),
-            source_label: "Community Localization".to_string(),
-        },
-        LanguageSource {
-            language_code: "spanish_(spain)".to_string(),
-            language_name: "Espa\u{00f1}ol".to_string(),
-            flag: "ES".to_string(),
-            source_repo: "Dymerz/StarCitizen-Localization".to_string(),
-            source_label: "Community Localization".to_string(),
-        },
-        LanguageSource {
-            language_code: "italian_(italy)".to_string(),
-            language_name: "Italiano".to_string(),
-            flag: "IT".to_string(),
-            source_repo: "Dymerz/StarCitizen-Localization".to_string(),
-            source_label: "Community Localization".to_string(),
-        },
-        LanguageSource {
-            language_code: "portuguese_(brazil)".to_string(),
-            language_name: "Portugu\u{00ea}s".to_string(),
-            flag: "BR".to_string(),
-            source_repo: "Dymerz/StarCitizen-Localization".to_string(),
-            source_label: "Community Localization".to_string(),
-        },
-    ])
+    Ok(
+        vec![
+            LanguageSource {
+                language_code: "german_(germany)".to_string(),
+                language_name: "Deutsch".to_string(),
+                flag: "DE".to_string(),
+                source_repo: "rjcncpt/StarCitizen-Deutsch-INI".to_string(),
+                source_label: "rjcncpt German".to_string(),
+            },
+            LanguageSource {
+                language_code: "german_(germany)".to_string(),
+                language_name: "Deutsch".to_string(),
+                flag: "DE".to_string(),
+                source_repo: "Dymerz/StarCitizen-Localization".to_string(),
+                source_label: "Community Localization".to_string(),
+            },
+            LanguageSource {
+                language_code: "french_(france)".to_string(),
+                language_name: "Fran\u{00e7}ais".to_string(),
+                flag: "FR".to_string(),
+                source_repo: "Dymerz/StarCitizen-Localization".to_string(),
+                source_label: "Community Localization".to_string(),
+            },
+            LanguageSource {
+                language_code: "spanish_(spain)".to_string(),
+                language_name: "Espa\u{00f1}ol".to_string(),
+                flag: "ES".to_string(),
+                source_repo: "Dymerz/StarCitizen-Localization".to_string(),
+                source_label: "Community Localization".to_string(),
+            },
+            LanguageSource {
+                language_code: "italian_(italy)".to_string(),
+                language_name: "Italiano".to_string(),
+                flag: "IT".to_string(),
+                source_repo: "Dymerz/StarCitizen-Localization".to_string(),
+                source_label: "Community Localization".to_string(),
+            },
+            LanguageSource {
+                language_code: "portuguese_(brazil)".to_string(),
+                language_name: "Portugu\u{00ea}s".to_string(),
+                flag: "BR".to_string(),
+                source_repo: "Dymerz/StarCitizen-Localization".to_string(),
+                source_label: "Community Localization".to_string(),
+            }
+        ]
+    )
 }
 
 #[tauri::command]
 pub async fn get_localization_status(
     game_path: String,
-    version: String,
+    version: String
 ) -> Result<LocalizationStatus, String> {
     let expanded = expand_tilde(&game_path);
 
@@ -365,21 +362,22 @@ pub async fn get_localization_status(
     let cfg_path = sc_base_dir(&expanded, &version).join("USER.cfg");
     let (cfg_language, cfg_language_audio) = if cfg_path.exists() {
         let content = fs::read_to_string(&cfg_path).unwrap_or_default();
-        (
-            parse_cfg_value(&content, "g_language"),
-            parse_cfg_value(&content, "g_languageAudio"),
-        )
+        (parse_cfg_value(&content, "g_language"), parse_cfg_value(&content, "g_languageAudio"))
     } else {
         (None, None)
     };
 
     // Check metadata
     if let Some(meta) = load_meta(&version) {
-        let ini_path = sc_localization_dir(&expanded, &version, &meta.language_code)
-            .join("global.ini");
+        let ini_path = sc_localization_dir(&expanded, &version, &meta.language_code).join(
+            "global.ini"
+        );
 
         if ini_path.exists() {
-            let file_size = fs::metadata(&ini_path).map(|m| m.len()).ok();
+            let file_size = fs
+                ::metadata(&ini_path)
+                .map(|m| m.len())
+                .ok();
 
             return Ok(LocalizationStatus {
                 installed: true,
@@ -398,7 +396,10 @@ pub async fn get_localization_status(
     if let Some(ref lang) = cfg_language {
         let ini_path = sc_localization_dir(&expanded, &version, lang).join("global.ini");
         if ini_path.exists() {
-            let file_size = fs::metadata(&ini_path).map(|m| m.len()).ok();
+            let file_size = fs
+                ::metadata(&ini_path)
+                .map(|m| m.len())
+                .ok();
             return Ok(LocalizationStatus {
                 installed: true,
                 language_code: Some(lang.clone()),
@@ -432,19 +433,16 @@ pub async fn install_localization(
     language_code: String,
     source_repo: String,
     language_name: String,
-    source_label: String,
+    source_label: String
 ) -> Result<LocalizationInstallResult, String> {
     let expanded = expand_tilde(&game_path);
 
     // Emit progress: starting
-    let _ = app.emit(
-        "localization-progress",
-        LocalizationProgress {
-            phase: "download".to_string(),
-            percent: 0.0,
-            message: format!("Downloading {} translation...", language_name),
-        },
-    );
+    let _ = app.emit("localization-progress", LocalizationProgress {
+        phase: "download".to_string(),
+        percent: 0.0,
+        message: format!("Downloading {} translation...", language_name),
+    });
 
     // Build URL
     let url = build_download_url(&source_repo, &language_code, &version);
@@ -453,50 +451,37 @@ pub async fn install_localization(
     let client = reqwest::Client::new();
     let response = client
         .get(&url)
-        .send()
-        .await
+        .send().await
         .map_err(|e| format!("Download failed: {}", e))?;
 
     if !response.status().is_success() {
-        return Err(format!(
-            "Download failed with status: {}",
-            response.status()
-        ));
+        return Err(format!("Download failed with status: {}", response.status()));
     }
 
-    let _ = app.emit(
-        "localization-progress",
-        LocalizationProgress {
-            phase: "download".to_string(),
-            percent: 50.0,
-            message: "Downloading...".to_string(),
-        },
-    );
+    let _ = app.emit("localization-progress", LocalizationProgress {
+        phase: "download".to_string(),
+        percent: 50.0,
+        message: "Downloading...".to_string(),
+    });
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| format!("Failed to read response body: {}", e))?;
+    let bytes = response.bytes().await.map_err(|e| format!("Failed to read response body: {}", e))?;
 
     let file_size = bytes.len() as u64;
 
-    let _ = app.emit(
-        "localization-progress",
-        LocalizationProgress {
-            phase: "install".to_string(),
-            percent: 75.0,
-            message: "Installing translation file...".to_string(),
-        },
-    );
+    let _ = app.emit("localization-progress", LocalizationProgress {
+        phase: "install".to_string(),
+        percent: 75.0,
+        message: "Installing translation file...".to_string(),
+    });
 
     // Create directory and write file
     let loc_dir = sc_localization_dir(&expanded, &version, &language_code);
-    fs::create_dir_all(&loc_dir)
+    fs
+        ::create_dir_all(&loc_dir)
         .map_err(|e| format!("Failed to create localization directory: {}", e))?;
 
     let ini_path = loc_dir.join("global.ini");
-    fs::write(&ini_path, &bytes)
-        .map_err(|e| format!("Failed to write global.ini: {}", e))?;
+    fs::write(&ini_path, &bytes).map_err(|e| format!("Failed to write global.ini: {}", e))?;
 
     // Update USER.cfg
     update_user_cfg_language(&expanded, &version, &language_code)?;
@@ -512,14 +497,11 @@ pub async fn install_localization(
     };
     save_meta(&version, &meta)?;
 
-    let _ = app.emit(
-        "localization-progress",
-        LocalizationProgress {
-            phase: "done".to_string(),
-            percent: 100.0,
-            message: "Installation complete!".to_string(),
-        },
-    );
+    let _ = app.emit("localization-progress", LocalizationProgress {
+        phase: "done".to_string(),
+        percent: 100.0,
+        message: "Installation complete!".to_string(),
+    });
 
     Ok(LocalizationInstallResult {
         success: true,
@@ -529,10 +511,7 @@ pub async fn install_localization(
 }
 
 #[tauri::command]
-pub async fn remove_localization(
-    game_path: String,
-    version: String,
-) -> Result<(), String> {
+pub async fn remove_localization(game_path: String, version: String) -> Result<(), String> {
     let expanded = expand_tilde(&game_path);
 
     // Load meta to find the language code
@@ -543,8 +522,9 @@ pub async fn remove_localization(
         let cfg_path = sc_base_dir(&expanded, &version).join("USER.cfg");
         if cfg_path.exists() {
             let content = fs::read_to_string(&cfg_path).unwrap_or_default();
-            parse_cfg_value(&content, "g_language")
-                .ok_or_else(|| "No localization found to remove".to_string())?
+            parse_cfg_value(&content, "g_language").ok_or_else(||
+                "No localization found to remove".to_string()
+            )?
         } else {
             return Err("No localization found to remove".to_string());
         }
@@ -553,8 +533,7 @@ pub async fn remove_localization(
     // Delete global.ini
     let ini_path = sc_localization_dir(&expanded, &version, &language_code).join("global.ini");
     if ini_path.exists() {
-        fs::remove_file(&ini_path)
-            .map_err(|e| format!("Failed to delete global.ini: {}", e))?;
+        fs::remove_file(&ini_path).map_err(|e| format!("Failed to delete global.ini: {}", e))?;
     }
 
     // Try to remove the language directory if empty

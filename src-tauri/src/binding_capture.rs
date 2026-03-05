@@ -1,11 +1,17 @@
-use tauri::{AppHandle, Emitter};
-use gilrs::{Gilrs, Event, EventType, Button, Axis, GamepadId};
-use std::sync::atomic::{AtomicBool, Ordering};
+//! Input device capture for binding configuration.
+//!
+//! Uses the gilrs library to listen for joystick/gamepad input events
+//! in a background thread. Captured button presses and axis movements
+//! are emitted to the frontend for assigning key bindings.
+
+use tauri::{ AppHandle, Emitter };
+use gilrs::{ Gilrs, Event, EventType, Button, Axis, GamepadId };
+use std::sync::atomic::{ AtomicBool, Ordering };
 use std::sync::Arc;
 use std::thread;
 use once_cell::sync::Lazy;
 use chrono::Local;
-use serde::{Deserialize, Serialize};
+use serde::{ Deserialize, Serialize };
 
 static IS_CAPTURING: Lazy<Arc<AtomicBool>> = Lazy::new(|| Arc::new(AtomicBool::new(false)));
 
@@ -16,7 +22,9 @@ fn log_capture(msg: &str) {
 
 /// Convert Gilrs UUID (16 bytes) to hex string
 fn uuid_to_hex(uuid: [u8; 16]) -> String {
-    uuid.iter().map(|b| format!("{:02x}", b)).collect()
+    uuid.iter()
+        .map(|b| format!("{:02x}", b))
+        .collect()
 }
 
 /// Connected device info for UI display
@@ -74,7 +82,9 @@ pub fn list_connected_devices() -> Result<Vec<ConnectedDevice>, String> {
 
 #[tauri::command]
 pub fn start_input_capture(app: AppHandle) {
-    if IS_CAPTURING.load(Ordering::SeqCst) { return; }
+    if IS_CAPTURING.load(Ordering::SeqCst) {
+        return;
+    }
     IS_CAPTURING.store(true, Ordering::SeqCst);
     log_capture(">>> HARDWARE CAPTURE ENABLED <<<");
 
@@ -87,7 +97,10 @@ pub fn start_input_capture(app: AppHandle) {
                 log_capture(&format!("Gilrs active. Found {} devices.", gilrs.gamepads().count()));
 
                 // Build a map of GamepadId -> DeviceInfo for quick lookup
-                let mut device_info_map: std::collections::HashMap<GamepadId, (String, String, u32)> = std::collections::HashMap::new();
+                let mut device_info_map: std::collections::HashMap<
+                    GamepadId,
+                    (String, String, u32)
+                > = std::collections::HashMap::new();
                 for (id, gamepad) in gilrs.gamepads() {
                     let js_id: usize = id.into();
                     let instance = (js_id + 1) as u32;
@@ -101,7 +114,9 @@ pub fn start_input_capture(app: AppHandle) {
                 while capturing.load(Ordering::SeqCst) {
                     while let Some(Event { id, event, .. }) = gilrs.next_event() {
                         // Get device info - if not in map, try to get it now
-                        let (linux_uuid, product_name, instance) = if let Some(info) = device_info_map.get(&id) {
+                        let (linux_uuid, product_name, instance) = if
+                            let Some(info) = device_info_map.get(&id)
+                        {
                             info.clone()
                         } else {
                             // Device might have been added since we started
@@ -109,7 +124,11 @@ pub fn start_input_capture(app: AppHandle) {
                             let gamepad = gilrs.gamepad(id);
                             let js_id: usize = id.into();
                             let inst = (js_id + 1) as u32;
-                            let info = (uuid_to_hex(gamepad.uuid()), gamepad.name().to_string(), inst);
+                            let info = (
+                                uuid_to_hex(gamepad.uuid()),
+                                gamepad.name().to_string(),
+                                inst,
+                            );
                             device_info_map.insert(id, info.clone());
                             info
                         };
@@ -120,22 +139,39 @@ pub fn start_input_capture(app: AppHandle) {
                                     format_gilrs_button(button)
                                 } else {
                                     let code_str = format!("{:?}", code);
-                                    if code_str.contains("code: 288") { "button1".to_string() }
-                                    else if code_str.contains("code: 713") { "button26".to_string() }
-                                    else if code_str.contains("code: 708") { "button21".to_string() }
-                                    else {
-                                        code_str.split("code: ")
+                                    if code_str.contains("code: 288") {
+                                        "button1".to_string()
+                                    } else if code_str.contains("code: 713") {
+                                        "button26".to_string()
+                                    } else if code_str.contains("code: 708") {
+                                        "button21".to_string()
+                                    } else {
+                                        code_str
+                                            .split("code: ")
                                             .nth(1)
                                             .and_then(|s| s.split(' ').next())
                                             .and_then(|s| s.parse::<u32>().ok())
-                                            .map(|c| format!("button{}", if c >= 704 { c - 704 + 17 } else if c >= 288 { c - 288 + 1 } else { c }))
+                                            .map(|c|
+                                                format!("button{}", if c >= 704 {
+                                                    c - 704 + 17
+                                                } else if c >= 288 {
+                                                    c - 288 + 1
+                                                } else {
+                                                    c
+                                                })
+                                            )
                                             .unwrap_or_else(|| "unknown".to_string())
                                     }
                                 };
-                                let itype = if btn_name.starts_with("hat") { "hat" } else { "button" };
+                                let itype = if btn_name.starts_with("hat") {
+                                    "hat"
+                                } else {
+                                    "button"
+                                };
                                 Some((btn_name, itype.to_string()))
                             }
-                            EventType::AxisChanged(axis, val, code) if val.abs() > 0.8 => { // Threshold 0.8
+                            EventType::AxisChanged(axis, val, code) if val.abs() > 0.8 => {
+                                // Threshold 0.8
                                 let code_str = format!("{:?}", code);
                                 let axis_name = match axis {
                                     Axis::LeftStickX => "x".to_string(),
@@ -145,24 +181,33 @@ pub fn start_input_capture(app: AppHandle) {
                                     Axis::RightStickY => "roty".to_string(),
                                     Axis::RightZ => "rotz".to_string(),
                                     _ => {
-                                        if code_str.contains("code: 6") { "slider1".to_string() }
-                                        else if code_str.contains("code: 7") { "slider2".to_string() }
-                                        else { format!("{:?}", axis).to_lowercase() }
+                                        if code_str.contains("code: 6") {
+                                            "slider1".to_string()
+                                        } else if code_str.contains("code: 7") {
+                                            "slider2".to_string()
+                                        } else {
+                                            format!("{:?}", axis).to_lowercase()
+                                        }
                                     }
                                 };
                                 Some((axis_name, "axis".to_string()))
                             }
-                            _ => None
+                            _ => None,
                         };
 
                         if let Some((input, input_type)) = sc_input {
                             // Create full input string with instance
                             let full_input = format!("js{}_{}", instance, input);
 
-                            log_capture(&format!(
-                                "CAPTURED: {} - {} ({}) -> {}",
-                                product_name, input, input_type, full_input
-                            ));
+                            log_capture(
+                                &format!(
+                                    "CAPTURED: {} - {} ({}) -> {}",
+                                    product_name,
+                                    input,
+                                    input_type,
+                                    full_input
+                                )
+                            );
 
                             // Emit full CapturedInput structure
                             let captured = CapturedInput {

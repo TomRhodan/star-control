@@ -13,6 +13,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { escapeHtml } from '../utils.js';
 
 /**
  * Sort sources: LUG sources first (sorted by name length), then others alphabetically
@@ -1198,11 +1199,7 @@ function formatCacheTime(timestamp) {
   return date.toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
 }
 
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
+
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));

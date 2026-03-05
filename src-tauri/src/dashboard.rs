@@ -7,10 +7,10 @@
 //!
 //! All data is fetched asynchronously and cached appropriately.
 
-use chrono::{DateTime, Utc};
+use chrono::{ DateTime, Utc };
 use quick_xml::events::Event;
 use quick_xml::Reader;
-use serde::{Deserialize, Serialize};
+use serde::{ Deserialize, Serialize };
 
 // ── RSI News ──────────────────────────────────────────────────────────
 
@@ -36,18 +36,19 @@ pub struct RsiNewsResult {
 pub async fn fetch_rsi_news() -> RsiNewsResult {
     match fetch_rsi_news_inner().await {
         Ok(items) => RsiNewsResult { items, error: None },
-        Err(e) => RsiNewsResult {
-            items: vec![],
-            error: Some(e.to_string()),
-        },
+        Err(e) =>
+            RsiNewsResult {
+                items: vec![],
+                error: Some(e.to_string()),
+            },
     }
 }
 
-async fn fetch_rsi_news_inner() -> Result<Vec<RsiNewsItem>, Box<dyn std::error::Error + Send + Sync>> {
-    let body = reqwest::get("https://leonick.se/feeds/rsi/atom")
-        .await?
-        .text()
-        .await?;
+async fn fetch_rsi_news_inner() -> Result<
+    Vec<RsiNewsItem>,
+    Box<dyn std::error::Error + Send + Sync>
+> {
+    let body = reqwest::get("https://leonick.se/feeds/rsi/atom").await?.text().await?;
 
     let mut reader = Reader::from_str(&body);
     // Security: Disable DTD and entity processing to prevent XXE attacks
@@ -134,12 +135,16 @@ async fn fetch_rsi_news_inner() -> Result<Vec<RsiNewsItem>, Box<dyn std::error::
                     let relative = format_relative_time(&current_published);
                     // Trim summary to ~200 chars
                     let summary = if current_summary.len() > 200 {
-                        let trimmed = &current_summary[..current_summary
-                            .char_indices()
-                            .take(200)
-                            .last()
-                            .map(|(i, c)| i + c.len_utf8())
-                            .unwrap_or(200)];
+                        let trimmed =
+                            &current_summary
+                                [
+                                    ..current_summary
+                                        .char_indices()
+                                        .take(200)
+                                        .last()
+                                        .map(|(i, c)| i + c.len_utf8())
+                                        .unwrap_or(200)
+                                ];
                         format!("{}...", trimmed.trim())
                     } else {
                         current_summary.trim().to_string()
@@ -160,8 +165,12 @@ async fn fetch_rsi_news_inner() -> Result<Vec<RsiNewsItem>, Box<dyn std::error::
                     current_tag.clear();
                 }
             }
-            Ok(Event::Eof) => break,
-            Err(_) => break,
+            Ok(Event::Eof) => {
+                break;
+            }
+            Err(_) => {
+                break;
+            }
             _ => {}
         }
     }
@@ -218,22 +227,26 @@ pub struct ServerStatusResult {
 #[tauri::command]
 pub async fn fetch_server_status() -> ServerStatusResult {
     match fetch_server_status_inner().await {
-        Ok(components) => ServerStatusResult {
-            components,
-            error: None,
-        },
-        Err(e) => ServerStatusResult {
-            components: vec![],
-            error: Some(e.to_string()),
-        },
+        Ok(components) =>
+            ServerStatusResult {
+                components,
+                error: None,
+            },
+        Err(e) =>
+            ServerStatusResult {
+                components: vec![],
+                error: Some(e.to_string()),
+            },
     }
 }
 
-async fn fetch_server_status_inner() -> Result<Vec<ServerComponent>, Box<dyn std::error::Error + Send + Sync>> {
-    let body = reqwest::get("https://status.robertsspaceindustries.com/index.xml")
-        .await?
-        .text()
-        .await?;
+async fn fetch_server_status_inner() -> Result<
+    Vec<ServerComponent>,
+    Box<dyn std::error::Error + Send + Sync>
+> {
+    let body = reqwest
+        ::get("https://status.robertsspaceindustries.com/index.xml").await?
+        .text().await?;
 
     // Parse RSS feed for incident information
     let mut reader = Reader::from_str(&body);
@@ -281,14 +294,21 @@ async fn fetch_server_status_inner() -> Result<Vec<ServerComponent>, Box<dyn std
                 let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
                 if name == "item" {
                     in_item = false;
-                    incidents.push((current_title.trim().to_string(), current_desc.trim().to_string()));
+                    incidents.push((
+                        current_title.trim().to_string(),
+                        current_desc.trim().to_string(),
+                    ));
                 }
                 if in_item {
                     current_tag.clear();
                 }
             }
-            Ok(Event::Eof) => break,
-            Err(_) => break,
+            Ok(Event::Eof) => {
+                break;
+            }
+            Err(_) => {
+                break;
+            }
             _ => {}
         }
     }
@@ -306,10 +326,16 @@ async fn fetch_server_status_inner() -> Result<Vec<ServerComponent>, Box<dyn std
             let name_lower = name.to_lowercase();
 
             // Check if this incident mentions this component
-            let relevant = combined.contains(&name_lower)
-                || (*name == "Platform" && (combined.contains("platform") || combined.contains("website") || combined.contains("rsi")))
-                || (*name == "Persistent Universe" && (combined.contains("persistent universe") || combined.contains("pu ")))
-                || (*name == "Arena Commander" && (combined.contains("arena commander") || combined.contains("ac ")));
+            let relevant =
+                combined.contains(&name_lower) ||
+                (*name == "Platform" &&
+                    (combined.contains("platform") ||
+                        combined.contains("website") ||
+                        combined.contains("rsi"))) ||
+                (*name == "Persistent Universe" &&
+                    (combined.contains("persistent universe") || combined.contains("pu "))) ||
+                (*name == "Arena Commander" &&
+                    (combined.contains("arena commander") || combined.contains("ac ")));
 
             if relevant {
                 if combined.contains("resolved") || combined.contains("completed") {
@@ -317,7 +343,12 @@ async fn fetch_server_status_inner() -> Result<Vec<ServerComponent>, Box<dyn std
                 } else if combined.contains("major") || combined.contains("outage") {
                     status = "major_outage".to_string();
                     break;
-                } else if combined.contains("degraded") || combined.contains("partial") || combined.contains("investigating") || combined.contains("monitoring") {
+                } else if
+                    combined.contains("degraded") ||
+                    combined.contains("partial") ||
+                    combined.contains("investigating") ||
+                    combined.contains("monitoring")
+                {
                     status = "degraded".to_string();
                 }
             }
@@ -369,22 +400,26 @@ pub struct CommunityStatsResult {
 #[tauri::command]
 pub async fn fetch_community_stats() -> CommunityStatsResult {
     match fetch_community_stats_inner().await {
-        Ok(stats) => CommunityStatsResult {
-            stats: Some(stats),
-            error: None,
-        },
-        Err(e) => CommunityStatsResult {
-            stats: None,
-            error: Some(e.to_string()),
-        },
+        Ok(stats) =>
+            CommunityStatsResult {
+                stats: Some(stats),
+                error: None,
+            },
+        Err(e) =>
+            CommunityStatsResult {
+                stats: None,
+                error: Some(e.to_string()),
+            },
     }
 }
 
-async fn fetch_community_stats_inner() -> Result<CommunityStats, Box<dyn std::error::Error + Send + Sync>> {
-    let resp: StatsApiResponse = reqwest::get("https://api.star-citizen.wiki/api/stats/latest")
-        .await?
-        .json()
-        .await?;
+async fn fetch_community_stats_inner() -> Result<
+    CommunityStats,
+    Box<dyn std::error::Error + Send + Sync>
+> {
+    let resp: StatsApiResponse = reqwest
+        ::get("https://api.star-citizen.wiki/api/stats/latest").await?
+        .json().await?;
 
     let funds: f64 = resp.data.funds.parse().unwrap_or(0.0);
     let fans = resp.data.fans;

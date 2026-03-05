@@ -14,6 +14,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { escapeHtml } from '../utils.js';
 
 /** @constant {string} Launch status states */
 let launchStatus = 'idle'; // 'idle' | 'checking' | 'ready' | 'launching' | 'running' | 'error' | 'not_installed'
@@ -535,8 +536,4 @@ function hasFractionalScaling() {
 
 // --- Helpers ---
 
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
+

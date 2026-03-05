@@ -35,13 +35,14 @@ mod sc_config;
 mod system_check;
 mod action_definitions;
 
-use simplelog::{CombinedLogger, WriteLogger, LevelFilter, Config};
+use simplelog::{ CombinedLogger, WriteLogger, LevelFilter, Config };
 use std::fs::File;
 
 /// Initialize the logging system with file output.
 /// Logs are written to ~/.config/star-control/logs/debug.log
 fn init_logging() {
-    let log_dir = dirs::config_dir()
+    let log_dir = dirs
+        ::config_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("star-control")
         .join("logs");
@@ -52,11 +53,7 @@ fn init_logging() {
     let log_file_path = log_dir.join("debug.log");
 
     // Create or open log file in append mode
-    let log_file = match File::options()
-        .create(true)
-        .append(true)
-        .open(&log_file_path)
-    {
+    let log_file = match File::options().create(true).append(true).open(&log_file_path) {
         Ok(file) => file,
         Err(e) => {
             eprintln!("Failed to open log file: {}", e);
@@ -65,9 +62,9 @@ fn init_logging() {
     };
 
     // Initialize combined logger (file + terminal)
-    let logger = CombinedLogger::init(vec![
-        WriteLogger::new(LevelFilter::Debug, Config::default(), log_file),
-    ]);
+    let logger = CombinedLogger::init(
+        vec![WriteLogger::new(LevelFilter::Debug, Config::default(), log_file)]
+    );
 
     match logger {
         Ok(_) => {
@@ -145,17 +142,23 @@ fn load_window_state() -> Option<WindowState> {
 /// Converts physical coordinates to logical coordinates for proper scaling.
 fn save_window_state_from(window: &tauri::WebviewWindow) {
     if let Some(path) = window_state_path() {
-        let Ok(size) = window.inner_size() else { return };
-        let Ok(pos) = window.outer_position() else { return };
-        let Ok(scale) = window.scale_factor() else { return };
+        let Ok(size) = window.inner_size() else {
+            return;
+        };
+        let Ok(pos) = window.outer_position() else {
+            return;
+        };
+        let Ok(scale) = window.scale_factor() else {
+            return;
+        };
         let maximized = window.is_maximized().unwrap_or(false);
 
         // Convert physical size to logical size for storage
-        let logical_width = (size.width as f64 / scale) as u32;
-        let logical_height = (size.height as f64 / scale) as u32;
+        let logical_width = ((size.width as f64) / scale) as u32;
+        let logical_height = ((size.height as f64) / scale) as u32;
         // Convert physical position to logical position
-        let logical_x = (pos.x as f64 / scale) as i32;
-        let logical_y = (pos.y as f64 / scale) as i32;
+        let logical_x = ((pos.x as f64) / scale) as i32;
+        let logical_y = ((pos.y as f64) / scale) as i32;
 
         let state = WindowState {
             width: logical_width,
@@ -188,8 +191,8 @@ fn restore_window_state(window: &tauri::WebviewWindow) {
         if let Ok(Some(monitor)) = window.current_monitor() {
             let monitor_scale = monitor.scale_factor();
             let monitor_physical = monitor.size();
-            let monitor_logical_w = (monitor_physical.width as f64 / monitor_scale) as u32;
-            let monitor_logical_h = (monitor_physical.height as f64 / monitor_scale) as u32;
+            let monitor_logical_w = ((monitor_physical.width as f64) / monitor_scale) as u32;
+            let monitor_logical_h = ((monitor_physical.height as f64) / monitor_scale) as u32;
 
             width = width.min(monitor_logical_w.saturating_sub(50));
             height = height.min(monitor_logical_h.saturating_sub(50));
@@ -200,10 +203,12 @@ fn restore_window_state(window: &tauri::WebviewWindow) {
 
         // Set position (on X11 only, Wayland ignores it)
         let current_scale = window.scale_factor().unwrap_or(1.0);
-        let _ = window.set_position(tauri::PhysicalPosition::new(
-            (state.x as f64 * current_scale) as i32,
-            (state.y as f64 * current_scale) as i32,
-        ));
+        let _ = window.set_position(
+            tauri::PhysicalPosition::new(
+                ((state.x as f64) * current_scale) as i32,
+                ((state.y as f64) * current_scale) as i32
+            )
+        );
 
         if state.maximized {
             let _ = window.maximize();
@@ -217,7 +222,8 @@ pub fn run() {
     // Initialize logging first
     init_logging();
 
-    tauri::Builder::default()
+    tauri::Builder
+        ::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
@@ -230,97 +236,99 @@ pub fn run() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
-            greet,
-            app_log,
-            get_log_file_path,
-            system_check::run_system_check,
-            system_check::fix_mapcount,
-            system_check::fix_filelimit,
-            system_check::detect_monitors,
-            system_check::get_default_install_path,
-            config::check_needs_setup,
-            config::create_install_directory,
-            config::validate_install_path,
-            config::scan_runners,
-            config::save_config,
-            config::load_config,
-            config::load_runner_cache,
-            config::save_runner_cache,
-            config::load_dxvk_cache,
-            config::save_dxvk_cache,
-            config::reset_app,
-            config::add_runner_source_from_github,
-            config::import_lug_helper_sources,
-            runners::fetch_available_runners,
-            runners::install_runner,
-            runners::cancel_runner_install,
-            runners::delete_runner,
-            dxvk::fetch_dxvk_releases,
-            dxvk::detect_dxvk_version,
-            dxvk::install_dxvk,
-            prefix_tools::run_winecfg,
-            prefix_tools::launch_wine_shell,
-            prefix_tools::get_dpi,
-            prefix_tools::set_dpi,
-            prefix_tools::install_powershell,
-            prefix_tools::detect_powershell,
-            installer::run_installation,
-            installer::cancel_installation,
-            installer::check_installation,
-            installer::is_game_running,
-            installer::launch_game,
-            installer::stop_game,
-            sc_config::read_user_cfg,
-            sc_config::write_user_cfg,
-            sc_config::detect_sc_versions,
-            sc_config::list_profiles,
-            sc_config::export_profile,
-            sc_config::import_profile,
-            sc_config::read_attributes,
-            sc_config::write_attributes,
-            sc_config::parse_actionmaps,
-            sc_config::get_action_definitions,
-            sc_config::get_complete_binding_list,
-            sc_config::assign_binding,
-            sc_config::remove_binding,
-            sc_config::read_p4k,
-            sc_config::list_p4k,
-            sc_config::get_localization_labels,
-            sc_config::get_localization_ini,
-            sc_config::list_localization_languages,
-            sc_config::reorder_devices,
-            sc_config::backup_profile,
-            sc_config::restore_profile,
-            sc_config::backup_profile_manual,
-            sc_config::list_backups,
-            sc_config::delete_backup,
-            sc_config::update_backup_label,
-            sc_config::list_exported_layouts,
-            binding_capture::start_input_capture,
-            binding_capture::stop_input_capture,
-            binding_capture::list_connected_devices,
-            binding_database::import_binding_profile,
-            binding_database::get_human_readable_bindings_cmd,
-            binding_database::list_binding_profiles,
-            binding_database::get_binding_profile,
-            binding_database::delete_binding_profile,
-            binding_database::save_binding_profile,
-            binding_database::update_binding_in_profile,
-            binding_database::rename_binding_profile,
-            binding_database::export_binding_to_actionmaps,
-            binding_database::reconcile_devices,
-            binding_database::set_device_alias,
-            binding_database::get_device_aliases,
-            localization::check_localization_update,
-            localization::get_available_languages,
-            localization::get_localization_status,
-            localization::install_localization,
-            localization::remove_localization,
-            dashboard::fetch_rsi_news,
-            dashboard::fetch_server_status,
-            dashboard::fetch_community_stats,
-        ])
+        .invoke_handler(
+            tauri::generate_handler![
+                greet,
+                app_log,
+                get_log_file_path,
+                system_check::run_system_check,
+                system_check::fix_mapcount,
+                system_check::fix_filelimit,
+                system_check::detect_monitors,
+                system_check::get_default_install_path,
+                config::check_needs_setup,
+                config::create_install_directory,
+                config::validate_install_path,
+                config::scan_runners,
+                config::save_config,
+                config::load_config,
+                config::load_runner_cache,
+                config::save_runner_cache,
+                config::load_dxvk_cache,
+                config::save_dxvk_cache,
+                config::reset_app,
+                config::add_runner_source_from_github,
+                config::import_lug_helper_sources,
+                runners::fetch_available_runners,
+                runners::install_runner,
+                runners::cancel_runner_install,
+                runners::delete_runner,
+                dxvk::fetch_dxvk_releases,
+                dxvk::detect_dxvk_version,
+                dxvk::install_dxvk,
+                prefix_tools::run_winecfg,
+                prefix_tools::launch_wine_shell,
+                prefix_tools::get_dpi,
+                prefix_tools::set_dpi,
+                prefix_tools::install_powershell,
+                prefix_tools::detect_powershell,
+                installer::run_installation,
+                installer::cancel_installation,
+                installer::check_installation,
+                installer::is_game_running,
+                installer::launch_game,
+                installer::stop_game,
+                sc_config::read_user_cfg,
+                sc_config::write_user_cfg,
+                sc_config::detect_sc_versions,
+                sc_config::list_profiles,
+                sc_config::export_profile,
+                sc_config::import_profile,
+                sc_config::read_attributes,
+                sc_config::write_attributes,
+                sc_config::parse_actionmaps,
+                sc_config::get_action_definitions,
+                sc_config::get_complete_binding_list,
+                sc_config::assign_binding,
+                sc_config::remove_binding,
+                sc_config::read_p4k,
+                sc_config::list_p4k,
+                sc_config::get_localization_labels,
+                sc_config::get_localization_ini,
+                sc_config::list_localization_languages,
+                sc_config::reorder_devices,
+                sc_config::backup_profile,
+                sc_config::restore_profile,
+                sc_config::backup_profile_manual,
+                sc_config::list_backups,
+                sc_config::delete_backup,
+                sc_config::update_backup_label,
+                sc_config::list_exported_layouts,
+                binding_capture::start_input_capture,
+                binding_capture::stop_input_capture,
+                binding_capture::list_connected_devices,
+                binding_database::import_binding_profile,
+                binding_database::get_human_readable_bindings_cmd,
+                binding_database::list_binding_profiles,
+                binding_database::get_binding_profile,
+                binding_database::delete_binding_profile,
+                binding_database::save_binding_profile,
+                binding_database::update_binding_in_profile,
+                binding_database::rename_binding_profile,
+                binding_database::export_binding_to_actionmaps,
+                binding_database::reconcile_devices,
+                binding_database::set_device_alias,
+                binding_database::get_device_aliases,
+                localization::check_localization_update,
+                localization::get_available_languages,
+                localization::get_localization_status,
+                localization::install_localization,
+                localization::remove_localization,
+                dashboard::fetch_rsi_news,
+                dashboard::fetch_server_status,
+                dashboard::fetch_community_stats
+            ]
+        )
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 if let Some(ww) = window.app_handle().get_webview_window(window.label()) {

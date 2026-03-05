@@ -13,6 +13,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import { router } from '../router.js';
+import { escapeHtml } from '../utils.js';
 
 /** @constant {Array} System check items */
 const CHECK_ITEMS = [
@@ -124,7 +125,7 @@ export async function renderInstallation(container) {
   if (!configState.installPath) {
     invoke('get_default_install_path').then(path => {
       configState.installPath = path;
-    }).catch(() => {});
+    }).catch(e => console.error('Failed to load default install path:', e));
   }
 }
 
@@ -381,7 +382,8 @@ function renderStep2(body) {
       <div class="path-input-row">
         <input type="text" class="input" id="install-path-input"
                value="${escapeHtml(configState.installPath)}"
-               placeholder="~/Games/star-citizen" />
+               placeholder="~/Games/star-citizen"
+               aria-label="Install directory path" />
         <button class="btn btn-secondary" id="btn-browse">Browse</button>
       </div>
       <div id="path-validation" class="path-validation-msg"></div>
@@ -507,7 +509,8 @@ function renderStep2(body) {
     } else {
       updateMonitorDropdown();
     }
-  }).catch(() => {
+  }).catch(e => {
+    console.error('Failed to detect monitors:', e);
     detectedMonitors = [];
     updateMonitorDropdown();
   });
@@ -560,7 +563,7 @@ function renderMonitorDropdown() {
       <span class="toggle-hint monitor-hint-row">
         <span class="monitor-env-name">WAYLANDDRV_PRIMARY_MONITOR</span>
         <span class="monitor-select-container ${!enabled ? 'disabled' : ''}" id="monitor-select-container">
-          <select class="input monitor-select-input" id="monitor-select" ${!enabled ? 'disabled' : ''}>
+          <select class="input monitor-select-input" id="monitor-select" ${!enabled ? 'disabled' : ''} aria-label="Wayland monitor">
             <option value="">Detecting...</option>
           </select>
         </span>
@@ -584,7 +587,7 @@ function updateMonitorDropdown() {
     }).join('');
 
     container.innerHTML = `
-      <select class="input monitor-select-input" id="monitor-select" ${!enabled ? 'disabled' : ''}>
+      <select class="input monitor-select-input" id="monitor-select" ${!enabled ? 'disabled' : ''} aria-label="Wayland monitor">
         ${options}
       </select>
     `;
@@ -593,7 +596,8 @@ function updateMonitorDropdown() {
       <input type="text" class="input monitor-select-input" id="monitor-input"
              value="${escapeHtml(currentValue)}"
              placeholder="e.g. DP-1 (xrandr n/a)"
-             ${!enabled ? 'disabled' : ''} />
+             ${!enabled ? 'disabled' : ''}
+             aria-label="Wayland monitor name" />
     `;
   }
 
@@ -698,7 +702,7 @@ async function renderRunnerSection() {
     }).join('');
 
     html += `
-      <select class="input" id="runner-select">
+      <select class="input" id="runner-select" aria-label="Wine runner">
         <option value="">-- Select a runner --</option>
         ${options}
       </select>
@@ -1316,8 +1320,3 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}

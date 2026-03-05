@@ -15,6 +15,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { openUrl, openPath } from '@tauri-apps/plugin-opener';
 import { router } from '../router.js';
 import { requestAutoLaunch } from './launch.js';
+import { escapeHtml } from '../utils.js';
 
 /** @type {Object|null} */
 let dashConfig = null;
@@ -164,49 +165,47 @@ function renderStatusCards() {
   const runnerName = dashConfig?.selected_runner || null;
   const installPath = dashConfig?.install_path || null;
 
-  let scIcon, scText, scBadge;
+  grid.innerHTML =
+    renderScCard({ installed, installPath }) +
+    renderRunnerCard({ hasRunner, runnerName }) +
+    renderLaunchCard({ installed });
+
+  bindStatusCardEvents({ installed, installPath, runnerName });
+}
+
+/**
+ * Renders the Star Citizen installation status card.
+ * @param {Object} data
+ * @param {boolean} data.installed
+ * @param {string|null} data.installPath
+ * @returns {string}
+ */
+function renderScCard({ installed, installPath }) {
+  let scBadge;
   if (!dashConfig) {
-    scIcon = '<div class="card-icon status-unknown">?</div>';
-    scText = 'No configuration found';
     scBadge = '<span class="badge badge-neutral">Not configured</span>';
   } else if (installed) {
-    scIcon = '<div class="card-icon status-ok">&#x2713;</div>';
-    scText = installPath || 'Installed';
     scBadge = '<span class="badge badge-ok">Installed</span>';
   } else {
-    scIcon = '<div class="card-icon status-warn">!</div>';
-    scText = dashInstallStatus?.message || 'Not fully installed';
     scBadge = '<span class="badge badge-warn">Incomplete</span>';
   }
 
-  let runnerText, runnerBadge;
-  if (!runnerName) {
-    runnerText = 'No runner selected';
-    runnerBadge = '<span class="badge badge-neutral">Not configured</span>';
-  } else if (hasRunner) {
-    runnerText = runnerName;
-    runnerBadge = '<span class="badge badge-ok">Ready</span>';
+  let statusClass;
+  if (!dashConfig) {
+    statusClass = 'neutral';
+  } else if (installed) {
+    statusClass = 'ok';
   } else {
-    runnerText = `${runnerName} (not found)`;
-    runnerBadge = '<span class="badge badge-warn">Missing</span>';
+    statusClass = 'warn';
   }
 
-  let launchText, launchDisabled;
-  if (installed) {
-    launchText = 'Ready to launch';
-    launchDisabled = false;
-  } else {
-    launchText = 'Complete installation first';
-    launchDisabled = true;
-  }
-
-  // Determine SC status class
-  const scStatusClass = !dashConfig ? 'neutral' : installed ? 'ok' : 'warn';
-  const runnerStatusClass = !runnerName ? 'neutral' : hasRunner ? 'ok' : 'warn';
   const locLang = dashLocStatus?.language_name || dashLocStatus?.language_code || null;
+  const locDot = dashLocUpdate?.update_available
+    ? '<span class="dash-card-dot dot-warn"></span>'
+    : '<span class="dash-card-dot dot-ok"></span>';
 
-  grid.innerHTML = `
-    <div class="dash-card dash-card--${scStatusClass}">
+  return `
+    <div class="dash-card dash-card--${statusClass}">
       <div class="dash-card-header">
         <span class="dash-card-title">Star Citizen</span>
         ${scBadge}
@@ -219,17 +218,53 @@ function renderStatusCards() {
         ${dashLocStatus?.installed ? `
         <div class="dash-card-row">
           <span class="dash-card-label">Language</span>
-          <span class="dash-card-value">${escapeHtml(locLang)} ${dashLocUpdate?.update_available
-            ? '<span class="dash-card-dot dot-warn"></span>'
-            : '<span class="dash-card-dot dot-ok"></span>'}</span>
+          <span class="dash-card-value">${escapeHtml(locLang)} ${locDot}</span>
         </div>` : ''}
       </div>
       <div class="dash-card-actions">
         ${installPath ? `<button class="btn btn-sm" id="dash-open-folder">Open Folder</button>` : ''}
         ${dashLocUpdate?.update_available ? `<button class="btn btn-sm dash-btn-update" id="dash-loc-update">Update Translation</button>` : ''}
       </div>
-    </div>
-    <div class="dash-card dash-card--${runnerStatusClass}">
+    </div>`;
+}
+
+/**
+ * Renders the Wine Runner status card.
+ * @param {Object} data
+ * @param {boolean} data.hasRunner
+ * @param {string|null} data.runnerName
+ * @returns {string}
+ */
+function renderRunnerCard({ hasRunner, runnerName }) {
+  let runnerBadge;
+  if (!runnerName) {
+    runnerBadge = '<span class="badge badge-neutral">Not configured</span>';
+  } else if (hasRunner) {
+    runnerBadge = '<span class="badge badge-ok">Ready</span>';
+  } else {
+    runnerBadge = '<span class="badge badge-warn">Missing</span>';
+  }
+
+  let statusClass;
+  if (!runnerName) {
+    statusClass = 'neutral';
+  } else if (hasRunner) {
+    statusClass = 'ok';
+  } else {
+    statusClass = 'warn';
+  }
+
+  let displayName;
+  if (!runnerName) {
+    displayName = 'None';
+  } else if (hasRunner) {
+    displayName = runnerName;
+  } else {
+    displayName = `${runnerName} (not found)`;
+  }
+
+  return `
+    <div class="dash-card dash-card--${statusClass}">
       <div class="dash-card-header">
         <span class="dash-card-title">Wine Runner</span>
         ${runnerBadge}
@@ -237,22 +272,42 @@ function renderStatusCards() {
       <div class="dash-card-body">
         <div class="dash-card-row">
           <span class="dash-card-label">Runner</span>
-          <span class="dash-card-value mono">${escapeHtml(runnerName || 'None')}</span>
+          <span class="dash-card-value mono">${escapeHtml(displayName)}</span>
         </div>
       </div>
       <div class="dash-card-actions"><button class="btn btn-sm" id="dash-manage-runners">Manage Runners</button></div>
-    </div>
+    </div>`;
+}
+
+/**
+ * Renders the launch action card.
+ * @param {Object} data
+ * @param {boolean} data.installed
+ * @returns {string}
+ */
+function renderLaunchCard({ installed }) {
+  const launchText = installed ? 'Ready to launch' : 'Complete installation first';
+  const launchDisabled = !installed;
+
+  return `
     <div class="dash-card dash-card--launch">
       <div class="dash-card-launch-inner">
         <span class="dash-card-launch-label">${escapeHtml(launchText)}</span>
         <button class="btn btn-primary btn-lg" id="dash-launch-btn" ${launchDisabled ? 'disabled' : ''}>Launch Star Citizen</button>
       </div>
-    </div>
-  `;
+    </div>`;
+}
 
-  const btn = document.getElementById('dash-launch-btn');
-  if (btn && !launchDisabled) {
-    btn.addEventListener('click', () => {
+/**
+ * Binds event listeners for the status card buttons.
+ * @param {Object} data
+ * @param {boolean} data.installed
+ * @param {string|null} data.installPath
+ */
+function bindStatusCardEvents({ installed, installPath }) {
+  const launchBtn = document.getElementById('dash-launch-btn');
+  if (launchBtn && installed) {
+    launchBtn.addEventListener('click', () => {
       requestAutoLaunch();
       router.navigate('launch');
     });
@@ -444,12 +499,6 @@ function renderError(message, retryFn) {
     </div>`;
 }
 
-function escapeHtml(str) {
-  if (!str) return '';
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
 
 function escapeAttr(str) {
   if (!str) return '';

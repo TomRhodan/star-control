@@ -8,12 +8,12 @@
 //!
 //! Supported archive formats: .tar.gz, .tar.xz, .tar.zst, .tar.zstd
 
-use serde::{Deserialize, Serialize};
+use serde::{ Deserialize, Serialize };
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{AppHandle, Emitter};
+use std::sync::atomic::{ AtomicBool, Ordering };
+use tauri::{ AppHandle, Emitter };
 
-use crate::config::{AppConfig, RunnerSourceConfig};
+use crate::config::{ AppConfig, RunnerSourceConfig };
 
 /// Loads the GitHub token from the configuration file.
 fn load_github_token() -> Option<String> {
@@ -32,17 +32,23 @@ static CANCEL_FLAG: AtomicBool = AtomicBool::new(false);
 fn load_runner_sources() -> Vec<RunnerSourceConfig> {
     let config_path = match dirs::config_dir() {
         Some(p) => p.join("star-control").join("config.json"),
-        None => return AppConfig::default().runner_sources,
+        None => {
+            return AppConfig::default().runner_sources;
+        }
     };
 
     let contents = match std::fs::read_to_string(&config_path) {
         Ok(c) => c,
-        Err(_) => return AppConfig::default().runner_sources,
+        Err(_) => {
+            return AppConfig::default().runner_sources;
+        }
     };
 
     let config: AppConfig = match serde_json::from_str(&contents) {
         Ok(c) => c,
-        Err(_) => return AppConfig::default().runner_sources,
+        Err(_) => {
+            return AppConfig::default().runner_sources;
+        }
     };
 
     // If runner_sources is empty in config, return defaults
@@ -146,10 +152,10 @@ fn strip_archive_ext(name: &str) -> String {
 
 /// Checks if a filename is a supported archive format.
 fn is_archive(name: &str) -> bool {
-    name.ends_with(".tar.gz")
-        || name.ends_with(".tar.xz")
-        || name.ends_with(".tar.zst")
-        || name.ends_with(".tar.zstd")
+    name.ends_with(".tar.gz") ||
+        name.ends_with(".tar.xz") ||
+        name.ends_with(".tar.zst") ||
+        name.ends_with(".tar.zstd")
 }
 
 /// Expands tilde (~) in a path to the user's home directory.
@@ -172,7 +178,8 @@ pub async fn fetch_available_runners(base_path: String) -> FetchRunnersResult {
     let token = load_github_token();
     let sources = load_runner_sources();
 
-    let client = reqwest::Client::builder()
+    let client = reqwest::Client
+        ::builder()
         .user_agent("star-control/0.1.5")
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
@@ -194,11 +201,7 @@ pub async fn fetch_available_runners(base_path: String) -> FetchRunnersResult {
         match request.send().await {
             Ok(resp) => {
                 if !resp.status().is_success() {
-                    errors.push(format!(
-                        "{}: GitHub API returned {}",
-                        source.name,
-                        resp.status()
-                    ));
+                    errors.push(format!("{}: GitHub API returned {}", source.name, resp.status()));
                     continue;
                 }
                 match resp.json::<Vec<GhRelease>>().await {
@@ -249,7 +252,7 @@ pub async fn install_runner(
     app: AppHandle,
     download_url: String,
     file_name: String,
-    base_path: String,
+    base_path: String
 ) -> InstallRunnerResult {
     let expanded = expand_tilde(&base_path);
     let runner_name = strip_archive_ext(&file_name);
@@ -294,25 +297,19 @@ pub async fn install_runner(
 
     // --- Download phase ---
     let emit_progress = |phase: &str, downloaded: u64, total: u64, msg: &str| {
-        let percent = if total > 0 {
-            (downloaded as f64 / total as f64) * 100.0
-        } else {
-            0.0
-        };
-        let _ = app.emit(
-            "runner-download-progress",
-            DownloadProgress {
-                phase: phase.to_string(),
-                runner_name: runner_name.clone(),
-                bytes_downloaded: downloaded,
-                total_bytes: total,
-                percent,
-                message: msg.to_string(),
-            },
-        );
+        let percent = if total > 0 { ((downloaded as f64) / (total as f64)) * 100.0 } else { 0.0 };
+        let _ = app.emit("runner-download-progress", DownloadProgress {
+            phase: phase.to_string(),
+            runner_name: runner_name.clone(),
+            bytes_downloaded: downloaded,
+            total_bytes: total,
+            percent,
+            message: msg.to_string(),
+        });
     };
 
-    let client = reqwest::Client::builder()
+    let client = reqwest::Client
+        ::builder()
         .user_agent("star-control/0.1.5")
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
@@ -434,15 +431,13 @@ pub async fn install_runner(
             let mut archive = tar::Archive::new(decoder);
             archive.unpack(&extract_dir_clone)?;
         } else {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Unknown archive format",
-            ));
+            return Err(
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "Unknown archive format")
+            );
         }
 
         Ok::<(), std::io::Error>(())
-    })
-    .await;
+    }).await;
 
     match extract_result {
         Ok(Ok(())) => {}
@@ -541,14 +536,13 @@ pub async fn delete_runner(runner_name: String, base_path: String) -> Result<(),
     // Safety check: must contain bin/wine
     let wine_bin = runner_path.join("bin").join("wine");
     if !wine_bin.exists() {
-        return Err(format!(
-            "Safety check failed: {} does not contain bin/wine",
-            runner_path.display()
-        ));
+        return Err(
+            format!("Safety check failed: {} does not contain bin/wine", runner_path.display())
+        );
     }
 
-    tokio::fs::remove_dir_all(&runner_path)
-        .await
+    tokio::fs
+        ::remove_dir_all(&runner_path).await
         .map_err(|e| format!("Failed to delete runner: {}", e))?;
 
     Ok(())

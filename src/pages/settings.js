@@ -12,6 +12,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
+import { escapeHtml } from '../utils.js';
 
 /** @type {Object|null} Current application configuration */
 let config = null;
@@ -52,14 +53,14 @@ function renderAppSettings() {
         <div class="setting-row">
           <label class="setting-label" data-tooltip="Root directory for Star Citizen Wine prefix and runners" data-tooltip-pos="right">Base Directory</label>
           <div class="setting-input path-input-row">
-            <input type="text" class="input" id="setting-install-path" value="${escapeHtml(basePath)}" placeholder="~/Games/star-citizen" />
+            <input type="text" class="input" id="setting-install-path" value="${escapeHtml(basePath)}" placeholder="~/Games/star-citizen" aria-label="Base directory path" />
             <button class="btn btn-secondary" id="btn-browse-path">Browse</button>
           </div>
         </div>
         <div class="setting-row">
           <label class="setting-label">Star Citizen</label>
           <div class="setting-input">
-            <input type="text" class="input" id="setting-wine-prefix" value="${escapeHtml(basePath)}/drive_c/Program Files/Roberts Space Industries/StarCitizen" readonly />
+            <input type="text" class="input" id="setting-wine-prefix" value="${escapeHtml(basePath)}/drive_c/Program Files/Roberts Space Industries/StarCitizen" readonly aria-label="Star Citizen install path" />
           </div>
         </div>
       </div>
@@ -70,7 +71,7 @@ function renderAppSettings() {
         <div class="setting-row">
           <label class="setting-label" data-tooltip="Controls verbosity of application log output" data-tooltip-pos="right">Log Level</label>
           <div class="setting-input">
-            <select class="input" id="setting-log-level">
+            <select class="input" id="setting-log-level" aria-label="Log level">
               <option value="debug" ${logLevel === 'debug' ? 'selected' : ''}>Debug</option>
               <option value="info" ${logLevel === 'info' ? 'selected' : ''}>Info</option>
               <option value="warn" ${logLevel === 'warn' ? 'selected' : ''}>Warning</option>
@@ -96,7 +97,7 @@ function renderAppSettings() {
                 </div>
               ` : `
                 <div class="token-input-row">
-                  <input type="password" class="input" id="token-input" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off" />
+                  <input type="password" class="input" id="token-input" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off" aria-label="GitHub token" />
                   <button class="btn btn-primary btn-sm" id="btn-token-save">Save</button>
                 </div>
                 <p class="setting-hint">Optional. Only needed if you exceed GitHub's 60 requests/hour limit.</p>
@@ -238,7 +239,7 @@ function attachTokenListeners() {
   document.getElementById('btn-token-edit')?.addEventListener('click', () => {
     field.innerHTML = `
       <div class="token-input-row">
-        <input type="password" class="input" id="token-input" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off" />
+        <input type="password" class="input" id="token-input" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off" aria-label="GitHub token" />
         <button class="btn btn-primary btn-sm" id="btn-token-save">Save</button>
         <button class="btn btn-secondary btn-sm" id="btn-token-cancel">Cancel</button>
       </div>
@@ -302,7 +303,7 @@ function refreshTokenField() {
     </div>
   ` : `
     <div class="token-input-row">
-      <input type="password" class="input" id="token-input" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off" />
+      <input type="password" class="input" id="token-input" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off" aria-label="GitHub token" />
       <button class="btn btn-primary btn-sm" id="btn-token-save">Save</button>
     </div>
     <p class="setting-hint">Optional. Only needed if you exceed GitHub's 60 requests/hour limit.</p>
@@ -315,10 +316,6 @@ function updateDerivedPaths(basePath) {
   document.getElementById('setting-wine-prefix').value = basePath + '/drive_c/Program Files/Roberts Space Industries/StarCitizen';
 }
 
-function escapeHtml(str) {
-  if (!str) return '';
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
 
 function showNotification(message, type = 'info') {
   const existing = document.querySelector('.settings-notification');

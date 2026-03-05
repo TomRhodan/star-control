@@ -8,9 +8,9 @@
 //! DXVK is a Vulkan-based implementation of Direct3D 9, 10, and 11
 //! for Wine-based runners, providing better performance.
 
-use serde::{Deserialize, Serialize};
+use serde::{ Deserialize, Serialize };
 use std::path::Path;
-use tauri::{AppHandle, Emitter};
+use tauri::{ AppHandle, Emitter };
 
 use crate::config::AppConfig;
 
@@ -82,7 +82,8 @@ fn expand_tilde(path: &str) -> String {
 pub async fn fetch_dxvk_releases() -> Result<Vec<DxvkRelease>, String> {
     let token = load_github_token();
 
-    let client = reqwest::Client::builder()
+    let client = reqwest::Client
+        ::builder()
         .user_agent("star-control/0.1.5")
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
@@ -92,18 +93,14 @@ pub async fn fetch_dxvk_releases() -> Result<Vec<DxvkRelease>, String> {
     if let Some(ref t) = token {
         request = request.header("Authorization", format!("Bearer {}", t));
     }
-    let resp = request
-        .send()
-        .await
-        .map_err(|e| format!("Failed to fetch DXVK releases: {}", e))?;
+    let resp = request.send().await.map_err(|e| format!("Failed to fetch DXVK releases: {}", e))?;
 
     if !resp.status().is_success() {
         return Err(format!("GitHub API returned {}", resp.status()));
     }
 
     let releases: Vec<GhRelease> = resp
-        .json()
-        .await
+        .json().await
         .map_err(|e| format!("Failed to parse DXVK releases: {}", e))?;
 
     let mut result = Vec::new();
@@ -126,52 +123,52 @@ pub async fn fetch_dxvk_releases() -> Result<Vec<DxvkRelease>, String> {
 
 #[tauri::command]
 pub async fn detect_dxvk_version(base_path: String) -> Result<DxvkStatus, String> {
-    tokio::task::spawn_blocking(move || {
-        let expanded = expand_tilde(&base_path);
-        let prefix = Path::new(&expanded);
-        let sys32 = prefix
-            .join("drive_c")
-            .join("windows")
-            .join("system32");
+    tokio::task
+        ::spawn_blocking(move || {
+            let expanded = expand_tilde(&base_path);
+            let prefix = Path::new(&expanded);
+            let sys32 = prefix.join("drive_c").join("windows").join("system32");
 
-        let check_dlls = ["d3d9.dll", "d3d10core.dll", "d3d11.dll", "dxgi.dll"];
-        let mut dlls_found = Vec::new();
+            let check_dlls = ["d3d9.dll", "d3d10core.dll", "d3d11.dll", "dxgi.dll"];
+            let mut dlls_found = Vec::new();
 
-        for dll in &check_dlls {
-            if sys32.join(dll).exists() {
-                dlls_found.push(dll.to_string());
+            for dll in &check_dlls {
+                if sys32.join(dll).exists() {
+                    dlls_found.push(dll.to_string());
+                }
             }
-        }
 
-        // Read marker file for version
-        let marker = prefix.join(".dxvk_version");
-        let version = std::fs::read_to_string(&marker).ok().map(|s| s.trim().to_string());
+            // Read marker file for version
+            let marker = prefix.join(".dxvk_version");
+            let version = std::fs
+                ::read_to_string(&marker)
+                .ok()
+                .map(|s| s.trim().to_string());
 
-        // If DLLs exist but no marker file, check if this is a winetricks installation
-        // and create the marker file
-        let installed = if !dlls_found.is_empty() && version.is_none() {
-            // Try to detect winetricks DXVK - it typically installs to system32
-            if !dlls_found.is_empty() {
-                // Create marker file for winetricks-installed DXVK
-                let _ = std::fs::write(&marker, "dxvk (winetricks)");
-                Some("dxvk (winetricks)".to_string())
+            // If DLLs exist but no marker file, check if this is a winetricks installation
+            // and create the marker file
+            let installed = if !dlls_found.is_empty() && version.is_none() {
+                // Try to detect winetricks DXVK - it typically installs to system32
+                if !dlls_found.is_empty() {
+                    // Create marker file for winetricks-installed DXVK
+                    let _ = std::fs::write(&marker, "dxvk (winetricks)");
+                    Some("dxvk (winetricks)".to_string())
+                } else {
+                    None
+                }
             } else {
-                None
+                version
+            };
+
+            let is_installed = !dlls_found.is_empty() && installed.is_some();
+
+            DxvkStatus {
+                installed: is_installed,
+                version: installed,
+                dlls_found,
             }
-        } else {
-            version
-        };
-
-        let is_installed = !dlls_found.is_empty() && installed.is_some();
-
-        DxvkStatus {
-            installed: is_installed,
-            version: installed,
-            dlls_found,
-        }
-    })
-    .await
-    .map_err(|e| format!("Task failed: {}", e))
+        }).await
+        .map_err(|e| format!("Task failed: {}", e))
 }
 
 #[tauri::command]
@@ -179,40 +176,37 @@ pub async fn install_dxvk(
     app: AppHandle,
     download_url: String,
     version: String,
-    base_path: String,
+    base_path: String
 ) -> Result<(), String> {
     let expanded = expand_tilde(&base_path);
     let prefix = Path::new(&expanded);
     let tmp_dir = prefix.join(".tmp");
 
     let emit = |phase: &str, percent: f64, msg: &str| {
-        let _ = app.emit(
-            "dxvk-progress",
-            DxvkProgress {
-                phase: phase.to_string(),
-                percent,
-                message: msg.to_string(),
-            },
-        );
+        let _ = app.emit("dxvk-progress", DxvkProgress {
+            phase: phase.to_string(),
+            percent,
+            message: msg.to_string(),
+        });
     };
 
     // Ensure tmp dir
-    tokio::fs::create_dir_all(&tmp_dir)
-        .await
+    tokio::fs
+        ::create_dir_all(&tmp_dir).await
         .map_err(|e| format!("Failed to create tmp dir: {}", e))?;
 
     emit("downloading", 0.0, "Downloading DXVK...");
 
     // Download
-    let client = reqwest::Client::builder()
+    let client = reqwest::Client
+        ::builder()
         .user_agent("star-control/0.1.5")
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 
     let response = client
         .get(&download_url)
-        .send()
-        .await
+        .send().await
         .map_err(|e| format!("Download failed: {}", e))?;
 
     let total_bytes = response.content_length().unwrap_or(0);
@@ -223,20 +217,18 @@ pub async fn install_dxvk(
     use futures_util::StreamExt;
     use tokio::io::AsyncWriteExt;
 
-    let mut file = tokio::fs::File::create(&archive_path)
-        .await
+    let mut file = tokio::fs::File
+        ::create(&archive_path).await
         .map_err(|e| format!("Failed to create file: {}", e))?;
 
     let mut stream = response.bytes_stream();
     while let Some(chunk_result) = stream.next().await {
         match chunk_result {
             Ok(chunk) => {
-                file.write_all(&chunk)
-                    .await
-                    .map_err(|e| format!("Write error: {}", e))?;
+                file.write_all(&chunk).await.map_err(|e| format!("Write error: {}", e))?;
                 downloaded += chunk.len() as u64;
                 let percent = if total_bytes > 0 {
-                    (downloaded as f64 / total_bytes as f64) * 50.0
+                    ((downloaded as f64) / (total_bytes as f64)) * 50.0
                 } else {
                     25.0
                 };
@@ -249,9 +241,7 @@ pub async fn install_dxvk(
         }
     }
 
-    file.flush()
-        .await
-        .map_err(|e| format!("Flush error: {}", e))?;
+    file.flush().await.map_err(|e| format!("Flush error: {}", e))?;
     drop(file);
 
     // Extract
@@ -268,8 +258,7 @@ pub async fn install_dxvk(
         let mut archive = tar::Archive::new(decoder);
         archive.unpack(&extract_dir_clone)?;
         Ok::<(), std::io::Error>(())
-    })
-    .await;
+    }).await;
 
     match extract_result {
         Ok(Ok(())) => {}
@@ -286,7 +275,8 @@ pub async fn install_dxvk(
     emit("installing", 70.0, "Installing DXVK DLLs...");
 
     // Find the extracted directory (usually dxvk-X.Y.Z/)
-    let entries: Vec<_> = std::fs::read_dir(&extract_dir)
+    let entries: Vec<_> = std::fs
+        ::read_dir(&extract_dir)
         .map_err(|e| format!("Read error: {}", e))?
         .filter_map(|e| e.ok())
         .collect();
@@ -301,8 +291,8 @@ pub async fn install_dxvk(
     let sys32 = prefix.join("drive_c").join("windows").join("system32");
     let x64_dir = dxvk_dir.join("x64");
 
-    tokio::fs::create_dir_all(&sys32)
-        .await
+    tokio::fs
+        ::create_dir_all(&sys32).await
         .map_err(|e| format!("Failed to create system32: {}", e))?;
 
     if x64_dir.is_dir() {
@@ -313,8 +303,8 @@ pub async fn install_dxvk(
     let syswow64 = prefix.join("drive_c").join("windows").join("syswow64");
     let x32_dir = dxvk_dir.join("x32");
 
-    tokio::fs::create_dir_all(&syswow64)
-        .await
+    tokio::fs
+        ::create_dir_all(&syswow64).await
         .map_err(|e| format!("Failed to create syswow64: {}", e))?;
 
     if x32_dir.is_dir() {
@@ -325,8 +315,7 @@ pub async fn install_dxvk(
 
     // Write version marker
     let marker_path = prefix.join(".dxvk_version");
-    std::fs::write(&marker_path, &version)
-        .map_err(|e| format!("Failed to write marker: {}", e))?;
+    std::fs::write(&marker_path, &version).map_err(|e| format!("Failed to write marker: {}", e))?;
 
     // Cleanup
     let _ = tokio::fs::remove_dir_all(&tmp_dir).await;
@@ -343,8 +332,7 @@ fn copy_dlls(src_dir: &Path, dest_dir: &Path) -> Result<(), String> {
         let src = src_dir.join(name);
         if src.exists() {
             let dest = dest_dir.join(name);
-            std::fs::copy(&src, &dest)
-                .map_err(|e| format!("Failed to copy {}: {}", name, e))?;
+            std::fs::copy(&src, &dest).map_err(|e| format!("Failed to copy {}: {}", name, e))?;
         }
     }
 

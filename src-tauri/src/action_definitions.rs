@@ -1,11 +1,19 @@
-use serde::{Deserialize, Serialize};
+//! Action definitions and binding data structures.
+//!
+//! Defines the types used for categorized action definitions (e.g., spaceship,
+//! vehicle, on-foot controls) and the complete binding list that merges
+//! master defaults with user customizations.
+
+use serde::{ Deserialize, Serialize };
 use std::collections::HashMap;
 
+/// All known action definitions grouped by category.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ActionDefinitions {
     pub categories: HashMap<String, Vec<ActionInfo>>,
 }
 
+/// Metadata for a single bindable action.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActionInfo {
     pub name: String,
@@ -20,24 +28,27 @@ impl ActionDefinitions {
     }
 }
 
+/// A fully resolved binding entry combining master defaults with user overrides.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompleteBinding {
-    pub category: String,        // Technical name (e.g., spaceship_general)
-    pub category_label: String,  // Display name (e.g., Space Ship - General)
-    pub action_name: String,     // Technical name (e.g., v_flightready)
-    pub display_name: String,    // Translated name (e.g., Flight Ready)
+    pub category: String, // Technical name (e.g., spaceship_general)
+    pub category_label: String, // Display name (e.g., Space Ship - General)
+    pub action_name: String, // Technical name (e.g., v_flightready)
+    pub display_name: String, // Translated name (e.g., Flight Ready)
     pub current_input: String,
     pub device_type: String,
     pub description: Option<String>,
     pub is_custom: bool,
 }
 
+/// Summary statistics for the binding list.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BindingStats {
     pub total: usize,
     pub custom: usize,
 }
 
+/// Response containing all bindings and their statistics.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BindingListResponse {
     pub bindings: Vec<CompleteBinding>,

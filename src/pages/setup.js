@@ -13,6 +13,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import madeByCommunityUrl from '../assets/logos/MadeByTheCommunity_White.png';
+import { escapeHtml } from '../utils.js';
 
 /** @type {string} Default installation path */
 let defaultPath = '';
@@ -258,11 +259,7 @@ async function validateSetupPath() {
   }
 }
 
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
+
 
 function showInstallModeModal(container, { onComplete, continueBtn }) {
   // Remove existing modal if any
