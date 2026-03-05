@@ -41,6 +41,7 @@ libloading = "0.8"
 gilrs = "0.10"
 rdev = "0.5"
 uuid = { version = "1", features = ["v4"] }
+sha2 = "0.10"
 
 [features]
 devtools = ["tauri/devtools"]

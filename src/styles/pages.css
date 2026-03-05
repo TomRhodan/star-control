@@ -4011,6 +4011,74 @@
   color: var(--success);
 }
 
+.profile-status-ok {
+  color: var(--success);
+  font-size: 0.8rem;
+}
+
+.profile-status-changed {
+  color: var(--warning, #f59e0b);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.profile-status-changed:hover {
+  text-decoration: underline;
+}
+
+.profile-changes-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  margin: 0 16px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.profile-file-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--font-xs);
+  padding: 3px 0;
+}
+
+.profile-file-status .file-name {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.status-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: var(--radius-md);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.status-unchanged {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--success);
+}
+
+.status-modified {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--warning, #f59e0b);
+}
+
+.status-new {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--accent);
+}
+
+.status-deleted {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger, #ef4444);
+}
+
 /* Keep profile-info-card for localization tab */
 .profile-info-card {
   background: var(--bg-card);

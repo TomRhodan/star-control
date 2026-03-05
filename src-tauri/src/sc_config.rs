@@ -15,7 +15,8 @@
 use std::collections::{ HashMap, HashSet };
 use std::time::UNIX_EPOCH;
 use std::fs::{ self, File };
-use std::io::{ Cursor, Read, Seek, SeekFrom };
+use std::io::{ Cursor, Read as IoRead, Seek, SeekFrom };
+use sha2::{ Sha256, Digest };
 use std::path::{ Path, PathBuf };
 use chrono::Local;
 use serde::{ Deserialize, Serialize };
@@ -110,6 +111,8 @@ pub struct BackupInfo {
     pub backup_type: String,
     pub files: Vec<String>,
     pub label: String,
+    #[serde(default)]
+    pub file_hashes: HashMap<String, String>,
 }
 #[derive(Serialize, Deserialize, Clone)]
 pub struct VersionImportInfo {
@@ -1724,6 +1727,12 @@ pub async fn reorder_devices(
     }
     fs::write(p, c).map_err(|e| e.to_string())
 }
+fn hash_file(path: &Path) -> Option<String> {
+    let data = fs::read(path).ok()?;
+    let hash = Sha256::digest(&data);
+    Some(format!("{:x}", hash))
+}
+
 /// Creates a manual backup of the default profile with a user-provided label.
 #[tauri::command]
 pub async fn backup_profile_manual(gp: String, v: String, l: String) -> Result<BackupInfo, String> {
@@ -1747,9 +1756,12 @@ pub async fn backup_profile(
     let user_base = sc_base_dir(&expanded, &v).join("user/client/0");
     let pdir = user_base.join("Profiles/default");
     let mut fs_list = vec![];
+    let mut hashes = HashMap::new();
     for f in &["actionmaps.xml", "attributes.xml", "profile.xml"] {
-        if pdir.join(f).exists() {
-            fs::copy(pdir.join(f), target.join(f)).ok();
+        let src = pdir.join(f);
+        if src.exists() {
+            if let Some(h) = hash_file(&src) { hashes.insert(f.to_string(), h); }
+            fs::copy(&src, target.join(f)).ok();
             fs_list.push(f.to_string());
         }
     }
@@ -1763,8 +1775,10 @@ pub async fn backup_profile(
                 let path = e.path();
                 if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("xml")) {
                     if let Some(name) = path.file_name() {
+                        let key = format!("controls_mappings/{}", name.to_string_lossy());
+                        if let Some(h) = hash_file(&path) { hashes.insert(key.clone(), h); }
                         fs::copy(&path, target_controls.join(name)).ok();
-                        fs_list.push(format!("controls_mappings/{}", name.to_string_lossy()));
+                        fs_list.push(key);
                     }
                 }
             }
@@ -1780,8 +1794,10 @@ pub async fn backup_profile(
                 let path = e.path();
                 if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("chf")) {
                     if let Some(name) = path.file_name() {
+                        let key = format!("custom_characters/{}", name.to_string_lossy());
+                        if let Some(h) = hash_file(&path) { hashes.insert(key.clone(), h); }
                         fs::copy(&path, target_chars.join(name)).ok();
-                        fs_list.push(format!("custom_characters/{}", name.to_string_lossy()));
+                        fs_list.push(key);
                     }
                 }
             }
@@ -1796,6 +1812,7 @@ pub async fn backup_profile(
         backup_type: bt.unwrap_or("manual".into()),
         files: fs_list,
         label: l.unwrap_or_default(),
+        file_hashes: hashes,
     };
 
     if let Ok(json) = serde_json::to_string_pretty(&info) {
@@ -1879,6 +1896,129 @@ pub async fn delete_backup(v: String, bid: String) -> Result<(), String> {
     }
     Ok(())
 }
+/// Compares current SC files against a backup's stored hashes.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct FileStatus {
+    pub file: String,
+    pub status: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ProfileStatus {
+    pub matched: bool,
+    pub files: Vec<FileStatus>,
+}
+
+/// Collects all current SC profile-related files with their hashes.
+fn collect_current_sc_hashes(user_base: &Path) -> HashMap<String, String> {
+    let mut current = HashMap::new();
+    let pdir = user_base.join("Profiles/default");
+    for f in &["actionmaps.xml", "attributes.xml", "profile.xml"] {
+        let src = pdir.join(f);
+        if src.exists() {
+            if let Some(h) = hash_file(&src) { current.insert(f.to_string(), h); }
+        }
+    }
+    if let Some(controls_dir) = find_dir_case_insensitive(user_base, &["Controls/Mappings", "controls/mappings", "controls/Mappings"]) {
+        if let Ok(entries) = fs::read_dir(&controls_dir) {
+            for e in entries.flatten() {
+                let path = e.path();
+                if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("xml")) {
+                    if let Some(name) = path.file_name() {
+                        let key = format!("controls_mappings/{}", name.to_string_lossy());
+                        if let Some(h) = hash_file(&path) { current.insert(key, h); }
+                    }
+                }
+            }
+        }
+    }
+    if let Some(chars_dir) = find_dir_case_insensitive(user_base, &["CustomCharacters", "customcharacters"]) {
+        if let Ok(entries) = fs::read_dir(&chars_dir) {
+            for e in entries.flatten() {
+                let path = e.path();
+                if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("chf")) {
+                    if let Some(name) = path.file_name() {
+                        let key = format!("custom_characters/{}", name.to_string_lossy());
+                        if let Some(h) = hash_file(&path) { current.insert(key, h); }
+                    }
+                }
+            }
+        }
+    }
+    current
+}
+
+#[tauri::command]
+pub async fn check_profile_status(gp: String, v: String, bid: String) -> Result<ProfileStatus, String> {
+    let bdir = backup_version_dir(&v)?.join(&bid);
+    let meta_path = bdir.join("backup_meta.json");
+    let meta: BackupInfo = serde_json::from_str(
+        &fs::read_to_string(&meta_path).map_err(|e| e.to_string())?
+    ).map_err(|e| e.to_string())?;
+
+    if meta.file_hashes.is_empty() {
+        return Ok(ProfileStatus { matched: false, files: vec![] });
+    }
+
+    let expanded = expand_tilde(&gp);
+    let user_base = sc_base_dir(&expanded, &v).join("user/client/0");
+    let current = collect_current_sc_hashes(&user_base);
+
+    let mut files = vec![];
+    let mut all_match = true;
+
+    // Check files from backup
+    for (file, saved_hash) in &meta.file_hashes {
+        let status = match current.get(file) {
+            Some(cur_hash) if cur_hash == saved_hash => "unchanged",
+            Some(_) => { all_match = false; "modified" },
+            None => { all_match = false; "deleted" },
+        };
+        files.push(FileStatus { file: file.clone(), status: status.into() });
+    }
+
+    // Check for new files not in backup
+    for file in current.keys() {
+        if !meta.file_hashes.contains_key(file) {
+            all_match = false;
+            files.push(FileStatus { file: file.clone(), status: "new".into() });
+        }
+    }
+
+    files.sort_by(|a, b| a.file.cmp(&b.file));
+
+    Ok(ProfileStatus { matched: all_match, files })
+}
+
+fn active_profiles_path() -> Result<std::path::PathBuf, String> {
+    Ok(dirs::config_dir().ok_or("No config dir")?.join("star-control/active_profiles.json"))
+}
+
+#[tauri::command]
+pub async fn load_active_profiles() -> Result<HashMap<String, String>, String> {
+    let path = active_profiles_path()?;
+    if !path.exists() { return Ok(HashMap::new()); }
+    let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    serde_json::from_str(&data).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_active_profile(v: String, bid: String) -> Result<(), String> {
+    let path = active_profiles_path()?;
+    let mut map: HashMap<String, String> = if path.exists() {
+        serde_json::from_str(&fs::read_to_string(&path).unwrap_or_default()).unwrap_or_default()
+    } else {
+        HashMap::new()
+    };
+    if bid.is_empty() {
+        map.remove(&v);
+    } else {
+        map.insert(v, bid);
+    }
+    if let Some(parent) = path.parent() { fs::create_dir_all(parent).ok(); }
+    fs::write(path, serde_json::to_string_pretty(&map).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+}
+
 /// Updates the label of an existing backup.
 #[tauri::command]
 pub async fn update_backup_label(v: String, bid: String, l: String) -> Result<(), String> {
