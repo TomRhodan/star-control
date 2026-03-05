@@ -12,7 +12,7 @@
 <p align="center">
   Built with <a href="https://tauri.app/">Tauri 2</a> and vanilla JavaScript.
   <br>
-  <strong>Version 0.1.5</strong>
+  <strong>Version 0.1.6</strong>
 </p>
 
 ---
@@ -31,7 +31,7 @@
 
 <p align="center">
   <img src="docs/star-control.de/assets/screenshots/launch.png" alt="Launch" width="720"><br>
-  <em>Launch — One-click start with configurable performance options</em>
+  <em>Launch — One-click start with performance options and experimental Wayland support</em>
 </p>
 
 <p align="center">
@@ -41,7 +41,7 @@
 
 <p align="center">
   <img src="docs/star-control.de/assets/screenshots/configuration.png" alt="Configuration" width="720"><br>
-  <em>Configuration — Wine runner selection and performance flags</em>
+  <em>Configuration — Install directory, Wine runner, and performance options</em>
 </p>
 
 <p align="center">
@@ -55,13 +55,18 @@
 </p>
 
 <p align="center">
+  <img src="docs/star-control.de/assets/screenshots/profiles.png" alt="Profiles" width="720"><br>
+  <em>Profiles — Backup and restore Star Citizen profiles and USER.cfg settings</em>
+</p>
+
+<p align="center">
   <img src="docs/star-control.de/assets/screenshots/usercfg-editor.png" alt="USER.cfg Editor" width="720"><br>
   <em>USER.cfg Editor — Visual editor for graphics and performance settings</em>
 </p>
 
 <p align="center">
   <img src="docs/star-control.de/assets/screenshots/controllers.png" alt="Controllers" width="720"><br>
-  <em>Controllers — Connected devices, keybindings, joystick reordering, and binding profiles</em>
+  <em>Controllers — Profile manager, connected devices, keybindings, and joystick reordering</em>
 </p>
 
 <p align="center">
@@ -81,14 +86,14 @@
 - **Quick Install** — Automatically detects existing RSI Launcher installations and offers Quick Install (skip RSI Launcher download) or Full Reinstall
 - **Command Center** — Live dashboard with RSI news, server status, and community funding stats
 - **Installation Wizard** — System compatibility check, automated Wine prefix setup, and RSI Launcher installation
-- **Launch Manager** — One-click launch with configurable performance options (ESync, FSync, DXVK Async, Wayland, HDR, FSR, MangoHUD)
+- **Launch Manager** — One-click launch with configurable performance options (ESync, FSync, DXVK Async, DXVK HUD, HDR, FSR, MangoHUD) and experimental Wayland support
 - **Wine Runner Management** — Download and manage Wine/Proton runners from multiple community sources (LUG, LUG Experimental, Kron4ek, RawFox, Mactan)
 - **DXVK Management** — Install and update DXVK versions with automatic DLL deployment
 - **Profile Management** — Backup and restore Star Citizen profiles (actionmaps.xml, attributes.xml, USER.cfg)
-- **Controllers Page** — View connected devices, keybindings, reorder joystick instances, and manage binding profiles
+- **Controllers Page** — View connected devices, keybindings, reorder joystick instances, and manage binding profiles with import/export from Star Citizen
 - **USER.cfg Editor** — Visual editor for all Star Citizen graphics, performance, and quality settings
 - **Localization** — Install community translations with one click, with automatic update detection
-- **Prefix Tools** — Winecfg, DPI scaling, PowerShell installation via winetricks
+- **Prefix Tools** — Winecfg, Wine Shell, DPI scaling, PowerShell installation via winetricks
 - **Multi-version Support** — Manage LIVE, PTU, EPTU, and other Star Citizen channels
 
 ## Installation
