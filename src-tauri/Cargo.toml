@@ -1,6 +1,6 @@
 [package]
 name = "star-control"
-version = "0.1.6"
+version = "0.1.7"
 description = "A Linux management tool for Star Citizen — install, configure, and launch with Wine/Proton"
 authors = ["TomRhodan <tomrhodan@gmail.com>"]
 license = "GPL-3.0-or-later"

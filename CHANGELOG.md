@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2026-03-05
+
+### Changed
+- **Unified Binding System** — Merged Controller tab into Profiles; bindings are now managed directly within saved profiles
+- **Import from Version** — Non-destructive import that creates a saved profile instead of overwriting SC files
+- **Profile Cards** — Wider card layout (340px min) so profile names are fully readable
+- **Contextual Hints** — Dismissible guidance hints for profiles, bindings, and devices sections
+
+### Added
+- Profile-scoped binding commands (get/assign/remove bindings per profile)
+- Cross-version profile import with saved profile selection
+- Device name resolution in binding list via device map
+
+### Removed
+- Separate Controller tab and binding_database system
+- Direct SC file overwrite on cross-version import
+
+### Fixed
+- Launch page log output formatting (no longer collapsed into single line)
+
 ## [0.1.6] - 2026-03-03
 
 ### Changed
@@ -68,6 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Prefix Tools** — Winecfg, DPI scaling, PowerShell installation via winetricks
 - **Multi-version Support** — Manage LIVE, PTU, EPTU, and other Star Citizen channels
 
+[0.1.7]: https://github.com/TomRhodan/star-control/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/TomRhodan/star-control/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/TomRhodan/star-control/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/TomRhodan/star-control/compare/v0.1.3...v0.1.4
