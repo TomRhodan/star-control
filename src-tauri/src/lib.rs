@@ -303,6 +303,8 @@ pub fn run() {
                 sc_config::list_backups,
                 sc_config::delete_backup,
                 sc_config::update_backup_label,
+                sc_config::list_importable_versions,
+                sc_config::import_from_version,
                 sc_config::list_exported_layouts,
                 binding_capture::start_input_capture,
                 binding_capture::stop_input_capture,

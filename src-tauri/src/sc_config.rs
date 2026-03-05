@@ -89,6 +89,7 @@ pub struct ScVersionInfo {
     pub has_attributes: bool,
     pub has_actionmaps: bool,
     pub has_exported_layouts: bool,
+    pub has_custom_characters: bool,
 }
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct ScAttribute {
@@ -110,6 +111,25 @@ pub struct BackupInfo {
     pub files: Vec<String>,
     pub label: String,
 }
+#[derive(Serialize, Deserialize, Clone)]
+pub struct VersionImportInfo {
+    pub version: String,
+    pub has_profiles: bool,
+    pub has_controls_mappings: bool,
+    pub has_custom_characters: bool,
+    pub profile_file_count: u32,
+    pub controls_file_count: u32,
+    pub character_file_count: u32,
+    pub score: u32,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ImportResult {
+    pub profiles_copied: u32,
+    pub controls_copied: u32,
+    pub characters_copied: u32,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ExportedLayout {
     pub filename: String,
@@ -182,6 +202,18 @@ fn localization_cache_path(v: &str) -> Result<PathBuf, String> {
 }
 fn backup_version_dir(v: &str) -> Result<PathBuf, String> {
     Ok(dirs::config_dir().ok_or("No config dir")?.join("star-control/backups").join(v))
+}
+
+/// Finds a subdirectory matching one of the given path variants.
+/// Tries each variant joined to base, returns the first that exists.
+fn find_dir_case_insensitive(base: &Path, variants: &[&str]) -> Option<PathBuf> {
+    for v in variants {
+        let p = base.join(v);
+        if p.is_dir() {
+            return Some(p);
+        }
+    }
+    None
 }
 
 fn get_attr(e: &BytesStart, n: &[u8]) -> Option<String> {
@@ -949,6 +981,10 @@ fn detect_sc_versions_from_path(base: &Path) -> Result<Vec<ScVersionInfo>, Strin
                 let has_attributes = profiles_path.join("attributes.xml").exists();
                 let has_actionmaps = profiles_path.join("actionmaps.xml").exists();
                 let has_exported_layouts = path.join("user/client/0/controls/mappings").is_dir();
+                let user_base = path.join("user/client/0");
+                let has_custom_characters = find_dir_case_insensitive(&user_base, &["CustomCharacters", "customcharacters"]).map_or(false, |d| {
+                    fs::read_dir(&d).map_or(false, |mut es| es.any(|e| e.ok().map_or(false, |e| e.path().extension().is_some_and(|ext| ext.eq_ignore_ascii_case("chf")))))
+                });
                 log::debug!(
                     "[detect_sc_versions]   has_usercfg: {}, has_attributes: {}, has_actionmaps: {}",
                     has_usercfg,
@@ -962,6 +998,7 @@ fn detect_sc_versions_from_path(base: &Path) -> Result<Vec<ScVersionInfo>, Strin
                     has_attributes,
                     has_actionmaps,
                     has_exported_layouts,
+                    has_custom_characters,
                 });
             }
         }
@@ -1706,12 +1743,48 @@ pub async fn backup_profile(
     let target = bdir.join(&id);
     fs::create_dir_all(&target).ok();
 
-    let pdir = sc_base_dir(&expand_tilde(&gp), &v).join("user/client/0/Profiles/default");
+    let expanded = expand_tilde(&gp);
+    let user_base = sc_base_dir(&expanded, &v).join("user/client/0");
+    let pdir = user_base.join("Profiles/default");
     let mut fs_list = vec![];
     for f in &["actionmaps.xml", "attributes.xml", "profile.xml"] {
         if pdir.join(f).exists() {
             fs::copy(pdir.join(f), target.join(f)).ok();
             fs_list.push(f.to_string());
+        }
+    }
+
+    // Backup Controls/Mappings
+    if let Some(controls_dir) = find_dir_case_insensitive(&user_base, &["Controls/Mappings", "controls/mappings", "controls/Mappings"]) {
+        let target_controls = target.join("controls_mappings");
+        fs::create_dir_all(&target_controls).ok();
+        if let Ok(entries) = fs::read_dir(&controls_dir) {
+            for e in entries.flatten() {
+                let path = e.path();
+                if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("xml")) {
+                    if let Some(name) = path.file_name() {
+                        fs::copy(&path, target_controls.join(name)).ok();
+                        fs_list.push(format!("controls_mappings/{}", name.to_string_lossy()));
+                    }
+                }
+            }
+        }
+    }
+
+    // Backup CustomCharacters
+    if let Some(chars_dir) = find_dir_case_insensitive(&user_base, &["CustomCharacters", "customcharacters"]) {
+        let target_chars = target.join("custom_characters");
+        fs::create_dir_all(&target_chars).ok();
+        if let Ok(entries) = fs::read_dir(&chars_dir) {
+            for e in entries.flatten() {
+                let path = e.path();
+                if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("chf")) {
+                    if let Some(name) = path.file_name() {
+                        fs::copy(&path, target_chars.join(name)).ok();
+                        fs_list.push(format!("custom_characters/{}", name.to_string_lossy()));
+                    }
+                }
+            }
         }
     }
 
@@ -1735,13 +1808,46 @@ pub async fn backup_profile(
 #[tauri::command]
 pub async fn restore_profile(gp: String, v: String, bid: String) -> Result<(), String> {
     let bdir = backup_version_dir(&v)?.join(bid);
-    let pdir = sc_base_dir(&expand_tilde(&gp), &v).join("user/client/0/Profiles/default");
+    let expanded = expand_tilde(&gp);
+    let user_base = sc_base_dir(&expanded, &v).join("user/client/0");
+    let pdir = user_base.join("Profiles/default");
     fs::create_dir_all(&pdir).ok();
     for f in &["actionmaps.xml", "attributes.xml", "profile.xml"] {
         if bdir.join(f).exists() {
             fs::copy(bdir.join(f), pdir.join(f)).ok();
         }
     }
+
+    // Restore Controls/Mappings
+    if bdir.join("controls_mappings").is_dir() {
+        let target_controls = find_dir_case_insensitive(&user_base, &["Controls/Mappings", "controls/mappings", "controls/Mappings"])
+            .unwrap_or_else(|| user_base.join("Controls/Mappings"));
+        fs::create_dir_all(&target_controls).ok();
+        if let Ok(entries) = fs::read_dir(bdir.join("controls_mappings")) {
+            for e in entries.flatten() {
+                let path = e.path();
+                if let Some(name) = path.file_name() {
+                    fs::copy(&path, target_controls.join(name)).ok();
+                }
+            }
+        }
+    }
+
+    // Restore CustomCharacters
+    if bdir.join("custom_characters").is_dir() {
+        let target_chars = find_dir_case_insensitive(&user_base, &["CustomCharacters", "customcharacters"])
+            .unwrap_or_else(|| user_base.join("CustomCharacters"));
+        fs::create_dir_all(&target_chars).ok();
+        if let Ok(entries) = fs::read_dir(bdir.join("custom_characters")) {
+            for e in entries.flatten() {
+                let path = e.path();
+                if let Some(name) = path.file_name() {
+                    fs::copy(&path, target_chars.join(name)).ok();
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 /// Lists all profile backups for a given version, sorted newest first.
@@ -1785,6 +1891,129 @@ pub async fn update_backup_label(v: String, bid: String, l: String) -> Result<()
         e.to_string()
     )
 }
+
+/// Lists other SC version folders that have importable profile/control/character data.
+#[tauri::command]
+pub async fn list_importable_versions(gp: String, target_version: String) -> Result<Vec<VersionImportInfo>, String> {
+    let base = Path::new(&expand_tilde(&gp)).join("drive_c/Program Files/Roberts Space Industries/StarCitizen");
+    let mut result = vec![];
+    let entries = fs::read_dir(&base).map_err(|e| e.to_string())?;
+    for e in entries.flatten() {
+        let path = e.path();
+        if !path.is_dir() { continue; }
+        let version = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        if version == target_version { continue; }
+
+        let user_base = path.join("user/client/0");
+        let profiles_dir = user_base.join("Profiles/default");
+
+        let profile_file_count = ["actionmaps.xml", "attributes.xml", "profile.xml"]
+            .iter()
+            .filter(|f| profiles_dir.join(f).exists())
+            .count() as u32;
+
+        let (controls_dir, controls_file_count) = match find_dir_case_insensitive(&user_base, &["Controls/Mappings", "controls/mappings", "controls/Mappings"]) {
+            Some(d) => {
+                let count = fs::read_dir(&d).map_or(0, |es| es.flatten().filter(|e| e.path().extension().is_some_and(|ext| ext.eq_ignore_ascii_case("xml"))).count()) as u32;
+                (true, count)
+            }
+            None => (false, 0)
+        };
+
+        let (chars_dir, character_file_count) = match find_dir_case_insensitive(&user_base, &["CustomCharacters", "customcharacters"]) {
+            Some(d) => {
+                let count = fs::read_dir(&d).map_or(0, |es| es.flatten().filter(|e| e.path().extension().is_some_and(|ext| ext.eq_ignore_ascii_case("chf"))).count()) as u32;
+                (true, count)
+            }
+            None => (false, 0)
+        };
+
+        let score = profile_file_count * 3 + controls_file_count * 2 + character_file_count;
+        if score == 0 { continue; }
+
+        result.push(VersionImportInfo {
+            version,
+            has_profiles: profile_file_count > 0,
+            has_controls_mappings: controls_dir,
+            has_custom_characters: chars_dir,
+            profile_file_count,
+            controls_file_count,
+            character_file_count,
+            score,
+        });
+    }
+    result.sort_by(|a, b| b.score.cmp(&a.score));
+    Ok(result)
+}
+
+/// Imports profile, controls, and character data from one SC version to another.
+#[tauri::command]
+pub async fn import_from_version(gp: String, source_version: String, target_version: String) -> Result<ImportResult, String> {
+    let expanded = expand_tilde(&gp);
+    let source_base = sc_base_dir(&expanded, &source_version).join("user/client/0");
+    let target_base = sc_base_dir(&expanded, &target_version).join("user/client/0");
+
+    // Save existing settings before they get overwritten by import
+    let target_profiles = target_base.join("Profiles/default");
+    if target_profiles.join("actionmaps.xml").exists() {
+        let _ = backup_profile(gp.clone(), target_version.clone(), Some("pre-import".into()), Some(format!("Before import from {}", source_version))).await;
+    }
+
+    // Copy profiles
+    let mut profiles_copied = 0u32;
+    let source_profiles = source_base.join("Profiles/default");
+    if source_profiles.is_dir() {
+        fs::create_dir_all(&target_profiles).map_err(|e| e.to_string())?;
+        for f in &["actionmaps.xml", "attributes.xml", "profile.xml"] {
+            let src = source_profiles.join(f);
+            if src.exists() {
+                fs::copy(&src, target_profiles.join(f)).map_err(|e| e.to_string())?;
+                profiles_copied += 1;
+            }
+        }
+    }
+
+    // Copy Controls/Mappings
+    let mut controls_copied = 0u32;
+    if let Some(source_controls) = find_dir_case_insensitive(&source_base, &["Controls/Mappings", "controls/mappings", "controls/Mappings"]) {
+        let target_controls = find_dir_case_insensitive(&target_base, &["Controls/Mappings", "controls/mappings", "controls/Mappings"])
+            .unwrap_or_else(|| target_base.join("Controls/Mappings"));
+        fs::create_dir_all(&target_controls).map_err(|e| e.to_string())?;
+        if let Ok(entries) = fs::read_dir(&source_controls) {
+            for e in entries.flatten() {
+                let path = e.path();
+                if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("xml")) {
+                    if let Some(name) = path.file_name() {
+                        fs::copy(&path, target_controls.join(name)).map_err(|e| e.to_string())?;
+                        controls_copied += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    // Copy CustomCharacters
+    let mut characters_copied = 0u32;
+    if let Some(source_chars) = find_dir_case_insensitive(&source_base, &["CustomCharacters", "customcharacters"]) {
+        let target_chars = find_dir_case_insensitive(&target_base, &["CustomCharacters", "customcharacters"])
+            .unwrap_or_else(|| target_base.join("CustomCharacters"));
+        fs::create_dir_all(&target_chars).map_err(|e| e.to_string())?;
+        if let Ok(entries) = fs::read_dir(&source_chars) {
+            for e in entries.flatten() {
+                let path = e.path();
+                if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("chf")) {
+                    if let Some(name) = path.file_name() {
+                        fs::copy(&path, target_chars.join(name)).map_err(|e| e.to_string())?;
+                        characters_copied += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(ImportResult { profiles_copied, controls_copied, characters_copied })
+}
+
 /// Lists exported control layout XML files from the controls/mappings directory.
 #[tauri::command]
 pub async fn list_exported_layouts(

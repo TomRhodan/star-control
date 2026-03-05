@@ -3998,6 +3998,20 @@
    Profiles - Profile Info Card
    ============================ */
 
+.profile-active-header {
+  padding: 10px 16px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-active-star {
+  color: var(--success);
+}
+
+/* Keep profile-info-card for localization tab */
 .profile-info-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -4030,21 +4044,6 @@
   flex-wrap: wrap;
 }
 
-.profile-active-backup {
-  font-weight: 600;
-  color: var(--success);
-}
-
-.profile-file-badge {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: var(--radius-md);
-  background: rgba(34, 197, 94, 0.12);
-  color: var(--success);
-  font-family: var(--font-mono);
-}
-
 /* ============================
    Profiles - Backup Labels
    ============================ */
@@ -4053,10 +4052,40 @@
   position: relative;
   display: flex;
   align-items: center;
+  gap: 4px;
   min-width: 80px;
-  max-width: 200px;
+  max-width: 240px;
   flex-shrink: 1;
-  cursor: text;
+}
+
+.backup-label-display {
+  font-weight: 500;
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn-icon-rename {
+  opacity: 0;
+  transition: opacity 0.15s;
+  padding: 2px;
+  flex-shrink: 0;
+}
+
+.backup-item:hover .btn-icon-rename {
+  opacity: 0.5;
+}
+
+.btn-icon-rename:hover {
+  opacity: 1 !important;
+}
+
+.backup-rename-input {
+  font-size: var(--font-sm);
+  padding: 2px 6px;
+  width: 100%;
 }
 
 .backup-meta {
@@ -4067,44 +4096,6 @@
   min-width: 0;
 }
 
-.backup-label {
-  font-weight: 500;
-  font-size: var(--font-sm);
-  color: var(--text-primary);
-  outline: none;
-  border-bottom: 1px dashed transparent;
-  transition: border-color var(--transition-fast);
-  width: 100%;
-  min-height: 20px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.backup-label:hover,
-.backup-label:focus {
-  border-bottom-color: var(--accent);
-}
-
-.backup-label:focus {
-  overflow: visible;
-  text-overflow: unset;
-}
-
-.backup-label:empty + .backup-label-placeholder {
-  display: block !important;
-}
-
-.backup-label-placeholder {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-muted);
-  font-style: italic;
-  font-size: var(--font-xs);
-  pointer-events: none;
-}
 
 .backup-label-input-wrap {
   display: flex;
@@ -5896,6 +5887,13 @@
   opacity: 0.7;
 }
 
+.profile-empty-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 8px;
+}
+
 .profile-manager-actions {
   display: flex;
   gap: 12px;
@@ -5943,4 +5941,79 @@
   border-radius: 3px;
   background: var(--bg-hover);
   padding: 2px 4px;
+}
+
+/* Import banner */
+.import-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--surface-alt, rgba(59, 130, 246, 0.08));
+  border: 1px solid var(--border-color, rgba(59, 130, 246, 0.2));
+  border-radius: 8px;
+  margin-bottom: 16px;
+  color: var(--text-secondary, #94a3b8);
+  font-size: 0.875rem;
+}
+.import-banner svg {
+  flex-shrink: 0;
+  color: var(--accent, #3b82f6);
+}
+.import-banner span {
+  flex: 1;
+}
+.import-banner strong {
+  color: var(--text-primary, #e2e8f0);
+}
+
+/* Import version dialog */
+.import-version-dialog {
+  background: var(--surface, #1e293b);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.import-version-dialog-header h4 {
+  margin: 0 0 12px 0;
+  font-size: 0.95rem;
+  color: var(--text-primary, #e2e8f0);
+}
+.import-version-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.import-version-label {
+  font-size: 0.8rem;
+  color: var(--text-secondary, #94a3b8);
+}
+.import-version-select {
+  max-width: 200px;
+}
+.import-version-summary {
+  font-size: 0.8rem;
+  color: var(--text-secondary, #94a3b8);
+  padding: 4px 0;
+}
+.import-version-warning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--warning, #f59e0b);
+  padding: 8px 10px;
+  background: rgba(245, 158, 11, 0.08);
+  border-radius: 6px;
+  margin-top: 4px;
+}
+.import-version-warning svg {
+  flex-shrink: 0;
+}
+.import-version-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
 }
