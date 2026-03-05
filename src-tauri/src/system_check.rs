@@ -167,6 +167,7 @@ fn check_filelimit() -> CheckResult {
         rlim_max: 0,
     };
 
+    // SAFETY: rlim is initialized to zero and getrlimit only writes to it on success
     let hard_limit = unsafe {
         if libc::getrlimit(libc::RLIMIT_NOFILE, &mut rlim) == 0 { rlim.rlim_max } else { 0 }
     };
@@ -274,6 +275,8 @@ fn get_free_space_gb(path: &str) -> u64 {
         }
     };
 
+    // SAFETY: c_path is a valid, NUL-terminated CString. statvfs is initialized to zero
+    // and only read after a successful statvfs() call.
     unsafe {
         let mut stat: libc::statvfs = std::mem::zeroed();
         if libc::statvfs(c_path.as_ptr(), &mut stat) == 0 {

@@ -210,6 +210,8 @@ fn get_free_space_gb(path: &str) -> u64 {
         }
     };
 
+    // SAFETY: c_path is a valid, NUL-terminated CString. statvfs is initialized to zero
+    // and only read after a successful statvfs() call. No aliasing or lifetime issues.
     unsafe {
         let mut stat: libc::statvfs = std::mem::zeroed();
         if libc::statvfs(c_path.as_ptr(), &mut stat) == 0 {
@@ -232,6 +234,7 @@ fn is_writable(path: &str) -> bool {
             let mode = meta.mode();
             let uid = meta.uid();
             let gid = meta.gid();
+            // SAFETY: getuid/getgid are always safe to call, have no preconditions
             let my_uid = unsafe { libc::getuid() };
             let my_gid = unsafe { libc::getgid() };
 
@@ -490,10 +493,17 @@ pub async fn load_config() -> Result<Option<AppConfig>, String> {
                     return None;
                 }
             };
-            let contents = fs::read_to_string(&path).ok()?;
+            let contents = match fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("[config] Failed to read config file {}: {}", path, e);
+                    return None;
+                }
+            };
             let config: AppConfig = match serde_json::from_str(&contents) {
                 Ok(c) => c,
-                Err(_) => {
+                Err(e) => {
+                    eprintln!("[config] Failed to parse config JSON: {}", e);
                     return None;
                 }
             };

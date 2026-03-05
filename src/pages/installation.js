@@ -11,7 +11,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open, confirm } from '@tauri-apps/plugin-dialog';
 import { router } from '../router.js';
 import { escapeHtml } from '../utils.js';
 
@@ -320,6 +320,17 @@ async function applyFix(checkId, btn) {
 
   const command = commandMap[checkId];
   if (!command) return;
+
+  const descriptions = {
+    mapcount: 'This will set vm.max_map_count=16777216 system-wide (requires root via pkexec).',
+    filelimit: 'This will increase the system file descriptor limit (requires root via pkexec).',
+  };
+
+  const confirmed = await confirm(
+    descriptions[checkId] || 'This will modify system settings (requires root).',
+    { title: 'Apply System Fix?', kind: 'warning' }
+  );
+  if (!confirmed) return;
 
   btn.disabled = true;
   btn.textContent = 'Fixing...';
