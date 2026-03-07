@@ -2684,6 +2684,38 @@ pub async fn list_exported_layouts(
     Ok(res)
 }
 
+/// Gets the file size of Data.p4k for a given version
+#[tauri::command]
+pub async fn get_data_p4k_size(gp: String, version: String) -> Result<u64, String> {
+    let exp = expand_tilde(&gp);
+
+    // Try multiple possible paths
+    let base_paths: Vec<PathBuf> = vec![
+        Path::new(&exp).join("drive_c/Program Files/Roberts Space Industries/StarCitizen"),
+        Path::new(&exp).join("StarCitizen"),
+        Path::new(&exp).to_path_buf()
+    ];
+
+    let mut base = None;
+    for p in &base_paths {
+        if p.exists() && p.is_dir() {
+            base = Some(p.clone());
+            break;
+        }
+    }
+
+    let base = base.ok_or_else(|| "StarCitizen directory not found".to_string())?;
+
+    let data_p4k_path = base.join(&version).join("Data.p4k");
+
+    if !data_p4k_path.exists() {
+        return Err("Data.p4k not found".to_string());
+    }
+
+    let metadata = fs::metadata(&data_p4k_path).map_err(|e| e.to_string())?;
+    Ok(metadata.len())
+}
+
 /// Copies Data.p4k from source version to target version with progress reporting
 #[tauri::command]
 pub async fn copy_data_p4k(
