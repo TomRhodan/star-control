@@ -2734,10 +2734,18 @@ pub async fn copy_data_p4k(
     // Copy with progress using tokio (runs in background thread)
     let source_clone = source.clone();
     let target_clone = target.clone();
+    let target_for_emit = target.clone();
+    let window_clone = window.clone();
 
     tokio::task::spawn_blocking(move || {
-        copy_with_progress(&source_clone, &target_clone, total_size, |_, _| {
-            // Progress callback - emit event to frontend
+        copy_with_progress(&source_clone, &target_clone, total_size, move |copied, total| {
+            let percent = (copied as f64 / total as f64 * 100.0) as u32;
+            let _ = window_clone.emit("data-p4k-progress", serde_json::json!({
+                "version": target_for_emit.file_name().and_then(|n| n.to_str()).unwrap_or("unknown"),
+                "percent": percent,
+                "copied": copied,
+                "total": total
+            }));
         })
     })
     .await
@@ -2746,7 +2754,10 @@ pub async fn copy_data_p4k(
     log::info!("Copied Data.p4k from {} to {}", source_version, target_version);
 
     // Emit completion event
-    let _ = window.emit("data-p4k-copy-complete", &target_version);
+    let _ = window.emit("data-p4k-copy-complete", serde_json::json!({
+        "version": target_version,
+        "success": true
+    }));
 
     Ok(())
 }
@@ -2754,7 +2765,7 @@ pub async fn copy_data_p4k(
 /// Copy file with progress tracking (synchronous for use in spawn_blocking)
 fn copy_with_progress<F>(from: &Path, to: &Path, total_size: u64, mut progress_callback: F) -> Result<u64, String>
 where
-    F: FnMut(u64, u64),
+    F: FnMut(u64, u64) + Send,
 {
     use std::io::{BufReader, BufWriter, Read, Write};
 
@@ -2780,8 +2791,8 @@ where
         output.write_all(&buffer[..bytes_read]).map_err(|e| e.to_string())?;
         written += bytes_read as u64;
 
-        // Report progress every 10MB
-        if written % (10 * 1024 * 1024) == 0 {
+        // Report progress every 10MB, but at least once for small files
+        if written == 0 || written % (10 * 1024 * 1024) == 0 {
             progress_callback(written, total_size);
         }
     }
@@ -2790,4 +2801,34 @@ where
     progress_callback(written, total_size);
 
     Ok(written)
+}
+
+/// Aborts a running copy by removing partial file
+#[tauri::command]
+pub async fn abort_copy_data_p4k(gp: String, version: String) -> Result<(), String> {
+    let exp = expand_tilde(&gp);
+
+    let base_paths: Vec<PathBuf> = vec![
+        Path::new(&exp).join("drive_c/Program Files/Roberts Space Industries/StarCitizen"),
+        Path::new(&exp).join("StarCitizen"),
+        Path::new(&exp).to_path_buf()
+    ];
+
+    let mut base = None;
+    for p in &base_paths {
+        if p.exists() && p.is_dir() {
+            base = Some(p.clone());
+            break;
+        }
+    }
+
+    let base = base.ok_or_else(|| "StarCitizen directory not found".to_string())?;
+    let target = base.join(&version).join("Data.p4k");
+
+    if target.exists() {
+        fs::remove_file(&target).map_err(|e| e.to_string())?;
+        log::info!("Aborted copy - removed partial Data.p4k for {}", version);
+    }
+
+    Ok(())
 }

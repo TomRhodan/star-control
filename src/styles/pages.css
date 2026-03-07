@@ -6451,3 +6451,36 @@
 .data-p4k-dropdown-item:hover {
   background: var(--accent-color, #3b82f6);
 }
+
+/* Data.p4k copying state */
+.version-status-dot.copying {
+  background-color: #eab308;
+  box-shadow: 0 0 6px #eab308;
+  animation: pulse-yellow 1s infinite;
+}
+
+@keyframes pulse-yellow {
+ 0%, 100% { opacity: 1; }
+ 50% { opacity: 0.5; }
+}
+
+.sc-version-card.copying {
+  border-color: #eab308;
+}
+
+/* Progress bar on version card */
+.version-copy-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #eab308, #facc15);
+  width: 0%;
+  transition: width 0.3s ease;
+  font-size: 0;
+  overflow: hidden;
+}
+
+.sc-version-card {
+  position: relative;
+}
