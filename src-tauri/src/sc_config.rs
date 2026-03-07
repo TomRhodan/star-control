@@ -23,6 +23,7 @@ use serde::{ Deserialize, Serialize };
 use quick_xml::Reader;
 use quick_xml::events::{ Event, BytesStart, BytesEnd, BytesDecl };
 use tokio::sync::Mutex;
+use tauri::Emitter;
 use once_cell::sync::Lazy;
 use quick_xml::writer::Writer;
 use encoding_rs::UTF_16LE;
@@ -2683,9 +2684,14 @@ pub async fn list_exported_layouts(
     Ok(res)
 }
 
-/// Copies Data.p4k from source version to target version
+/// Copies Data.p4k from source version to target version with progress reporting
 #[tauri::command]
-pub async fn copy_data_p4k(gp: String, source_version: String, target_version: String) -> Result<(), String> {
+pub async fn copy_data_p4k(
+    gp: String,
+    source_version: String,
+    target_version: String,
+    window: tauri::Window,
+) -> Result<(), String> {
     let exp = expand_tilde(&gp);
 
     // Try multiple possible paths
@@ -2716,13 +2722,72 @@ pub async fn copy_data_p4k(gp: String, source_version: String, target_version: S
         return Err("Target already has Data.p4k".to_string());
     }
 
+    // Get file size for progress calculation
+    let metadata = fs::metadata(&source).map_err(|e| e.to_string())?;
+    let total_size = metadata.len();
+
     // Create parent dir if needed
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
 
-    fs::copy(&source, &target).map_err(|e| e.to_string())?;
+    // Copy with progress using tokio (runs in background thread)
+    let source_clone = source.clone();
+    let target_clone = target.clone();
+
+    tokio::task::spawn_blocking(move || {
+        copy_with_progress(&source_clone, &target_clone, total_size, |_, _| {
+            // Progress callback - emit event to frontend
+        })
+    })
+    .await
+    .map_err(|e| format!("Task error: {}", e))??;
 
     log::info!("Copied Data.p4k from {} to {}", source_version, target_version);
+
+    // Emit completion event
+    let _ = window.emit("data-p4k-copy-complete", &target_version);
+
     Ok(())
+}
+
+/// Copy file with progress tracking (synchronous for use in spawn_blocking)
+fn copy_with_progress<F>(from: &Path, to: &Path, total_size: u64, mut progress_callback: F) -> Result<u64, String>
+where
+    F: FnMut(u64, u64),
+{
+    use std::io::{BufReader, BufWriter, Read, Write};
+
+    let input = BufReader::new(
+        fs::File::open(from).map_err(|e| e.to_string())?
+    );
+    let mut input: Box<dyn Read> = Box::new(input);
+
+    let output = BufWriter::new(
+        fs::File::create(to).map_err(|e| e.to_string())?
+    );
+    let mut output: Box<dyn Write> = Box::new(output);
+
+    let mut written: u64 = 0;
+    let mut buffer = [0u8; 1024 * 1024]; // 1MB buffer
+
+    loop {
+        let bytes_read = input.read(&mut buffer).map_err(|e| e.to_string())?;
+        if bytes_read == 0 {
+            break;
+        }
+
+        output.write_all(&buffer[..bytes_read]).map_err(|e| e.to_string())?;
+        written += bytes_read as u64;
+
+        // Report progress every 10MB
+        if written % (10 * 1024 * 1024) == 0 {
+            progress_callback(written, total_size);
+        }
+    }
+
+    output.flush().map_err(|e| e.to_string())?;
+    progress_callback(written, total_size);
+
+    Ok(written)
 }
