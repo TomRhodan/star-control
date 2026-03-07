@@ -2768,15 +2768,19 @@ pub async fn copy_data_p4k(
     let target_clone = target.clone();
     let target_for_emit = target.clone();
     let window_clone = window.clone();
+    let start_time = std::time::Instant::now();
 
     tokio::task::spawn_blocking(move || {
         copy_with_progress(&source_clone, &target_clone, total_size, move |copied, total| {
+            let elapsed = start_time.elapsed().as_secs_f64();
+            let speed_bps = if elapsed > 0.0 { (copied as f64 / elapsed) as u64 } else { 0 };
             let percent = (copied as f64 / total as f64 * 100.0) as u32;
             let _ = window_clone.emit("data-p4k-progress", serde_json::json!({
                 "version": target_for_emit.file_name().and_then(|n| n.to_str()).unwrap_or("unknown"),
                 "percent": percent,
-                "copied": copied,
-                "total": total
+                "copied_bytes": copied,
+                "total_bytes": total,
+                "speed_bps": speed_bps
             }));
         })
     })
