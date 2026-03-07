@@ -147,7 +147,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
   gap: 0.6rem;
-  padding: 0.75rem 0;
+  padding: 0.75rem 1rem;
 }
 
 .profile-card {
@@ -242,7 +242,7 @@
 }
 
 .profiles-section-footer {
-  padding-top: 0.25rem;
+  padding: 0.5rem 1rem;
 }
 
 /* Contextual Hint Banners */
@@ -6485,15 +6485,16 @@
 .data-p4k-copy-modal .modal-content {
     min-width: 480px;
     max-width: 520px;
+    padding: 28px 32px;
 }
 
 .copy-progress-info {
-    margin-bottom: 20px;
+    margin-bottom: 24px;
     text-align: center;
 }
 
 .copy-progress-info p {
-    margin: 8px 0;
+    margin: 10px 0;
     color: var(--text-secondary, #aaa);
 }
 
@@ -6507,7 +6508,7 @@
     background: rgba(255, 255, 255, 0.1);
     border-radius: 14px;
     overflow: hidden;
-    margin: 20px 0;
+    margin: 24px 0;
     position: relative;
 }
 
@@ -6534,7 +6535,7 @@
 .progress-stats {
     display: flex;
     justify-content: space-between;
-    margin-top: 15px;
+    margin-top: 20px;
     font-size: 14px;
     color: var(--text-secondary, #aaa);
 }

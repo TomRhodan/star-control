@@ -2722,7 +2722,8 @@ pub async fn copy_data_p4k(
     gp: String,
     source_version: String,
     target_version: String,
-    window: tauri::Window,
+    _window: tauri::Window,
+    app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     let exp = expand_tilde(&gp);
 
@@ -2766,8 +2767,8 @@ pub async fn copy_data_p4k(
     // Copy with progress using tokio (runs in background thread)
     let source_clone = source.clone();
     let target_clone = target.clone();
-    let target_for_emit = target.clone();
-    let window_clone = window.clone();
+    let target_version_for_emit = target_version.clone();
+    let app_handle_clone = app_handle.clone();
     let start_time = std::time::Instant::now();
 
     tokio::task::spawn_blocking(move || {
@@ -2775,8 +2776,9 @@ pub async fn copy_data_p4k(
             let elapsed = start_time.elapsed().as_secs_f64();
             let speed_bps = if elapsed > 0.0 { (copied as f64 / elapsed) as u64 } else { 0 };
             let percent = (copied as f64 / total as f64 * 100.0) as u32;
-            let _ = window_clone.emit("data-p4k-progress", serde_json::json!({
-                "version": target_for_emit.file_name().and_then(|n| n.to_str()).unwrap_or("unknown"),
+            log::debug!("Emitting progress: {} bytes", copied);
+            let _ = app_handle_clone.emit("data-p4k-progress", serde_json::json!({
+                "version": target_version_for_emit,
                 "percent": percent,
                 "copied_bytes": copied,
                 "total_bytes": total,
@@ -2790,7 +2792,7 @@ pub async fn copy_data_p4k(
     log::info!("Copied Data.p4k from {} to {}", source_version, target_version);
 
     // Emit completion event
-    let _ = window.emit("data-p4k-copy-complete", serde_json::json!({
+    let _ = app_handle.emit("data-p4k-copy-complete", serde_json::json!({
         "version": target_version,
         "success": true
     }));
@@ -2816,7 +2818,7 @@ where
     let mut output: Box<dyn Write> = Box::new(output);
 
     let mut written: u64 = 0;
-    let mut buffer = [0u8; 1024 * 1024]; // 1MB buffer
+    let mut buffer = vec![0u8; 8 * 1024 * 1024]; // 8MB buffer on heap
 
     loop {
         let bytes_read = input.read(&mut buffer).map_err(|e| e.to_string())?;
