@@ -316,6 +316,7 @@ pub fn run() {
                 sc_config::import_from_version,
                 sc_config::import_version_as_profile,
                 sc_config::list_exported_layouts,
+                sc_config::copy_data_p4k,
                 binding_capture::start_input_capture,
                 binding_capture::stop_input_capture,
                 binding_capture::list_connected_devices,

@@ -92,6 +92,7 @@ pub struct ScVersionInfo {
     pub has_actionmaps: bool,
     pub has_exported_layouts: bool,
     pub has_custom_characters: bool,
+    pub has_data_p4k: bool,
 }
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct ScAttribute {
@@ -993,6 +994,7 @@ fn detect_sc_versions_from_path(base: &Path) -> Result<Vec<ScVersionInfo>, Strin
                 let has_custom_characters = find_dir_case_insensitive(&user_base, &["CustomCharacters", "customcharacters"]).map_or(false, |d| {
                     fs::read_dir(&d).map_or(false, |mut es| es.any(|e| e.ok().map_or(false, |e| e.path().extension().is_some_and(|ext| ext.eq_ignore_ascii_case("chf")))))
                 });
+                let has_data_p4k = path.join("Data.p4k").exists();
                 log::debug!(
                     "[detect_sc_versions]   has_usercfg: {}, has_attributes: {}, has_actionmaps: {}",
                     has_usercfg,
@@ -1007,6 +1009,7 @@ fn detect_sc_versions_from_path(base: &Path) -> Result<Vec<ScVersionInfo>, Strin
                     has_actionmaps,
                     has_exported_layouts,
                     has_custom_characters,
+                    has_data_p4k,
                 });
             }
         }
@@ -2678,4 +2681,48 @@ pub async fn list_exported_layouts(
     }
     res.sort_by_key(|l| std::cmp::Reverse(l.modified));
     Ok(res)
+}
+
+/// Copies Data.p4k from source version to target version
+#[tauri::command]
+pub async fn copy_data_p4k(gp: String, source_version: String, target_version: String) -> Result<(), String> {
+    let exp = expand_tilde(&gp);
+
+    // Try multiple possible paths
+    let base_paths: Vec<PathBuf> = vec![
+        Path::new(&exp).join("drive_c/Program Files/Roberts Space Industries/StarCitizen"),
+        Path::new(&exp).join("StarCitizen"),
+        Path::new(&exp).to_path_buf()
+    ];
+
+    let mut base = None;
+    for p in &base_paths {
+        if p.exists() && p.is_dir() {
+            base = Some(p.clone());
+            break;
+        }
+    }
+
+    let base = base.ok_or_else(|| "StarCitizen directory not found".to_string())?;
+
+    let source = base.join(&source_version).join("Data.p4k");
+    let target = base.join(&target_version).join("Data.p4k");
+
+    if !source.exists() {
+        return Err(format!("Source Data.p4k not found at {}", source.display()));
+    }
+
+    if target.exists() {
+        return Err("Target already has Data.p4k".to_string());
+    }
+
+    // Create parent dir if needed
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    fs::copy(&source, &target).map_err(|e| e.to_string())?;
+
+    log::info!("Copied Data.p4k from {} to {}", source_version, target_version);
+    Ok(())
 }
