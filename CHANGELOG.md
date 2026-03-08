@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9] - 2026-03-08
+
+### Added
+- **Environment Management** — Renamed "Profiles" page to "Environments" to better reflect its role in managing game versions, storage, and settings
+- **Empty State UI** — New setup screen for missing versions with options to "Create Folder", "Symlink Data.p4k" (space-saving), or "Copy Data.p4k"
+- **Git-style Profile Actions** — Added "Update Profile" (save current game files back to profile) and "Revert" (discard local game changes) buttons to the active profile header
+- **Environment Deletion** — Safe deletion of Star Citizen version folders with safety whitelist
+
+### Fixed
+- **Profile Metadata Error** — Fixed path logic in profile update command
+- **Character File Backup** — Profile updates now correctly include `.chf` character files
+- **UI Consistency** — Segmented control styling for version selector and underlined tabs for better visual hierarchy
+
 ## [0.1.8] - 2026-03-07
 
 ### Changed
@@ -99,6 +112,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Prefix Tools** — Winecfg, DPI scaling, PowerShell installation via winetricks
 - **Multi-version Support** — Manage LIVE, PTU, EPTU, and other Star Citizen channels
 
+[0.1.9]: https://github.com/TomRhodan/star-control/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/TomRhodan/star-control/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/TomRhodan/star-control/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/TomRhodan/star-control/compare/v0.1.5...v0.1.6

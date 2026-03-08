@@ -2870,3 +2870,218 @@ pub async fn abort_copy_data_p4k(gp: String, version: String) -> Result<(), Stri
 
     Ok(())
 }
+
+/// Deletes an entire Star Citizen version folder
+#[tauri::command]
+pub async fn delete_sc_version(gp: String, version: String) -> Result<(), String> {
+    let exp = expand_tilde(&gp);
+
+    let base_paths: Vec<PathBuf> = vec![
+        Path::new(&exp).join("drive_c/Program Files/Roberts Space Industries/StarCitizen"),
+        Path::new(&exp).join("StarCitizen"),
+        Path::new(&exp).to_path_buf()
+    ];
+
+    let mut base = None;
+    for p in &base_paths {
+        if p.exists() && p.is_dir() {
+            base = Some(p.clone());
+            break;
+        }
+    }
+
+    let base = base.ok_or_else(|| "StarCitizen directory not found".to_string())?;
+    let target = base.join(&version);
+
+    if target.exists() && target.is_dir() {
+        // Double check we are not deleting random things
+        let is_version_folder = match version.to_lowercase().as_str() {
+            "live" | "ptu" | "eptu" | "tech-preview" | "hotfix" => true,
+            _ => false,
+        };
+        
+        if !is_version_folder {
+            return Err("Invalid version folder name for deletion".to_string());
+        }
+
+        fs::remove_dir_all(&target).map_err(|e| format!("Failed to delete version folder: {}", e))?;
+        log::info!("Deleted SC version folder: {}", version);
+    } else {
+        return Err("Version folder not found".to_string());
+    }
+
+    Ok(())
+}
+
+/// Helper to get the base SC directory from a general path string
+fn get_sc_base_path(gp: &str) -> Result<PathBuf, String> {
+    let exp = expand_tilde(gp);
+    let base_paths: Vec<PathBuf> = vec![
+        Path::new(&exp).join("drive_c/Program Files/Roberts Space Industries/StarCitizen"),
+        Path::new(&exp).join("StarCitizen"),
+        Path::new(&exp).to_path_buf()
+    ];
+
+    for p in &base_paths {
+        if p.exists() && p.is_dir() {
+            return Ok(p.clone());
+        }
+    }
+    Err("StarCitizen directory not found".to_string())
+}
+
+/// Creates a new empty Star Citizen version folder
+#[tauri::command]
+pub async fn create_sc_version(gp: String, version: String) -> Result<(), String> {
+    let base = get_sc_base_path(&gp)?;
+    let target = base.join(&version);
+    if target.exists() {
+        return Err(format!("Version {} already exists", version));
+    }
+    
+    // Check if it's a valid standard version name
+    let is_valid = match version.to_uppercase().as_str() {
+        "LIVE" | "PTU" | "EPTU" | "TECH-PREVIEW" | "HOTFIX" => true,
+        _ => false,
+    };
+    if !is_valid {
+        return Err("Invalid version name. Use LIVE, PTU, EPTU, etc.".to_string());
+    }
+
+    fs::create_dir_all(&target).map_err(|e| format!("Failed to create folder: {}", e))?;
+    log::info!("Created new SC version folder: {}", version);
+    Ok(())
+}
+
+/// Symlinks Data.p4k from one version to another
+#[tauri::command]
+pub async fn link_data_p4k(gp: String, src_version: String, dst_version: String) -> Result<(), String> {
+    let base = get_sc_base_path(&gp)?;
+    let source = base.join(&src_version).join("Data.p4k");
+    let target = base.join(&dst_version).join("Data.p4k");
+
+    if !source.exists() {
+        return Err(format!("Source Data.p4k not found in {}", src_version));
+    }
+    if target.exists() {
+        return Err(format!("Destination already has Data.p4k in {}", dst_version));
+    }
+
+    // Ensure destination version folder exists
+    if let Some(parent) = target.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&source, &target).map_err(|e| format!("Failed to create symlink: {}", e))?;
+        log::info!("Created symlink for Data.p4k from {} to {}", src_version, dst_version);
+        Ok(())
+    }
+    #[cfg(windows)]
+    {
+        Err("Symlinking not yet supported on Windows".to_string())
+    }
+}
+
+/// Overwrites an existing backup with current Star Citizen files
+#[tauri::command]
+pub async fn update_backup_from_sc(
+    gp: String,
+    v: String,
+    bid: String
+) -> Result<(), String> {
+    let bdir = backup_version_dir(&v)?;
+    let target = bdir.join(&bid);
+    if !target.exists() {
+        return Err("Profile not found".into());
+    }
+
+    let meta_path = target.join("backup_meta.json");
+    if !meta_path.exists() {
+        return Err("Profile metadata not found".into());
+    }
+
+    // Load existing metadata
+    let mut info: BackupInfo = serde_json::from_str(&fs::read_to_string(&meta_path).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+
+    let expanded = expand_tilde(&gp);
+    let user_base = sc_base_dir(&expanded, &v).join("user/client/0");
+    let pdir = user_base.join("Profiles/default");
+    
+    let mut fs_list = vec![];
+    let mut hashes = HashMap::new();
+    
+    // 1. Base files
+    for f in &["actionmaps.xml", "attributes.xml", "profile.xml"] {
+        let src = pdir.join(f);
+        if src.exists() {
+            if let Some(h) = hash_file(&src) { hashes.insert(f.to_string(), h); }
+            fs::copy(&src, target.join(f)).ok();
+            fs_list.push(f.to_string());
+        }
+    }
+
+    // 2. Controls/Mappings
+    if let Some(controls_dir) = find_dir_case_insensitive(&user_base, &["Controls/Mappings", "controls/mappings", "controls/Mappings"]) {
+        let target_controls = target.join("controls_mappings");
+        fs::create_dir_all(&target_controls).ok();
+        if let Ok(entries) = fs::read_dir(&controls_dir) {
+            for e in entries.flatten() {
+                let path = e.path();
+                if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("xml")) {
+                    if let Some(name) = path.file_name() {
+                        let key = format!("controls_mappings/{}", name.to_string_lossy());
+                        if let Some(h) = hash_file(&path) { hashes.insert(key.clone(), h); }
+                        fs::copy(&path, target_controls.join(name)).ok();
+                        fs_list.push(key);
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. CustomCharacters
+    if let Some(chars_dir) = find_dir_case_insensitive(&user_base, &["CustomCharacters", "customcharacters"]) {
+        let target_chars = target.join("custom_characters");
+        fs::create_dir_all(&target_chars).ok();
+        if let Ok(entries) = fs::read_dir(&chars_dir) {
+            for e in entries.flatten() {
+                let path = e.path();
+                if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("chf")) {
+                    if let Some(name) = path.file_name() {
+                        let key = format!("custom_characters/{}", name.to_string_lossy());
+                        if let Some(h) = hash_file(&path) { hashes.insert(key.clone(), h); }
+                        fs::copy(&path, target_chars.join(name)).ok();
+                        fs_list.push(key);
+                    }
+                }
+            }
+        }
+    }
+
+    // Derive device_map from the updated actionmaps.xml
+    let device_map = if target.join("actionmaps.xml").exists() {
+        if let Ok(xml) = fs::read_to_string(target.join("actionmaps.xml")) {
+            if let Ok(parsed) = parse_actionmaps_xml(&xml) {
+                derive_device_map(&parsed)
+            } else { vec![] }
+        } else { vec![] }
+    } else { vec![] };
+
+    // Update metadata
+    info.files = fs_list;
+    info.file_hashes = hashes;
+    info.device_map = device_map;
+    info.timestamp = Local::now().timestamp() as u64;
+    info.dirty = false;
+
+    fs::write(&meta_path, serde_json::to_string_pretty(&info).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+
+    log::info!("Updated profile {} from current SC files", bid);
+    Ok(())
+}

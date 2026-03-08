@@ -13,7 +13,7 @@ import { renderDashboard } from './pages/dashboard.js';
 import { renderInstallation } from './pages/installation.js';
 import { renderRunners } from './pages/runners.js';
 import { renderLaunch } from './pages/launch.js';
-import { renderProfiles } from './pages/profiles.js';
+import { renderEnvironments } from './pages/environments.js';
 import { renderSettings } from './pages/settings.js';
 import { renderAbout } from './pages/about.js';
 import { renderSetup } from './pages/setup.js';
@@ -27,7 +27,7 @@ const routes = {
   installation: renderInstallation,
   runners: renderRunners,
   launch: renderLaunch,
-  profiles: renderProfiles,
+  environments: renderEnvironments,
   settings: renderSettings,
   about: renderAbout,
 };
@@ -36,7 +36,7 @@ const routes = {
 const PRE_INSTALL_PAGES = ['dashboard', 'installation', 'settings'];
 
 // Pages visible when an instance IS installed
-const POST_INSTALL_PAGES = ['dashboard', 'launch', 'runners', 'profiles', 'settings'];
+const POST_INSTALL_PAGES = ['dashboard', 'launch', 'runners', 'environments', 'settings'];
 
 let setupActive = false;
 let installed = false;
