@@ -13,7 +13,8 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { confirm } from '@tauri-apps/plugin-dialog';
+import { open } from '@tauri-apps/plugin-dialog';
+import { confirm } from '../utils/dialogs.js';
 import { escapeHtml } from '../utils.js';
 
 // ==================== Debug Logging ====================

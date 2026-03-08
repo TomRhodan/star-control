@@ -12,6 +12,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
+import { confirm } from '../utils/dialogs.js';
 import { escapeHtml } from '../utils.js';
 
 /** @type {Object|null} Current application configuration */
@@ -186,42 +187,26 @@ function attachSettingsEventListeners() {
 
   attachTokenListeners();
 
-  document.getElementById('btn-reset-app')?.addEventListener('click', () => {
-    const area = document.getElementById('reset-confirm-area');
-    // Already showing confirmation — ignore
-    if (area.querySelector('.reset-confirm-prompt')) return;
+  document.getElementById('btn-reset-app')?.addEventListener('click', async () => {
+    const confirmed = await confirm(
+      'Are you sure? This will delete the entire installation, Wine prefix, and game files. This cannot be undone.',
+      { title: 'Reset Application', kind: 'danger', okLabel: 'Yes, delete everything' }
+    );
 
-    const prompt = document.createElement('div');
-    prompt.className = 'reset-confirm-prompt';
-    prompt.innerHTML = `
-      <p>Are you sure? This cannot be undone.</p>
-      <div class="reset-confirm-actions">
-        <button class="btn btn-secondary btn-sm" id="btn-reset-cancel">Cancel</button>
-        <button class="btn btn-danger btn-sm" id="btn-reset-confirm">Yes, delete everything</button>
-      </div>
-    `;
-    area.appendChild(prompt);
+    if (!confirmed) return;
 
-    document.getElementById('btn-reset-app').style.display = 'none';
+    const btn = document.getElementById('btn-reset-app');
+    btn.disabled = true;
+    btn.textContent = 'Resetting...';
 
-    document.getElementById('btn-reset-cancel').addEventListener('click', () => {
-      prompt.remove();
-      document.getElementById('btn-reset-app').style.display = '';
-    });
-
-    document.getElementById('btn-reset-confirm').addEventListener('click', async () => {
-      const confirmBtn = document.getElementById('btn-reset-confirm');
-      confirmBtn.disabled = true;
-      confirmBtn.textContent = 'Resetting...';
-      try {
-        await invoke('reset_app');
-        window.location.reload();
-      } catch (e) {
-        showNotification('Reset failed: ' + e, 'error');
-        prompt.remove();
-        document.getElementById('btn-reset-app').style.display = '';
-      }
-    });
+    try {
+      await invoke('reset_app');
+      window.location.reload();
+    } catch (e) {
+      showNotification('Reset failed: ' + e, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Reset & Restart';
+    }
   });
 }
 
