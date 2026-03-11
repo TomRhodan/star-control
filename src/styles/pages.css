@@ -2843,9 +2843,10 @@
 }
 
 .sc-version-card.active {
-  background: var(--bg-card);
+  background: rgba(6, 182, 212, 0.15);
   color: var(--text-primary);
   box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  border: 1px solid rgba(6, 182, 212, 0.3);
 }
 
 .sc-version-card.sc-not-installed {
@@ -3751,6 +3752,12 @@
 
 .device-card.draggable {
   cursor: grab;
+  user-select: none;
+  touch-action: none; /* prevent scroll interference on touch */
+}
+
+.device-card.draggable:active {
+  cursor: grabbing;
 }
 
 .device-card.dragging {
@@ -3760,6 +3767,7 @@
 .device-card.drag-over {
   border-color: var(--accent);
   background: var(--accent-dim);
+  transition: border-color 0.15s, background 0.15s;
 }
 
 .device-card.drag-clone {
@@ -3772,9 +3780,14 @@
 .device-drag-handle {
   display: flex;
   align-items: center;
+  padding: 4px;
   color: var(--text-muted);
   flex-shrink: 0;
   cursor: grab;
+}
+
+.device-drag-handle:active {
+  cursor: grabbing;
 }
 
 .device-instance-badge {

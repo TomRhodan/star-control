@@ -89,3 +89,90 @@ export function confirm(message, options = {}) {
     window.addEventListener('keydown', handleEscape);
   });
 }
+
+/**
+ * Shows a custom prompt modal with an input field.
+ *
+ * @param {string} message - The message to display.
+ * @param {Object} [options] - Configuration options.
+ * @param {string} [options.title='Input'] - Modal title.
+ * @param {string} [options.defaultValue=''] - Default input value.
+ * @param {string} [options.placeholder=''] - Input placeholder.
+ * @param {string} [options.okLabel='OK'] - Label for the OK button.
+ * @param {string} [options.cancelLabel='Cancel'] - Label for the Cancel button.
+ * @returns {Promise<string|null>} Resolves to the input value, or null if cancelled.
+ */
+export function prompt(message, options = {}) {
+  const {
+    title = 'Input',
+    defaultValue = '',
+    placeholder = '',
+    okLabel = 'OK',
+    cancelLabel = 'Cancel'
+  } = options;
+
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+
+    const icon = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="modal-icon-info"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`;
+
+    overlay.innerHTML = `
+      <div class="modal-container modal-kind-info">
+        <div class="modal-header">
+          <div class="modal-title-wrap">
+            ${icon}
+            <h3>${escapeHtml(title)}</h3>
+          </div>
+        </div>
+        <div class="modal-body">
+          <p>${escapeHtml(message).replace(/\n/g, '<br>')}</p>
+          <input type="text" class="input modal-prompt-input" id="modal-prompt-input"
+                 value="${escapeHtml(defaultValue)}" placeholder="${escapeHtml(placeholder)}"
+                 style="width: 100%; margin-top: 8px;" />
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="modal-cancel">${escapeHtml(cancelLabel)}</button>
+          <button class="btn btn-primary" id="modal-ok">${escapeHtml(okLabel)}</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const input = overlay.querySelector('#modal-prompt-input');
+
+    requestAnimationFrame(() => {
+      overlay.classList.add('show');
+      input.focus();
+      input.select();
+    });
+
+    const cleanup = (result) => {
+      overlay.classList.remove('show');
+      setTimeout(() => {
+        overlay.remove();
+        resolve(result);
+      }, 200);
+    };
+
+    overlay.querySelector('#modal-cancel').addEventListener('click', () => cleanup(null));
+    overlay.querySelector('#modal-ok').addEventListener('click', () => cleanup(input.value));
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') cleanup(input.value);
+    });
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) cleanup(null);
+    });
+
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') {
+        window.removeEventListener('keydown', handleEscape);
+        cleanup(null);
+      }
+    };
+    window.addEventListener('keydown', handleEscape);
+  });
+}

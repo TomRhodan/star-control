@@ -14,7 +14,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
-import { confirm } from '../utils/dialogs.js';
+import { confirm, prompt } from '../utils/dialogs.js';
 import { escapeHtml } from '../utils.js';
 
 // ==================== Debug Logging ====================
@@ -59,6 +59,10 @@ let scVersions = [];
 
 // Data.p4k copy state
 let copyingVersion = null; // { version: string, startTime: number }
+
+// Event listener cleanup (prevent leaks on re-render)
+let unlistenProgress = null;
+let unlistenCopyComplete = null;
 
 // New state
 let parsedActionMaps = null;
@@ -489,7 +493,7 @@ const STANDARD_VERSIONS = ['LIVE', 'PTU', 'EPTU', 'TECH-PREVIEW', 'HOTFIX'];
 // ==================== Version Selector ====================
 
 function renderVersionSelector() {
-  if (scVersions.length === 0 && (!config?.install_path)) {
+  if (scVersions.length === 0 || (!config?.install_path)) {
     return `
       <div class="sc-version-notice">
         <div class="notice-icon">
@@ -1158,14 +1162,23 @@ function attachBindingEventListeners() {
   });
 
   document.querySelectorAll('[data-action="add-binding"]').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
       openBindingEditor(btn.dataset.actionName, btn.dataset.category, null);
     });
   });
 
   document.querySelectorAll('[data-action="edit-binding"]').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
       openBindingEditor(btn.dataset.actionName, btn.dataset.category, btn.dataset.input || '');
+    });
+  });
+
+  document.querySelectorAll('[data-action="add-alt-binding"]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openBindingEditor(btn.dataset.actionName, btn.dataset.category, null);
     });
   });
 
@@ -1174,6 +1187,7 @@ function attachBindingEventListeners() {
       e.stopPropagation();
       const actionName = btn.dataset.actionName;
       const category = btn.dataset.category;
+      const input = btn.dataset.input || '';
 
       if (!lastRestoredBackupId) {
         showNotification('No profile loaded.', 'error');
@@ -1191,6 +1205,7 @@ function attachBindingEventListeners() {
             profileId: lastRestoredBackupId,
             actionMap: category,
             actionName: actionName,
+            input: input || null,
           });
 
           showNotification('Binding removed from profile', 'success');
@@ -1207,7 +1222,10 @@ function attachBindingEventListeners() {
 
 function renderDeviceMapCollapsible() {
   const activeBackup = lastRestoredBackupId ? backups.find(b => b.id === lastRestoredBackupId) : null;
-  const deviceMap = activeBackup?.device_map || [];
+  // Only show joysticks — keyboards/gamepads have fixed instance numbers and can't be reordered
+  const deviceMap = (activeBackup?.device_map || [])
+    .filter(dm => dm.device_type === 'joystick')
+    .sort((a, b) => a.sc_instance - b.sc_instance);
   if (deviceMap.length === 0) return '';
 
   const isExpanded = window.expandedPanels?.devices === true;
@@ -1219,16 +1237,18 @@ function renderDeviceMapCollapsible() {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
         </span>
         <h3>
-          Devices
+          Joysticks
           <span class="binding-stats-badge">${deviceMap.length} mapped</span>
         </h3>
       </div>
       <div class="collapsible-content ${isExpanded ? '' : 'collapsed'}">
-        ${renderHint('devices-intro', 'These are the controllers stored in this profile. Star Control matches them to your connected hardware by name when capturing input.')}
+        ${renderHint('devices-intro', 'These are the joysticks stored in this profile. Drag to reorder their instance numbers. Star Control matches them to your connected hardware by name.')}
         <div class="device-map-list">
           ${deviceMap.map(dm => `
-            <div class="device-map-item" data-product="${escapeHtml(dm.product_name)}">
-              <span class="device-map-type">${dm.device_type === 'joystick' ? 'JS' : dm.device_type.substring(0, 2).toUpperCase()}</span>
+            <div class="device-map-item device-card draggable" data-product="${escapeHtml(dm.product_name)}" data-instance="${dm.sc_instance}" data-device-type="${escapeHtml(dm.device_type)}">
+              <span class="device-drag-handle" title="Drag to reorder">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+              </span>
               <span class="device-map-instance">js${dm.sc_instance}</span>
               <span class="device-map-name" title="${escapeHtml(dm.product_name)}">${escapeHtml(dm.alias || dm.product_name)}</span>
               <button class="btn btn-xs device-map-alias-btn" data-product="${escapeHtml(dm.product_name)}" data-alias="${escapeHtml(dm.alias || '')}" title="Set alias">✏</button>
@@ -1304,8 +1324,6 @@ function renderBindingsCollapsible() {
   `;
 }
 
-// Keep old name as alias for refreshBindingsInPlace which references renderBindingCategory
-function renderBindingsSection() { return renderBindingsCollapsible(); }
 
 function renderBindingCategory(categoryKey, label, items) {
   const query = (bindingFilter || '').toLowerCase();
@@ -1332,7 +1350,7 @@ function renderBindingCategory(categoryKey, label, items) {
 
   return `
     <div class="binding-category-block ${isExpanded ? 'expanded' : ''}" data-category="${escapeHtml(categoryKey)}">
-      <div class="binding-category-header" onclick="this.parentElement.classList.toggle('expanded'); if(this.parentElement.classList.contains('expanded')){window.expandedBindingCategories.add('${categoryKey}');}else{window.expandedBindingCategories.delete('${categoryKey}');}">
+      <div class="binding-category-header" data-category="${escapeHtml(categoryKey)}">
         <span class="category-title">${escapeHtml(label)}</span>
         <span class="category-count">${items.length} Actions</span>
         <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1392,12 +1410,17 @@ function renderBindingCategory(categoryKey, label, items) {
                   </td>
                   <td class="binding-actions-cell">
                     <div class="action-buttons-flex">
-                      <button class="btn btn-xs btn-primary" 
+                      <button class="btn btn-xs btn-primary"
                               data-action="edit-binding"
-                              data-action-name="${escapeHtml(b.action_name)}" 
+                              data-action-name="${escapeHtml(b.action_name)}"
                               data-category="${escapeHtml(categoryKey)}"
                               data-input="${escapeHtml(b.current_input)}">Edit</button>
                       ${b.current_input ? `
+                        <button class="btn btn-xs btn-secondary"
+                                data-action="add-alt-binding"
+                                data-action-name="${escapeHtml(b.action_name)}"
+                                data-category="${escapeHtml(categoryKey)}"
+                                title="Add binding for another device">+</button>
                         <button class="btn btn-xs btn-danger-sm"
                                 data-action="remove-binding-direct"
                                 data-action-name="${escapeHtml(b.action_name)}"
@@ -1530,7 +1553,6 @@ function stripDevicePrefix(input) {
 }
 
 function openBindingEditor(actionName, category, currentInput) {
-  console.log('[EDITOR] Opening...', { actionName, category, currentInput });
   bindingEditorAction = { actionName, category, currentInput };
   bindingEditorDevice = resolveDeviceType(currentInput) || 'keyboard';
 
@@ -1586,6 +1608,7 @@ function openBindingEditor(actionName, category, currentInput) {
   `;
 
   document.body.appendChild(modal);
+  requestAnimationFrame(() => modal.classList.add('show'));
 
   // Get active profile's device map for Linux→SC instance remapping
   const activeBackup = lastRestoredBackupId ? backups.find(b => b.id === lastRestoredBackupId) : null;
@@ -1757,12 +1780,12 @@ function openBindingEditor(actionName, category, currentInput) {
   invoke('start_input_capture').catch(err => console.error('[EDITOR] Backend capture start failed:', err));
 
   const cleanupAndClose = () => {
-    console.log('[EDITOR] Cleaning up and closing...');
     invoke('stop_input_capture');
     if (inputCapturedUnlisten) inputCapturedUnlisten();
     window.removeEventListener('keydown', handleKeyDownCapture);
     window.removeEventListener('mousedown', handleMouseDownCapture);
-    modal.remove();
+    modal.classList.remove('show');
+    setTimeout(() => modal.remove(), 200);
     bindingEditorAction = null;
   };
 
@@ -1784,6 +1807,7 @@ function openBindingEditor(actionName, category, currentInput) {
         profileId: lastRestoredBackupId,
         actionMap: category,
         actionName: actionName,
+        input: currentInput || null,
       });
 
       showNotification('Binding removed from profile', 'success');
@@ -1837,13 +1861,33 @@ function openBindingEditor(actionName, category, currentInput) {
     }
 
     try {
+      // Determine which existing binding to replace:
+      // - Edit mode (currentInput set): replace that specific binding
+      // - Add mode (currentInput null): check if same device type already bound → replace it
+      let oldInput = currentInput || null;
+      if (!oldInput) {
+        const newPrefix = (newInput.match(/^(js|kb|mo|gp|xi)\d+_/) || [])[0];
+        if (newPrefix) {
+          const prefixType = newPrefix.replace(/\d+_$/, ''); // e.g. "js", "kb"
+          const sameTypeBinding = completeBindingList.find(b =>
+            b.action_name === actionName
+            && b.category === category
+            && b.current_input
+            && b.current_input.startsWith(prefixType)
+          );
+          if (sameTypeBinding) {
+            oldInput = sameTypeBinding.current_input;
+          }
+        }
+      }
+
       await invoke('assign_profile_binding', {
         v: activeScVersion,
         profileId: lastRestoredBackupId,
         actionMap: category,
         actionName: actionName,
         newInput: newInput,
-        oldInput: currentInput || null,
+        oldInput,
       });
 
       showNotification('Binding saved to profile', 'success');
@@ -2203,12 +2247,15 @@ async function saveProfile() {
     const label = input.value.trim();
     wrap.remove();
     try {
-      await invoke('backup_profile', {
+      const created = await invoke('backup_profile', {
         gp: config.install_path,
         v: activeScVersion,
         bt: 'manual',
         l: label || '',
       });
+      lastRestoredBackupId = created.id;
+      lastRestoredPerVersion[activeScVersion] = created.id;
+      invoke('save_active_profile', { v: activeScVersion, bid: created.id }).catch(() => {});
       showNotification('Profile saved', 'success');
       await loadBackups();
       await loadProfileStatus();
@@ -2310,24 +2357,41 @@ async function deleteScVersion(version) {
   }
 }
 
-async function handleDeviceDrop(sourceInstance, targetInstance, sourceDeviceType = 'joystick', targetDeviceType = 'joystick') {
-  if (sourceInstance === targetInstance) return;
-  if (!config?.install_path || !activeScVersion) return;
+/**
+ * Handles a device swap after drag-and-drop.
+ *
+ * Only allows swaps within the same device type (joystick↔joystick, etc.)
+ * because SC bindings use type-specific prefixes (js1_, kb1_, gp1_).
+ *
+ * Operates on the active backup's actionmaps.xml (not live SC files).
+ * After success, reloads backups so the UI reflects the new device order.
+ */
+async function handleDeviceDrop(sourceInstance, targetInstance, sourceDeviceType, targetDeviceType) {
+  if (sourceInstance === targetInstance && sourceDeviceType === targetDeviceType) return;
+  if (!activeScVersion || !lastRestoredBackupId) return;
 
+  // Only allow swaps within the same device type
+  if (sourceDeviceType !== targetDeviceType) {
+    showNotification(`Cannot swap ${sourceDeviceType} with ${targetDeviceType} — different device types`, 'warning');
+    return;
+  }
+
+  // Both entries use the same device type since we only swap within a type
   const newOrder = [
-    { old_instance: sourceInstance, new_instance: targetInstance, device_type: sourceDeviceType },
-    { old_instance: targetInstance, new_instance: sourceInstance, device_type: targetDeviceType },
+    { oldInstance: sourceInstance, newInstance: targetInstance, deviceType: sourceDeviceType },
+    { oldInstance: targetInstance, newInstance: sourceInstance, deviceType: sourceDeviceType },
   ];
 
   try {
-    await invoke('reorder_devices', {
-      gamePath: config.install_path,
-      version: activeScVersion,
+    await invoke('reorder_profile_devices', {
+      v: activeScVersion,
+      bid: lastRestoredBackupId,
       newOrder,
     });
-    showNotification(`Swapped ${sourceDeviceType.toUpperCase()}${sourceInstance} and ${targetDeviceType.toUpperCase()}${targetInstance}`, 'success');
-    await loadDevicesAndBindings();
-    await loadCompleteBindingList();
+    showNotification(`Swapped ${sourceDeviceType} ${sourceInstance} ↔ ${targetInstance}`, 'success');
+    // Reload backups and profile status so the UI shows "out of sync"
+    await loadBackups();
+    await loadProfileStatus();
     renderEnvironments(document.getElementById('content'));
   } catch (e) {
     showNotification(`Reorder failed: ${e}`, 'error');
@@ -2364,7 +2428,7 @@ async function showImportVersionDialog() {
       <div class="import-version-dialog-body">
         <label class="import-version-label">Source version:</label>
         <select class="input import-version-select" id="import-source-select">
-          ${versions.map(v => `<option value="${escapeHtml(v.version)}" data-info='${escapeHtml(JSON.stringify(v))}'>${escapeHtml(v.version)}</option>`).join('')}
+          ${versions.map(v => `<option value="${escapeHtml(v.version)}" data-info="${escapeHtml(JSON.stringify(v))}">${escapeHtml(v.version)}</option>`).join('')}
         </select>
         <label class="import-version-label" style="margin-top: 8px;">Source:</label>
         <select class="input import-version-select" id="import-profile-select">
@@ -2544,7 +2608,7 @@ async function showDataP4kCopyProgressModal(sourceVersion, targetVersion) {
       version: sourceVersion
     });
   } catch (e) {
-    showNotification(`Fehler: ${e}`, 'error');
+    showNotification(`Error: ${e}`, 'error');
     return;
   }
 
@@ -2554,13 +2618,13 @@ async function showDataP4kCopyProgressModal(sourceVersion, targetVersion) {
   modal.innerHTML = `
     <div class="modal-content data-p4k-copy-modal">
       <div class="modal-header">
-        <h3>Data.p4k kopieren</h3>
+        <h3>Copy Data.p4k</h3>
         <button class="modal-close" id="btn-modal-close">×</button>
       </div>
       <div class="modal-body">
         <div class="copy-progress-info">
-          <p>Von <strong>${escapeHtml(sourceVersion)}</strong> nach <strong>${escapeHtml(targetVersion)}</strong></p>
-          <p>Größe: <strong>${formatFileSize(sizeBytes)}</strong></p>
+          <p>From <strong>${escapeHtml(sourceVersion)}</strong> to <strong>${escapeHtml(targetVersion)}</strong></p>
+          <p>Size: <strong>${formatFileSize(sizeBytes)}</strong></p>
         </div>
         <div class="progress-bar-container" style="display: none;">
           <div class="progress-bar" id="copy-progress-bar">
@@ -2569,20 +2633,20 @@ async function showDataP4kCopyProgressModal(sourceVersion, targetVersion) {
         </div>
         <div class="progress-stats" style="display: none;">
           <div class="speed">
-            <div class="label">Geschwindigkeit</div>
+            <div class="label">Speed</div>
             <div class="value" id="copy-speed">-</div>
           </div>
           <div class="eta">
-            <div class="label">Verbleibend</div>
+            <div class="label">Remaining</div>
             <div class="value" id="copy-eta">-</div>
           </div>
         </div>
         <p class="progress-text" id="copy-progress-text" style="display: none;">
-          <span id="copied-bytes">0</span> von <span id="total-bytes">${formatFileSize(sizeBytes)}</span> kopiert
+          <span id="copied-bytes">0</span> of <span id="total-bytes">${formatFileSize(sizeBytes)}</span> copied
         </p>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" id="btn-copy-cancel">Abbrechen</button>
+        <button class="btn btn-secondary" id="btn-copy-cancel">Cancel</button>
         <button class="btn btn-primary" id="btn-copy-start">Start</button>
       </div>
     </div>
@@ -2645,7 +2709,7 @@ async function showDataP4kCopyProgressModal(sourceVersion, targetVersion) {
   modal.querySelector('#btn-copy-start').addEventListener('click', async () => {
     // Switch to progress mode
     modal.querySelector('#btn-copy-start').style.display = 'none';
-    modal.querySelector('#btn-copy-cancel').textContent = 'Abbrechen';
+    modal.querySelector('#btn-copy-cancel').textContent = 'Cancel';
     progressContainer.style.display = 'block';
     progressText.style.display = 'block';
     progressStats.style.display = 'flex';
@@ -2685,7 +2749,7 @@ async function showDataP4kCopyProgressModal(sourceVersion, targetVersion) {
       });
 
       // Success
-      showNotification(`Data.p4k erfolgreich kopiert!`, 'success');
+      showNotification(`Data.p4k copied successfully!`, 'success');
       if (unlisten) {
         unlisten();
         unlisten = null;
@@ -2697,10 +2761,10 @@ async function showDataP4kCopyProgressModal(sourceVersion, targetVersion) {
       renderEnvironments(document.getElementById('content'));
 
     } catch (e) {
-      if (e.includes('cancelled') || e.includes('abgebrochen')) {
-        showNotification('Kopieren abgebrochen', 'info');
+      if (e.includes('cancelled') || e.includes('aborted')) {
+        showNotification('Copy cancelled', 'info');
       } else {
-        showNotification(`Fehler: ${e}`, 'error');
+        showNotification(`Error: ${e}`, 'error');
       }
       if (unlisten) {
         unlisten();
@@ -2748,6 +2812,16 @@ function attachProfilesEventListeners() {
   // Version Cards
   document.querySelectorAll('.sc-version-card').forEach(card => {
     card.addEventListener('click', async () => {
+      // Warn if there are unsaved USER.cfg changes
+      if (hasUnsavedChanges()) {
+        const proceed = await confirm('You have unsaved USER.cfg changes. Switching versions will discard them.', {
+          title: 'Unsaved Changes',
+          kind: 'warning',
+          okLabel: 'Switch Anyway',
+          cancelLabel: 'Stay',
+        });
+        if (!proceed) return;
+      }
       // Save active profile for current version before switching
       if (activeScVersion && lastRestoredBackupId) {
         lastRestoredPerVersion[activeScVersion] = lastRestoredBackupId;
@@ -2786,49 +2860,59 @@ function attachProfilesEventListeners() {
   document.getElementById('btn-copy-p4k')?.addEventListener('click', async (e) => {
     const version = e.target.dataset.version;
     const source = document.getElementById('data-source-select').value;
-    startCopyDataP4k(source, version);
+    showDataP4kCopyProgressModal(source, version);
   });
 
-  // Device drag-and-drop (pointer events - works in WebKitGTK)
-  document.querySelectorAll('.device-drag-handle').forEach(handle => {
-    handle.addEventListener('pointerdown', (e) => {
+  // Device drag-and-drop (pointer events — works in WebKitGTK)
+  // The entire card is draggable. Pointer capture ensures smooth tracking even
+  // when the cursor leaves the card bounds during fast moves.
+  document.querySelectorAll('.device-card.draggable').forEach(card => {
+    card.addEventListener('pointerdown', (e) => {
+      // Ignore clicks on buttons (alias button)
+      if (e.target.closest('button')) return;
       e.preventDefault();
-      const card = handle.closest('.device-card');
-      if (!card || !card.dataset.instance) return;
+      if (!card.dataset.instance) return;
 
       const sourceInstance = parseInt(card.dataset.instance, 10);
       const sourceDeviceType = card.dataset.deviceType || 'joystick';
       const rect = card.getBoundingClientRect();
+      // Offset from pointer to card top-left — keeps the clone anchored where you grabbed it
+      const offsetX = e.clientX - rect.left;
       const offsetY = e.clientY - rect.top;
 
-      // Create floating clone
+      // Capture pointer so events keep flowing even when cursor leaves the element
+      card.setPointerCapture(e.pointerId);
+
+      // Floating clone follows the pointer smoothly in both axes
       const clone = card.cloneNode(true);
       clone.classList.add('drag-clone');
-      clone.style.cssText = `position:fixed;width:${rect.width}px;top:${e.clientY - offsetY}px;left:${rect.left}px;z-index:1000;pointer-events:none;`;
+      clone.style.cssText = `position:fixed;width:${rect.width}px;top:${rect.top}px;left:${rect.left}px;z-index:1000;pointer-events:none;will-change:transform;`;
       document.body.appendChild(clone);
       card.classList.add('dragging');
 
       function onMove(ev) {
-        clone.style.top = (ev.clientY - offsetY) + 'px';
-        // Highlight drop target
+        // Use transform for smooth, jank-free movement (GPU-composited)
+        const dx = ev.clientX - offsetX - rect.left;
+        const dy = ev.clientY - offsetY - rect.top;
+        clone.style.transform = `translate(${dx}px, ${dy}px)`;
+
+        // Highlight drop target using bounding-box overlap check
         document.querySelectorAll('.device-card.draggable').forEach(c => {
           if (c === card) return;
           const r = c.getBoundingClientRect();
-          if (ev.clientY >= r.top && ev.clientY <= r.bottom) {
-            c.classList.add('drag-over');
-          } else {
-            c.classList.remove('drag-over');
-          }
+          const hit = ev.clientX >= r.left && ev.clientX <= r.right
+                   && ev.clientY >= r.top && ev.clientY <= r.bottom;
+          c.classList.toggle('drag-over', hit);
         });
       }
 
-      function onUp(ev) {
-        document.removeEventListener('pointermove', onMove);
-        document.removeEventListener('pointerup', onUp);
+      function onUp() {
+        card.removeEventListener('pointermove', onMove);
+        card.removeEventListener('pointerup', onUp);
         clone.remove();
         card.classList.remove('dragging');
 
-        // Find drop target
+        // Find the drop target (the card under the pointer)
         let targetInstance = null;
         let targetDeviceType = 'joystick';
         document.querySelectorAll('.device-card.draggable').forEach(c => {
@@ -2844,8 +2928,8 @@ function attachProfilesEventListeners() {
         }
       }
 
-      document.addEventListener('pointermove', onMove);
-      document.addEventListener('pointerup', onUp);
+      card.addEventListener('pointermove', onMove);
+      card.addEventListener('pointerup', onUp);
     });
   });
 
@@ -2872,7 +2956,21 @@ function attachProfilesEventListeners() {
         title: 'Revert Changes',
         kind: 'warning',
       });
-      if (confirmed) await restoreProfile(lastRestoredBackupId);
+      if (confirmed) {
+        try {
+          await invoke('restore_profile', {
+            gp: config.install_path,
+            v: activeScVersion,
+            bid: lastRestoredBackupId,
+          });
+          showNotification('Profile reverted', 'success');
+          await Promise.all([loadActionDefinitions(), loadDevicesAndBindings(), loadCompleteBindingList(), loadBackups(), loadUserCfgSettings()]);
+          await loadProfileStatus();
+          renderEnvironments(document.getElementById('content'));
+        } catch (e) {
+          showNotification(`Revert failed: ${e}`, 'error');
+        }
+      }
     }
   });
 
@@ -2882,6 +2980,20 @@ function attachProfilesEventListeners() {
     await loadDevicesAndBindings();
     await loadCompleteBindingList();
     renderEnvironments(document.getElementById('content'));
+  });
+
+  // Binding category toggle (event delegation on stable parent)
+  document.querySelector('.bindings-body')?.addEventListener('click', (e) => {
+    const header = e.target.closest('.binding-category-header');
+    if (!header) return;
+    const block = header.parentElement;
+    const categoryKey = header.dataset.category;
+    block.classList.toggle('expanded');
+    if (block.classList.contains('expanded')) {
+      window.expandedBindingCategories.add(categoryKey);
+    } else {
+      window.expandedBindingCategories.delete(categoryKey);
+    }
   });
 
   // Binding search - searches across all fields
@@ -2934,7 +3046,8 @@ function attachProfilesEventListeners() {
 
   // Add binding button
   document.querySelectorAll('[data-action="add-binding"]').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
       const actionName = btn.dataset.actionName;
       const category = btn.dataset.category;
       openBindingEditor(actionName, category, null);
@@ -2943,11 +3056,17 @@ function attachProfilesEventListeners() {
 
   // Edit binding button
   document.querySelectorAll('[data-action="edit-binding"]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const actionName = btn.dataset.actionName;
-      const category = btn.dataset.category;
-      const currentInput = btn.dataset.input || '';
-      openBindingEditor(actionName, category, currentInput);
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openBindingEditor(btn.dataset.actionName, btn.dataset.category, btn.dataset.input || '');
+    });
+  });
+
+  // Add alt binding button (+)
+  document.querySelectorAll('[data-action="add-alt-binding"]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openBindingEditor(btn.dataset.actionName, btn.dataset.category, null);
     });
   });
 
@@ -2957,6 +3076,7 @@ function attachProfilesEventListeners() {
       e.stopPropagation();
       const actionName = btn.dataset.actionName;
       const category = btn.dataset.category;
+      const input = btn.dataset.input || '';
 
       if (!lastRestoredBackupId) {
         showNotification('No profile loaded.', 'error');
@@ -2974,6 +3094,7 @@ function attachProfilesEventListeners() {
             profileId: lastRestoredBackupId,
             actionMap: category,
             actionName: actionName,
+            input: input || null,
           });
 
           showNotification('Binding removed from profile', 'success');
@@ -3046,7 +3167,7 @@ function attachProfilesEventListeners() {
     btn.addEventListener('click', async () => {
       const productName = btn.dataset.product;
       const currentAlias = btn.dataset.alias || '';
-      const newAlias = prompt(`Alias for "${productName}":`, currentAlias);
+      const newAlias = await prompt(`Alias for "${productName}":`, { title: 'Set Device Alias', defaultValue: currentAlias });
       if (newAlias === null) return; // cancelled
       try {
         await invoke('set_profile_device_alias', {
@@ -3262,27 +3383,30 @@ function attachProfilesEventListeners() {
     updateSettingHighlight(row, key, setting, setting.value);
   });
 
-  // Data.p4k copy progress listener (listen is already imported at top)
+  // Data.p4k copy progress listener — clean up previous listeners to prevent leaks
+  if (unlistenProgress) { unlistenProgress(); unlistenProgress = null; }
+  if (unlistenCopyComplete) { unlistenCopyComplete(); unlistenCopyComplete = null; }
+
   listen('data-p4k-progress', (event) => {
-    const { version, percent, copied, total } = event.payload;
+    const { version, percent, copied_bytes, total_bytes } = event.payload;
     // Update progress bar if this version is being copied
     const progressEl = document.querySelector(`.version-copy-progress[data-version="${version}"]`);
     if (progressEl) {
       progressEl.style.width = `${percent}%`;
       progressEl.textContent = `${percent}%`;
     }
-  });
+  }).then(fn => { unlistenProgress = fn; });
 
   listen('data-p4k-copy-complete', async (event) => {
     const { version, success } = event.payload;
     if (success) {
-      showNotification(`Data.p4k für ${version} kopiert!`, 'success');
+      showNotification(`Data.p4k for ${version} copied!`, 'success');
     }
     copyingVersion = null;
     // Reload versions
     scVersions = await invoke('detect_sc_versions', { gp: config.install_path });
     renderEnvironments(document.getElementById('content'));
-  });
+  }).then(fn => { unlistenCopyComplete = fn; });
 }
 
 function updateSettingHighlight(row, key, setting, value) {
@@ -3405,10 +3529,10 @@ async function initCloseBlocker() {
         // Prevent close
         event.preventDefault();
 
-        // Show confirmation dialog
-        const confirmed = confirm(
-          `Data.p4k wird noch kopiert für ${copyingVersion.version}.\n\n` +
-          `Möchten Sie wirklich schließen? Die kopierten Daten werden gelöscht.`
+        // Show confirmation dialog (async custom dialog)
+        const confirmed = await confirm(
+          `Data.p4k is still being copied for ${copyingVersion.version}.\n\nDo you really want to close? The partially copied data will be deleted.`,
+          { title: 'Copy in Progress', kind: 'warning', okLabel: 'Close', cancelLabel: 'Keep Copying' }
         );
 
         if (confirmed) {
@@ -3418,7 +3542,7 @@ async function initCloseBlocker() {
               gp: config.install_path,
               version: copyingVersion.version
             });
-            showNotification('Kopieren abgebrochen und Datei gelöscht.', 'info');
+            showNotification('Copy cancelled and file deleted.', 'info');
           } catch (e) {
             console.error('Failed to abort copy:', e);
           }
@@ -3431,9 +3555,6 @@ async function initCloseBlocker() {
 
           // Now close
           await appWindow.close();
-        } else {
-          // User clicked "Cancel" - just continue
-          copyingVersion = null;
         }
       }
     });

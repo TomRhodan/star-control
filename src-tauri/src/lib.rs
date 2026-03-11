@@ -302,7 +302,7 @@ pub fn run() {
                 sc_config::apply_profile_to_sc,
                 sc_config::set_profile_device_alias,
                 sc_config::migrate_binding_database,
-                sc_config::reorder_devices,
+                sc_config::reorder_profile_devices,
                 sc_config::backup_profile,
                 sc_config::restore_profile,
                 sc_config::backup_profile_manual,

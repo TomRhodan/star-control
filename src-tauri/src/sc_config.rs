@@ -213,6 +213,17 @@ fn localization_cache_path(v: &str) -> Result<PathBuf, String> {
 fn backup_version_dir(v: &str) -> Result<PathBuf, String> {
     Ok(dirs::config_dir().ok_or("No config dir")?.join("star-control/backups").join(v))
 }
+/// Validates a backup ID to prevent path traversal attacks.
+fn validate_backup_id(bid: &str) -> Result<(), String> {
+    if bid.is_empty()
+        || bid.contains('/')
+        || bid.contains('\\')
+        || bid.contains("..")
+    {
+        return Err("Invalid backup ID".into());
+    }
+    Ok(())
+}
 
 /// Finds a subdirectory matching one of the given path variants.
 /// Tries each variant joined to base, returns the first that exists.
@@ -1740,9 +1751,9 @@ pub async fn assign_profile_binding(
         .ok_or("No profile")?;
 
     let mut found = false;
-    for am in &mut profile.action_maps {
-        if am.name == action_map {
-            if let Some(ref old) = old_input {
+    if let Some(ref old) = old_input {
+        for am in &mut profile.action_maps {
+            if am.name == action_map {
                 if let Some(b) = am.bindings.iter_mut()
                     .find(|b| b.action_name == action_name && b.input == *old)
                 {
@@ -1750,12 +1761,6 @@ pub async fn assign_profile_binding(
                     found = true;
                     break;
                 }
-            } else if let Some(b) = am.bindings.iter_mut()
-                .find(|b| b.action_name == action_name)
-            {
-                b.input = new_input.clone();
-                found = true;
-                break;
             }
         }
     }
@@ -1786,7 +1791,9 @@ pub async fn remove_profile_binding(
     profile_id: String,
     action_map: String,
     action_name: String,
+    input: Option<String>,
 ) -> Result<(), String> {
+    validate_backup_id(&profile_id)?;
     let bdir = backup_version_dir(&v)?.join(&profile_id);
     let actionmaps_path = bdir.join("actionmaps.xml");
     if !actionmaps_path.exists() {
@@ -1803,7 +1810,13 @@ pub async fn remove_profile_binding(
 
     for am in &mut profile.action_maps {
         if am.name == action_map {
-            am.bindings.retain(|b| b.action_name != action_name);
+            if let Some(ref inp) = input {
+                // Remove only the specific binding matching both action and input
+                am.bindings.retain(|b| !(b.action_name == action_name && b.input == *inp));
+            } else {
+                // Fallback: remove all bindings for the action
+                am.bindings.retain(|b| b.action_name != action_name);
+            }
         }
     }
 
@@ -2033,31 +2046,133 @@ pub async fn list_localization_languages(gp: String, v: String) -> Result<Vec<St
     result.sort();
     Ok(result)
 }
-/// Reorders device instance numbers in actionmaps.xml to match the desired order.
+/// Returns the SC input prefix for a device type (e.g., "joystick" → "js", "keyboard" → "kb").
+/// These prefixes are used in `<rebind input="js1_button5"/>` style references.
+fn device_type_to_input_prefix(device_type: &str) -> &str {
+    match device_type {
+        "joystick" => "js",
+        "keyboard" => "kb",
+        "gamepad" => "gp",
+        "mouse" => "mo",
+        _ => "js",
+    }
+}
+
+/// Reorders device instances within a saved profile (backup).
+///
+/// This operates on the backup's own `actionmaps.xml` snapshot, NOT on live SC files.
+/// After swapping instance numbers in the XML, it re-derives the `device_map` in
+/// `backup_meta.json` so the UI immediately reflects the change. Aliases are preserved
+/// by matching on `product_name`.
+///
+/// Device identity = (type, instance). A keyboard at instance 1 and a joystick at instance 1
+/// are different devices. The swap is scoped to the device type:
+///   - `<options type="joystick" instance="2">` attributes
+///   - `<rebind input="js2_button5"/>` input references (prefix is type-specific)
+///
+/// The two-phase replacement (original → placeholder → final) avoids collisions when
+/// swapping instance numbers (e.g., swapping js2↔js3 without js2→js3→js3).
 #[tauri::command]
-pub async fn reorder_devices(
-    gp: String,
+pub async fn reorder_profile_devices(
     v: String,
-    new_order: Vec<DeviceReorderEntry>
+    bid: String,
+    new_order: Vec<DeviceReorderEntry>,
 ) -> Result<(), String> {
-    let p = sc_base_dir(&expand_tilde(&gp), &v).join(
-        "user/client/0/Profiles/default/actionmaps.xml"
-    );
-    if !p.exists() {
-        return Err("Not found".into());
+    validate_backup_id(&bid)?;
+    let bdir = backup_version_dir(&v)?.join(&bid);
+    let actionmaps_path = bdir.join("actionmaps.xml");
+
+    if !actionmaps_path.exists() {
+        return Err("Profile has no actionmaps.xml".into());
     }
-    let mut c = fs::read_to_string(&p).map_err(|e| e.to_string())?;
-    for e in &new_order {
-        let o = format!("instance=\"{}\"", e.old_instance);
-        let pl = format!("instance=\"__REMAP_{}__\"", e.new_instance);
-        c = c.replace(&o, &pl);
+
+    let mut xml = fs::read_to_string(&actionmaps_path).map_err(|e| e.to_string())?;
+
+    // Phase 1: Replace originals with unique placeholders (scoped by device type)
+    for entry in &new_order {
+        let prefix = device_type_to_input_prefix(&entry.device_type);
+
+        // Swap <options type="joystick" instance="2"> → placeholder
+        let options_orig = format!(
+            "type=\"{}\" instance=\"{}\"",
+            entry.device_type, entry.old_instance
+        );
+        let options_placeholder = format!(
+            "type=\"{}\" instance=\"__REMAP_{}__\"",
+            entry.device_type, entry.new_instance
+        );
+        xml = xml.replace(&options_orig, &options_placeholder);
+
+        // Swap input references: js2_ → __JS_REMAP_3__
+        let input_orig = format!("{}{}_", prefix, entry.old_instance);
+        let input_placeholder = format!(
+            "__{}_REMAP_{}_",
+            prefix.to_uppercase(),
+            entry.new_instance
+        );
+        xml = xml.replace(&input_orig, &input_placeholder);
     }
-    for e in &new_order {
-        let pl = format!("instance=\"__REMAP_{}__\"", e.new_instance);
-        let f = format!("instance=\"{}\"", e.new_instance);
-        c = c.replace(&pl, &f);
+
+    // Phase 2: Replace placeholders with final values
+    for entry in &new_order {
+        let prefix = device_type_to_input_prefix(&entry.device_type);
+
+        let options_placeholder = format!(
+            "type=\"{}\" instance=\"__REMAP_{}__\"",
+            entry.device_type, entry.new_instance
+        );
+        let options_final = format!(
+            "type=\"{}\" instance=\"{}\"",
+            entry.device_type, entry.new_instance
+        );
+        xml = xml.replace(&options_placeholder, &options_final);
+
+        let input_placeholder = format!(
+            "__{}_REMAP_{}_",
+            prefix.to_uppercase(),
+            entry.new_instance
+        );
+        let input_final = format!("{}{}_", prefix, entry.new_instance);
+        xml = xml.replace(&input_placeholder, &input_final);
     }
-    fs::write(p, c).map_err(|e| e.to_string())
+
+    fs::write(&actionmaps_path, &xml)
+        .map_err(|e| format!("Failed to write actionmaps.xml: {}", e))?;
+
+    // Phase 3: Re-derive device_map from the updated XML and persist to backup_meta.json
+    let meta_path = bdir.join("backup_meta.json");
+    if meta_path.exists() {
+        let meta_json = fs::read_to_string(&meta_path).map_err(|e| e.to_string())?;
+        let mut meta: BackupInfo = serde_json::from_str(&meta_json).map_err(|e| e.to_string())?;
+
+        // Save existing aliases keyed by (product_name) before re-deriving
+        let aliases: HashMap<String, String> = meta.device_map.iter()
+            .filter_map(|dm| dm.alias.as_ref().map(|a| (dm.product_name.clone(), a.clone())))
+            .collect();
+
+        // Re-derive device_map from the modified actionmaps.xml
+        let parsed = parse_actionmaps_xml(&xml)?;
+        let mut new_map = derive_device_map(&parsed);
+
+        // Restore aliases by matching product_name
+        for dm in &mut new_map {
+            if let Some(alias) = aliases.get(&dm.product_name) {
+                dm.alias = Some(alias.clone());
+            }
+        }
+
+        meta.device_map = new_map;
+
+        // Update the stored hash for actionmaps.xml so check_profile_status
+        // correctly detects that the profile is now out of sync with SC files
+        if let Some(new_hash) = hash_file(&actionmaps_path) {
+            meta.file_hashes.insert("actionmaps.xml".to_string(), new_hash);
+        }
+
+        save_backup_meta(&bdir, &meta)?;
+    }
+
+    Ok(())
 }
 fn hash_file(path: &Path) -> Option<String> {
     let data = fs::read(path).ok()?;
@@ -2082,10 +2197,10 @@ pub async fn backup_profile(
     let id = now.format("%Y-%m-%dT%H-%M-%S").to_string();
     let bdir = backup_version_dir(&v)?;
     let target = bdir.join(&id);
-    fs::create_dir_all(&target).ok();
+    fs::create_dir_all(&target).map_err(|e| format!("Failed to create backup dir: {}", e))?;
 
     let expanded = expand_tilde(&gp);
-    let user_base = sc_base_dir(&expanded, &v).join("user/client/0");
+    let user_base = get_sc_base_path(&expanded)?.join(&v).join("user/client/0");
     let pdir = user_base.join("Profiles/default");
     let mut fs_list = vec![];
     let mut hashes = HashMap::new();
@@ -2093,15 +2208,18 @@ pub async fn backup_profile(
         let src = pdir.join(f);
         if src.exists() {
             if let Some(h) = hash_file(&src) { hashes.insert(f.to_string(), h); }
-            fs::copy(&src, target.join(f)).ok();
-            fs_list.push(f.to_string());
+            if let Err(e) = fs::copy(&src, target.join(f)) {
+                log::warn!("Failed to backup {}: {}", f, e);
+            } else {
+                fs_list.push(f.to_string());
+            }
         }
     }
 
     // Backup Controls/Mappings
     if let Some(controls_dir) = find_dir_case_insensitive(&user_base, &["Controls/Mappings", "controls/mappings", "controls/Mappings"]) {
         let target_controls = target.join("controls_mappings");
-        fs::create_dir_all(&target_controls).ok();
+        fs::create_dir_all(&target_controls).map_err(|e| format!("Failed to create controls backup dir: {}", e))?;
         if let Ok(entries) = fs::read_dir(&controls_dir) {
             for e in entries.flatten() {
                 let path = e.path();
@@ -2109,8 +2227,11 @@ pub async fn backup_profile(
                     if let Some(name) = path.file_name() {
                         let key = format!("controls_mappings/{}", name.to_string_lossy());
                         if let Some(h) = hash_file(&path) { hashes.insert(key.clone(), h); }
-                        fs::copy(&path, target_controls.join(name)).ok();
-                        fs_list.push(key);
+                        if let Err(e) = fs::copy(&path, target_controls.join(name)) {
+                            log::warn!("Failed to backup {}: {}", key, e);
+                        } else {
+                            fs_list.push(key);
+                        }
                     }
                 }
             }
@@ -2120,7 +2241,7 @@ pub async fn backup_profile(
     // Backup CustomCharacters
     if let Some(chars_dir) = find_dir_case_insensitive(&user_base, &["CustomCharacters", "customcharacters"]) {
         let target_chars = target.join("custom_characters");
-        fs::create_dir_all(&target_chars).ok();
+        fs::create_dir_all(&target_chars).map_err(|e| format!("Failed to create chars backup dir: {}", e))?;
         if let Ok(entries) = fs::read_dir(&chars_dir) {
             for e in entries.flatten() {
                 let path = e.path();
@@ -2128,8 +2249,11 @@ pub async fn backup_profile(
                     if let Some(name) = path.file_name() {
                         let key = format!("custom_characters/{}", name.to_string_lossy());
                         if let Some(h) = hash_file(&path) { hashes.insert(key.clone(), h); }
-                        fs::copy(&path, target_chars.join(name)).ok();
-                        fs_list.push(key);
+                        if let Err(e) = fs::copy(&path, target_chars.join(name)) {
+                            log::warn!("Failed to backup {}: {}", key, e);
+                        } else {
+                            fs_list.push(key);
+                        }
                     }
                 }
             }
@@ -2158,23 +2282,25 @@ pub async fn backup_profile(
         dirty: false,
     };
 
-    if let Ok(json) = serde_json::to_string_pretty(&info) {
-        fs::write(target.join("backup_meta.json"), json).ok();
-    }
+    let json = serde_json::to_string_pretty(&info).map_err(|e| format!("Failed to serialize backup meta: {}", e))?;
+    fs::write(target.join("backup_meta.json"), json).map_err(|e| format!("Failed to write backup meta: {}", e))?;
 
     Ok(info)
 }
 /// Restores a profile from a previously created backup.
 #[tauri::command]
 pub async fn restore_profile(gp: String, v: String, bid: String) -> Result<(), String> {
-    let bdir = backup_version_dir(&v)?.join(bid);
+    validate_backup_id(&bid)?;
+    let bdir = backup_version_dir(&v)?.join(&bid);
     let expanded = expand_tilde(&gp);
-    let user_base = sc_base_dir(&expanded, &v).join("user/client/0");
+    let user_base = get_sc_base_path(&expanded)?.join(&v).join("user/client/0");
     let pdir = user_base.join("Profiles/default");
-    fs::create_dir_all(&pdir).ok();
+    fs::create_dir_all(&pdir).map_err(|e| format!("Failed to create profile dir: {}", e))?;
     for f in &["actionmaps.xml", "attributes.xml", "profile.xml"] {
         if bdir.join(f).exists() {
-            fs::copy(bdir.join(f), pdir.join(f)).ok();
+            if let Err(e) = fs::copy(bdir.join(f), pdir.join(f)) {
+                log::warn!("Failed to restore {}: {}", f, e);
+            }
         }
     }
 
@@ -2182,12 +2308,14 @@ pub async fn restore_profile(gp: String, v: String, bid: String) -> Result<(), S
     if bdir.join("controls_mappings").is_dir() {
         let target_controls = find_dir_case_insensitive(&user_base, &["Controls/Mappings", "controls/mappings", "controls/Mappings"])
             .unwrap_or_else(|| user_base.join("Controls/Mappings"));
-        fs::create_dir_all(&target_controls).ok();
+        fs::create_dir_all(&target_controls).map_err(|e| format!("Failed to create controls dir: {}", e))?;
         if let Ok(entries) = fs::read_dir(bdir.join("controls_mappings")) {
             for e in entries.flatten() {
                 let path = e.path();
                 if let Some(name) = path.file_name() {
-                    fs::copy(&path, target_controls.join(name)).ok();
+                    if let Err(e) = fs::copy(&path, target_controls.join(name)) {
+                        log::warn!("Failed to restore control mapping {}: {}", name.to_string_lossy(), e);
+                    }
                 }
             }
         }
@@ -2197,12 +2325,14 @@ pub async fn restore_profile(gp: String, v: String, bid: String) -> Result<(), S
     if bdir.join("custom_characters").is_dir() {
         let target_chars = find_dir_case_insensitive(&user_base, &["CustomCharacters", "customcharacters"])
             .unwrap_or_else(|| user_base.join("CustomCharacters"));
-        fs::create_dir_all(&target_chars).ok();
+        fs::create_dir_all(&target_chars).map_err(|e| format!("Failed to create chars dir: {}", e))?;
         if let Ok(entries) = fs::read_dir(bdir.join("custom_characters")) {
             for e in entries.flatten() {
                 let path = e.path();
                 if let Some(name) = path.file_name() {
-                    fs::copy(&path, target_chars.join(name)).ok();
+                    if let Err(e) = fs::copy(&path, target_chars.join(name)) {
+                        log::warn!("Failed to restore character {}: {}", name.to_string_lossy(), e);
+                    }
                 }
             }
         }
@@ -2353,9 +2483,8 @@ pub async fn import_version_as_profile(
         dirty: false,
     };
 
-    if let Ok(json) = serde_json::to_string_pretty(&info) {
-        fs::write(target.join("backup_meta.json"), json).ok();
-    }
+    let json = serde_json::to_string_pretty(&info).map_err(|e| format!("Failed to serialize backup meta: {}", e))?;
+    fs::write(target.join("backup_meta.json"), json).map_err(|e| format!("Failed to write backup meta: {}", e))?;
 
     Ok(info)
 }
@@ -2383,7 +2512,8 @@ pub async fn list_backups(v: String) -> Result<Vec<BackupInfo>, String> {
 /// Deletes a profile backup by its ID.
 #[tauri::command]
 pub async fn delete_backup(v: String, bid: String) -> Result<(), String> {
-    let p = backup_version_dir(&v)?.join(bid);
+    validate_backup_id(&bid)?;
+    let p = backup_version_dir(&v)?.join(&bid);
     if p.is_dir() {
         fs::remove_dir_all(p).ok();
     }
@@ -2443,6 +2573,7 @@ fn collect_current_sc_hashes(user_base: &Path) -> HashMap<String, String> {
 
 #[tauri::command]
 pub async fn check_profile_status(gp: String, v: String, bid: String) -> Result<ProfileStatus, String> {
+    validate_backup_id(&bid)?;
     let bdir = backup_version_dir(&v)?.join(&bid);
     let meta_path = bdir.join("backup_meta.json");
     let meta: BackupInfo = serde_json::from_str(
@@ -2454,7 +2585,7 @@ pub async fn check_profile_status(gp: String, v: String, bid: String) -> Result<
     }
 
     let expanded = expand_tilde(&gp);
-    let user_base = sc_base_dir(&expanded, &v).join("user/client/0");
+    let user_base = get_sc_base_path(&expanded)?.join(&v).join("user/client/0");
     let current = collect_current_sc_hashes(&user_base);
 
     let mut files = vec![];
@@ -2515,7 +2646,8 @@ pub async fn save_active_profile(v: String, bid: String) -> Result<(), String> {
 /// Updates the label of an existing backup.
 #[tauri::command]
 pub async fn update_backup_label(v: String, bid: String, l: String) -> Result<(), String> {
-    let p = backup_version_dir(&v)?.join(bid).join("backup_meta.json");
+    validate_backup_id(&bid)?;
+    let p = backup_version_dir(&v)?.join(&bid).join("backup_meta.json");
     let mut i: BackupInfo = serde_json
         ::from_str(&fs::read_to_string(&p).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
@@ -2818,6 +2950,8 @@ where
     let mut output: Box<dyn Write> = Box::new(output);
 
     let mut written: u64 = 0;
+    let mut last_reported: u64 = 0;
+    let report_interval: u64 = 10 * 1024 * 1024; // 10MB
     let mut buffer = vec![0u8; 8 * 1024 * 1024]; // 8MB buffer on heap
 
     loop {
@@ -2829,9 +2963,9 @@ where
         output.write_all(&buffer[..bytes_read]).map_err(|e| e.to_string())?;
         written += bytes_read as u64;
 
-        // Report progress every 10MB, but at least once for small files
-        if written == 0 || written % (10 * 1024 * 1024) == 0 {
+        if written - last_reported >= report_interval {
             progress_callback(written, total_size);
+            last_reported = written;
         }
     }
 
@@ -2993,6 +3127,7 @@ pub async fn update_backup_from_sc(
     v: String,
     bid: String
 ) -> Result<(), String> {
+    validate_backup_id(&bid)?;
     let bdir = backup_version_dir(&v)?;
     let target = bdir.join(&bid);
     if !target.exists() {
@@ -3009,9 +3144,9 @@ pub async fn update_backup_from_sc(
         .map_err(|e| e.to_string())?;
 
     let expanded = expand_tilde(&gp);
-    let user_base = sc_base_dir(&expanded, &v).join("user/client/0");
+    let user_base = get_sc_base_path(&expanded)?.join(&v).join("user/client/0");
     let pdir = user_base.join("Profiles/default");
-    
+
     let mut fs_list = vec![];
     let mut hashes = HashMap::new();
     

@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-03-11
+
+### Added
+- **Multi-Device Bindings** — New "+" button on keybindings to add bindings for additional devices (e.g., add a joystick binding alongside an existing keyboard binding)
+- **Auto-Select New Profile** — Newly created profiles are now immediately set as the active profile
+
+### Fixed
+- **Binding Editor Dialog** — Fixed invisible binding editor modal (missing `.show` class for CSS opacity transition)
+- **Remove Binding** — Removing a binding no longer deletes all bindings for that action; only the specific device binding is removed
+- **Version Selector Highlight** — Active version card now uses a visible cyan accent instead of blending into the background
+
+### Changed
+- **Device Reordering** — Swap logic now operates on profile backups instead of live SC files, scoped by device type
+- **Version Selector** — Improved empty state detection
+
 ## [0.1.9] - 2026-03-08
 
 ### Added
@@ -112,6 +127,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Prefix Tools** — Winecfg, DPI scaling, PowerShell installation via winetricks
 - **Multi-version Support** — Manage LIVE, PTU, EPTU, and other Star Citizen channels
 
+[0.2.0]: https://github.com/TomRhodan/star-control/compare/v0.1.9...v0.2.0
 [0.1.9]: https://github.com/TomRhodan/star-control/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/TomRhodan/star-control/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/TomRhodan/star-control/compare/v0.1.6...v0.1.7
