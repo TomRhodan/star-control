@@ -133,7 +133,7 @@ async function loadAndCheck(container) {
       }
       renderPage(container);
     }
-  }).catch(() => { detectedMonitors = []; });
+  }).catch(err => { console.warn('Monitor detection failed:', err); detectedMonitors = []; });
 
   try {
     const config = await invoke('load_config');
@@ -730,7 +730,7 @@ async function onLaunch(container) {
       cleanup();
     });
   } catch (e) {
-    // listen failed
+    console.error('Failed to register launch event listeners:', e);
   }
 
   try {
@@ -813,10 +813,10 @@ function hasFractionalScaling() {
 /**
  * Shows an overlay with spinner and message while
  * localization is checked/updated before game launch.
- * @param {string} message - Message to display
+ * @param {Array<{text: string, bold?: boolean}>} parts - Message parts to display
  * @returns {HTMLElement} The created overlay element
  */
-function showPreLaunchOverlay(message) {
+function showPreLaunchOverlay(parts) {
   let overlay = document.getElementById('pre-launch-overlay');
   if (!overlay) {
     overlay = document.createElement('div');
@@ -827,16 +827,30 @@ function showPreLaunchOverlay(message) {
   overlay.innerHTML = `
     <div class="pre-launch-dialog">
       <div class="pre-launch-spinner"></div>
-      <span class="pre-launch-message">${message}</span>
+      <span class="pre-launch-message"></span>
     </div>
   `;
+  updatePreLaunchMessage(parts);
   return overlay;
 }
 
-/** Updates the message in the pre-launch overlay */
-function updatePreLaunchMessage(message) {
+/**
+ * Updates the message in the pre-launch overlay using safe DOM construction.
+ * @param {Array<{text: string, bold?: boolean}>} parts - Message parts to display
+ */
+function updatePreLaunchMessage(parts) {
   const el = document.querySelector('.pre-launch-message');
-  if (el) el.innerHTML = message;
+  if (!el) return;
+  el.textContent = '';
+  for (const part of parts) {
+    if (part.bold) {
+      const strong = document.createElement('strong');
+      strong.textContent = part.text;
+      el.appendChild(strong);
+    } else {
+      el.appendChild(document.createTextNode(part.text));
+    }
+  }
 }
 
 /** Removes the pre-launch overlay from the DOM */
@@ -878,7 +892,7 @@ async function checkAndUpdateLocalization(container) {
   if (installed.length === 0) return;
 
   // Show overlay and wait for actual rendering (double rAF)
-  showPreLaunchOverlay('Checking for translation updates...');
+  showPreLaunchOverlay([{ text: 'Checking for translation updates...' }]);
   await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
   let updatedCount = 0;
@@ -896,7 +910,13 @@ async function checkAndUpdateLocalization(container) {
 
     if (!needsUpdate) continue;
 
-    updatePreLaunchMessage(`Updating <strong>${escapeHtml(langName)}</strong> translation for <strong>${escapeHtml(version)}</strong>...`);
+    updatePreLaunchMessage([
+      { text: 'Updating ' },
+      { text: langName, bold: true },
+      { text: ' translation for ' },
+      { text: version, bold: true },
+      { text: '...' },
+    ]);
 
     try {
       const languages = await invoke('get_available_languages', { version });
@@ -923,10 +943,10 @@ async function checkAndUpdateLocalization(container) {
 
   // Show brief result message before closing the overlay
   if (updatedCount > 0) {
-    updatePreLaunchMessage(`${updatedCount} translation${updatedCount > 1 ? 's' : ''} updated.`);
+    updatePreLaunchMessage([{ text: `${updatedCount} translation${updatedCount > 1 ? 's' : ''} updated.` }]);
     await new Promise(r => setTimeout(r, 1200));
   } else {
-    updatePreLaunchMessage('Translations are up to date.');
+    updatePreLaunchMessage([{ text: 'Translations are up to date.' }]);
     await new Promise(r => setTimeout(r, 800));
   }
 
@@ -945,15 +965,29 @@ function debouncedSaveConfig() {
   if (!launchConfig) return;
   clearTimeout(_saveConfigTimer);
   _saveConfigTimer = setTimeout(() => {
-    invoke('save_config', { config: launchConfig }).catch(() => {});
+    invoke('save_config', { config: launchConfig }).catch(err => console.warn('Config save failed:', err));
   }, 400);
+}
+
+/**
+ * Flushes any pending debounced config save immediately.
+ * Called on page navigation to prevent data loss.
+ */
+export function flushPendingSave() {
+  if (_saveConfigTimer) {
+    clearTimeout(_saveConfigTimer);
+    _saveConfigTimer = null;
+    if (launchConfig) {
+      invoke('save_config', { config: launchConfig }).catch(err => console.warn('Flush save failed:', err));
+    }
+  }
 }
 
 /** Immediate save (for add/delete, where the UI re-renders immediately) */
 function saveConfigNow() {
   if (!launchConfig) return;
   clearTimeout(_saveConfigTimer);
-  invoke('save_config', { config: launchConfig }).catch(() => {});
+  invoke('save_config', { config: launchConfig }).catch(err => console.warn('Config save failed:', err));
 }
 
 

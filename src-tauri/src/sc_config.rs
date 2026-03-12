@@ -254,15 +254,7 @@ struct CachedMasterBindings {
 static LOCALIZATION_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 static MASTER_BINDINGS_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
-/// Replaces `~` at the beginning of a path with the actual home directory.
-pub(crate) fn expand_tilde(p: &str) -> String {
-    if p.starts_with('~') {
-        if let Some(h) = dirs::home_dir() {
-            return p.replacen('~', &h.to_string_lossy(), 1);
-        }
-    }
-    p.to_string()
-}
+pub(crate) use crate::util::expand_tilde;
 
 /// Constructs the base path to an SC version folder within the Wine prefix.
 /// Example: /path/to/prefix/drive_c/Program Files/Roberts Space Industries/StarCitizen/LIVE
@@ -1114,8 +1106,8 @@ fn detect_sc_versions_from_path(base: &Path) -> Result<Vec<ScVersionInfo>, Strin
                 let has_actionmaps = profiles_path.join("actionmaps.xml").exists();
                 let has_exported_layouts = path.join("user/client/0/controls/mappings").is_dir();
                 let user_base = path.join("user/client/0");
-                let has_custom_characters = find_dir_case_insensitive(&user_base, &["CustomCharacters", "customcharacters"]).map_or(false, |d| {
-                    fs::read_dir(&d).map_or(false, |mut es| es.any(|e| e.ok().map_or(false, |e| e.path().extension().is_some_and(|ext| ext.eq_ignore_ascii_case("chf")))))
+                let has_custom_characters = find_dir_case_insensitive(&user_base, &["CustomCharacters", "customcharacters"]).is_some_and(|d| {
+                    fs::read_dir(&d).is_ok_and(|mut es| es.any(|e| e.ok().is_some_and(|e| e.path().extension().is_some_and(|ext| ext.eq_ignore_ascii_case("chf")))))
                 });
                 let has_data_p4k = path.join("Data.p4k").exists();
                 log::debug!(
@@ -2813,7 +2805,8 @@ pub async fn get_file_diff(file: String, gp: String, v: String, bid: String) -> 
             &user_base,
             &["Controls/Mappings", "controls/mappings", "controls/Mappings"],
         ).ok_or("Controls/Mappings directory not found")?;
-        controls_dir.join(file.strip_prefix("controls_mappings/").unwrap())
+        controls_dir.join(file.strip_prefix("controls_mappings/")
+            .ok_or_else(|| "Invalid controls_mappings path".to_string())?)
     } else {
         user_base.join("Profiles/default").join(&file)
     };
@@ -3282,10 +3275,9 @@ pub async fn delete_sc_version(gp: String, version: String) -> Result<(), String
 
     if target.exists() && target.is_dir() {
         // Double check we are not deleting random things
-        let is_version_folder = match version.to_lowercase().as_str() {
-            "live" | "ptu" | "eptu" | "tech-preview" | "hotfix" => true,
-            _ => false,
-        };
+        let is_version_folder = matches!(version.to_lowercase().as_str(),
+            "live" | "ptu" | "eptu" | "tech-preview" | "hotfix"
+        );
         
         if !is_version_folder {
             return Err("Invalid version folder name for deletion".to_string());
@@ -3329,10 +3321,9 @@ pub async fn create_sc_version(gp: String, version: String) -> Result<(), String
     }
     
     // Check if it's a valid standard version name
-    let is_valid = match version.to_uppercase().as_str() {
-        "LIVE" | "PTU" | "EPTU" | "TECH-PREVIEW" | "HOTFIX" => true,
-        _ => false,
-    };
+    let is_valid = matches!(version.to_uppercase().as_str(),
+        "LIVE" | "PTU" | "EPTU" | "TECH-PREVIEW" | "HOTFIX"
+    );
     if !is_valid {
         return Err("Invalid version name. Use LIVE, PTU, EPTU, etc.".to_string());
     }

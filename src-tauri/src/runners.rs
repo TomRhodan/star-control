@@ -199,18 +199,7 @@ fn is_archive(name: &str) -> bool {
         name.ends_with(".tar.zstd")
 }
 
-/// Replaces the tilde (~) at the beginning of a path with the user's home directory.
-///
-/// Needed because paths from the frontend may contain a tilde,
-/// but the filesystem expects the full path.
-fn expand_tilde(path: &str) -> String {
-    if path.starts_with('~') {
-        if let Ok(home) = std::env::var("HOME") {
-            return path.replacen('~', &home, 1);
-        }
-    }
-    path.to_string()
-}
+use crate::util::expand_tilde;
 
 // --- Tauri commands ---
 
@@ -231,6 +220,8 @@ pub async fn fetch_available_runners(base_path: String) -> FetchRunnersResult {
     let client = reqwest::Client
         ::builder()
         .user_agent("star-control/0.1.5")
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 
@@ -385,6 +376,7 @@ pub async fn install_runner(
     let client = reqwest::Client
         ::builder()
         .user_agent("star-control/0.1.5")
+        .connect_timeout(std::time::Duration::from_secs(10))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 
@@ -503,15 +495,15 @@ pub async fn install_runner(
         if file_name_clone.ends_with(".tar.gz") {
             let decoder = flate2::read::GzDecoder::new(file);
             let mut archive = tar::Archive::new(decoder);
-            archive.unpack(&extract_dir_clone)?;
+            crate::util::safe_unpack(&mut archive, &extract_dir_clone)?;
         } else if file_name_clone.ends_with(".tar.xz") {
             let decoder = xz2::read::XzDecoder::new(file);
             let mut archive = tar::Archive::new(decoder);
-            archive.unpack(&extract_dir_clone)?;
+            crate::util::safe_unpack(&mut archive, &extract_dir_clone)?;
         } else if file_name_clone.ends_with(".tar.zst") || file_name_clone.ends_with(".tar.zstd") {
             let decoder = zstd::stream::read::Decoder::new(file)?;
             let mut archive = tar::Archive::new(decoder);
-            archive.unpack(&extract_dir_clone)?;
+            crate::util::safe_unpack(&mut archive, &extract_dir_clone)?;
         } else {
             return Err(
                 std::io::Error::new(std::io::ErrorKind::InvalidInput, "Unknown archive format")

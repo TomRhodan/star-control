@@ -14,15 +14,7 @@ use std::path::Path;
 use std::process::{ Command, Stdio };
 use tauri::{ AppHandle, Emitter };
 
-/// Replaces the tilde (~) at the beginning of a path with the home directory.
-fn expand_tilde(path: &str) -> String {
-    if path.starts_with('~') {
-        if let Ok(home) = std::env::var("HOME") {
-            return path.replacen('~', &home, 1);
-        }
-    }
-    path.to_string()
-}
+use crate::util::expand_tilde;
 
 /// Determines the paths for the Wine binary, runner bin directory, and prefix.
 ///
@@ -304,6 +296,8 @@ pub async fn install_powershell(
     let client = reqwest::Client
         ::builder()
         .user_agent("star-control/0.1.5")
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 

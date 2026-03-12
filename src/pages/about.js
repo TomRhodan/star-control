@@ -13,6 +13,7 @@
 
 // Tauri plugin for opening external URLs in the default browser
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { getVersion } from '@tauri-apps/api/app';
 // Static image assets for logo and community badge
 import logoUrl from '../assets/logos/StarControl-Transparent-Logo-Image.png';
 import madeByCommunityUrl from '../assets/logos/MadeByTheCommunity_White.png';
@@ -26,7 +27,8 @@ import madeByCommunityUrl from '../assets/logos/MadeByTheCommunity_White.png';
  *
  * @param {HTMLElement} container - The container element to render into
  */
-export function renderAbout(container) {
+export async function renderAbout(container) {
+  const appVersion = await getVersion();
   container.innerHTML = `
     <div class="about-hero">
       <div class="about-hero-glow"></div>
@@ -34,7 +36,7 @@ export function renderAbout(container) {
         <img src="${logoUrl}" alt="Star Control Logo" />
       </div>
       <h1 class="about-hero-title">Star Control</h1>
-      <p class="about-hero-version">v0.2.0</p>
+      <p class="about-hero-version">v${appVersion}</p>
       <p class="about-hero-tagline">Star Citizen Linux Manager</p>
     </div>
 
@@ -48,7 +50,7 @@ export function renderAbout(container) {
         </div>
         <div class="about-info-row">
           <span class="about-info-label">Version</span>
-          <span class="about-info-value">v0.2.0</span>
+          <span class="about-info-value">v${appVersion}</span>
         </div>
         <div class="about-info-row">
           <span class="about-info-label">Description</span>

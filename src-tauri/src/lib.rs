@@ -26,6 +26,7 @@ use tauri::Manager;
 
 // ── Module Declarations ──
 // Each module encapsulates a self-contained functional area of the application.
+mod util;
 mod config;
 mod dashboard;
 mod dxvk;

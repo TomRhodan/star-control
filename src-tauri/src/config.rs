@@ -261,18 +261,7 @@ pub struct ScanRunnersResult {
     pub runners_dir: String,
 }
 
-/// Replaces the tilde (~) in a path with the user's home directory.
-///
-/// Example: "~/Games/star-citizen" -> "/home/user/Games/star-citizen"
-/// If HOME is not set, the path is returned unchanged.
-fn expand_tilde(path: &str) -> String {
-    if path.starts_with('~') {
-        if let Ok(home) = std::env::var("HOME") {
-            return path.replacen('~', &home, 1);
-        }
-    }
-    path.to_string()
-}
+use crate::util::{expand_tilde, validate_env_var_key};
 
 /// Finds the first existing parent directory in a path.
 ///
@@ -537,6 +526,11 @@ pub async fn scan_runners(base_path: String) -> Result<ScanRunnersResult, String
 /// runner_sources) are not accidentally overwritten or deleted.
 #[tauri::command]
 pub async fn save_config(config: AppConfig) -> Result<(), String> {
+    // Validate custom environment variable keys before saving
+    for env_var in &config.performance.custom_env_vars {
+        validate_env_var_key(&env_var.key)?;
+    }
+
     tokio::task
         ::spawn_blocking(move || {
             let path = config_file_path().ok_or("Could not determine config directory")?;
@@ -962,7 +956,10 @@ pub async fn add_runner_source_from_github(
     }
 
     // Check URL format — only GitHub API URLs are supported
-    if !api_url.contains("api.github.com/repos") {
+    let parsed_url = reqwest::Url::parse(&api_url).map_err(|_| {
+        "URL must be a valid GitHub API URL (e.g., https://api.github.com/repos/owner/repo/releases)".to_string()
+    })?;
+    if parsed_url.host_str() != Some("api.github.com") || !parsed_url.path().starts_with("/repos/") {
         return Err(
             "URL must be a GitHub API URL (e.g., https://api.github.com/repos/owner/repo/releases)".into()
         );

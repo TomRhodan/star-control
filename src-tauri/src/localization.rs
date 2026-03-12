@@ -587,7 +587,11 @@ pub async fn check_localization_update(
     }
 
     // Fetch latest commit from GitHub and compare with local SHA
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
     let (remote_sha, remote_date) =
         fetch_github_commit_info(&client, &source_repo, &meta.language_code, &version).await?;
 
@@ -823,7 +827,11 @@ pub async fn install_localization(
     let url = build_download_url(&source_repo, &language_code, &version);
 
     // Download translation file
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
     let response = client
         .get(&url)
         .send().await
@@ -915,7 +923,11 @@ pub async fn fetch_remote_language_info(
     }
 
     let languages = get_available_languages_sync();
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
     let mut entries = Vec::new();
 
     // Deduplication: each unique (source_repo, language_code) pair

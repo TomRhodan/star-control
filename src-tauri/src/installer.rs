@@ -64,17 +64,7 @@ pub struct InstallationStatus {
     pub message: String,
 }
 
-/// Replaces the tilde (~) at the beginning of a path with the user's home directory.
-/// Needed because paths from the configuration may contain a tilde
-/// that is not automatically resolved by the operating system.
-fn expand_tilde(path: &str) -> String {
-    if path.starts_with('~') {
-        if let Ok(home) = std::env::var("HOME") {
-            return path.replacen('~', &home, 1);
-        }
-    }
-    path.to_string()
-}
+use crate::util::expand_tilde;
 
 /// Sends a progress message as an event to the frontend.
 /// The frontend receives these via the "install-progress" event listener
@@ -603,6 +593,7 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
     let client = reqwest::Client
         ::builder()
         .user_agent("star-control/0.1.5")
+        .connect_timeout(std::time::Duration::from_secs(10))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 
@@ -838,7 +829,7 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
             .map_err(|e| format!("Failed to open DXVK archive: {}", e))?;
         let decoder = flate2::read::GzDecoder::new(file);
         let mut archive = tar::Archive::new(decoder);
-        archive.unpack(&extract_dir).map_err(|e| format!("Failed to extract DXVK: {}", e))?;
+        crate::util::safe_unpack(&mut archive, &extract_dir).map_err(|e| format!("Failed to extract DXVK: {}", e))?;
     }
 
     emit_progress(&app, "dxvk", "Installing DXVK DLLs...", 55.0, "Copying DLLs to Wine prefix...");

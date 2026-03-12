@@ -15,7 +15,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { renderDashboard } from './pages/dashboard.js';
 import { renderInstallation } from './pages/installation.js';
 import { renderRunners } from './pages/runners.js';
-import { renderLaunch } from './pages/launch.js';
+import { renderLaunch, flushPendingSave } from './pages/launch.js';
 import { renderEnvironments } from './pages/environments.js';
 import { renderSettings } from './pages/settings.js';
 import { renderAbout } from './pages/about.js';
@@ -57,6 +57,9 @@ let installed = false;
 async function navigate(page) {
   // Navigation is not allowed while the setup wizard is active
   if (setupActive) return;
+
+  // Flush any pending debounced saves from the launch page
+  flushPendingSave();
 
   const content = document.getElementById('content');
   const renderFn = routes[page];

@@ -8,8 +8,9 @@
  * @module main
  */
 
-// Tauri APIs for window management and external URL opening
+// Tauri APIs for window management, external URL opening, and app info
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { getVersion } from '@tauri-apps/api/app';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { router } from './router.js';
 
@@ -137,6 +138,12 @@ document.getElementById('link-wiki').addEventListener('click', (e) => {
     }
   });
 })();
+
+// Populate version from tauri.conf.json (single source of truth)
+getVersion().then(v => {
+  const el = document.querySelector('.version');
+  if (el) el.textContent = 'v' + v;
+});
 
 // Initialize router — checks setup status and loads the first page
 router.init();

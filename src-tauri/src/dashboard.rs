@@ -533,7 +533,11 @@ async fn fetch_community_stats_inner() -> Result<
     CommunityStats,
     Box<dyn std::error::Error + Send + Sync>
 > {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
 
     // Prepare both API requests as futures
     let stats_fut = async {

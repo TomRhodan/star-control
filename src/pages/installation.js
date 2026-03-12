@@ -888,8 +888,8 @@ async function renderRunnerSection() {
   let localRunners = [];
   try {
     const result = await invoke('scan_runners', { basePath: configState.installPath });
-    configState.runners = result.runners;
-    localRunners = result.runners;
+    configState.runners = result?.runners ?? [];
+    localRunners = configState.runners;
   } catch (err) {
     // Ignore scan errors
   }
@@ -996,8 +996,8 @@ async function fetchAvailableRunners() {
 
   try {
     const result = await invoke('fetch_available_runners', { basePath: configState.installPath });
-    availableRunners = result.runners;
-    fetchErrors = result.errors;
+    availableRunners = result?.runners ?? [];
+    fetchErrors = result?.errors ?? [];
   } catch (err) {
     availableRunners = [];
     fetchErrors = [String(err)];

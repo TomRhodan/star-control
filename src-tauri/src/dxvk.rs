@@ -82,15 +82,7 @@ struct GhAsset {
     size: u64,
 }
 
-/// Replaces the tilde (~) at the beginning of a path with the home directory.
-fn expand_tilde(path: &str) -> String {
-    if path.starts_with('~') {
-        if let Ok(home) = std::env::var("HOME") {
-            return path.replacen('~', &home, 1);
-        }
-    }
-    path.to_string()
-}
+use crate::util::expand_tilde;
 
 // --- Tauri commands ---
 
@@ -105,6 +97,8 @@ pub async fn fetch_dxvk_releases() -> Result<Vec<DxvkRelease>, String> {
     let client = reqwest::Client
         ::builder()
         .user_agent("star-control/0.1.5")
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 
@@ -244,6 +238,7 @@ pub async fn install_dxvk(
     let client = reqwest::Client
         ::builder()
         .user_agent("star-control/0.1.5")
+        .connect_timeout(std::time::Duration::from_secs(10))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 
@@ -302,7 +297,7 @@ pub async fn install_dxvk(
         let file = std::fs::File::open(&archive_path_clone)?;
         let decoder = flate2::read::GzDecoder::new(file);
         let mut archive = tar::Archive::new(decoder);
-        archive.unpack(&extract_dir_clone)?;
+        crate::util::safe_unpack(&mut archive, &extract_dir_clone)?;
         Ok::<(), std::io::Error>(())
     }).await;
 
