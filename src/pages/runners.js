@@ -1,12 +1,16 @@
 /**
- * Star Control - Runners Page
+ * Star Control - Runner Management Page
  *
  * This module manages Wine/Proton runners:
- * - Display installed runners
- * - Fetch and install new runners from GitHub sources
- * - Select and activate a runner
- * - DXVK version management
- * - Wine prefix tools (winecfg, DPI settings, PowerShell)
+ * - Display of installed runners with selection and deletion
+ * - Fetching and installing new runners from GitHub sources
+ * - Source management (import LUG sources, add custom ones)
+ * - DXVK version management (detection, installation, updates)
+ * - Wine prefix tools (Winecfg, Wine Shell, PowerShell installation)
+ *
+ * The page uses an incremental rendering pattern:
+ * First a skeleton with loading indicators is rendered, then
+ * individual sections (slots) are asynchronously populated with data.
  *
  * @module pages/runners
  */
@@ -16,7 +20,10 @@ import { listen } from '@tauri-apps/api/event';
 import { escapeHtml } from '../utils.js';
 
 /**
- * Sort sources: LUG sources first (sorted by name length), then others alphabetically
+ * Sorts runner sources: LUG sources first (sorted by name length),
+ * then all others alphabetically. This ensures the official LUG sources
+ * always appear at the top of the tab bar.
+ *
  * @param {string[]} sources - Array of source names
  * @returns {string[]} Sorted source names
  */
@@ -26,44 +33,71 @@ function sortSources(sources) {
   return [...lugSources, ...otherSources];
 }
 
-// --- State ---
+// --- State variables ---
 
+/** @type {Object|null} Current app configuration */
 let config = null;
+/** @type {Array} List of locally installed runners */
 let installedRunners = [];
+/** @type {Array} List of online available runners */
 let availableRunners = [];
+/** @type {Array} Error messages from fetching the runner list */
 let fetchErrors = [];
-let availableSources = ['LUG']; // Will be populated dynamically
+/** @type {string[]} Available sources (tabs), dynamically populated from config */
+let availableSources = ['LUG'];
+/** @type {string} Currently selected source tab */
 let selectedSource = 'LUG';
+/** @type {boolean} Locks further installations during a runner installation */
 let isInstallingRunner = false;
+/** @type {Function|null} Unlisten function for runner download progress events */
 let unlistenRunnerProgress = null;
+/** @type {boolean} Indicates whether a runner is currently being activated */
 let isActivatingRunner = false;
+/** @type {string} Name of the runner currently being activated */
 let activatingRunnerName = '';
 
+/** @type {Array} List of available DXVK releases from GitHub */
 let dxvkReleases = [];
+/** @type {Object|null} Currently installed DXVK status (version, found DLLs) */
 let dxvkStatus = null;
+/** @type {boolean} Locks during a DXVK installation */
 let isInstallingDxvk = false;
+/** @type {Function|null} Unlisten function for DXVK progress events */
 let unlistenDxvkProgress = null;
 
+/** @type {number} Current DPI setting in the Wine prefix (default: 96) */
 let currentDpi = 96;
+/** @type {Array} Log output for prefix tools (e.g. PowerShell installation) */
 let prefixToolLog = [];
+/** @type {boolean} Indicates whether a prefix tool is currently running */
 let isRunningPrefixTool = false;
+/** @type {Function|null} Unlisten function for prefix tool log events */
 let unlistenPrefixLog = null;
+/** @type {boolean} Whether PowerShell is installed in the Wine prefix */
 let powershellInstalled = false;
 
-// Track which sections are still loading
+// Tracking which sections are still loading — controls the loading indicators
 let loadingFlags = { installed: true, available: true, dxvk: true, dxvkReleases: true, dpi: true };
 
-// Cache state
+// Cache state: Runner and DXVK data are cached (max. 1 hour)
 let runnerCache = { runners: [], cached_at: 0 };
 let dxvkCache = { releases: [], cached_at: 0 };
 
-// Reference to current container for incremental updates
+// Reference to the current container for incremental DOM updates
 let activeContainer = null;
 
-// --- Main Render ---
+// --- Main rendering ---
 
+/**
+ * Entry point: Renders the runner page.
+ * Resets all state variables, immediately shows a loading state,
+ * and starts asynchronous data loading in the next macrotask,
+ * so the loading indicator is visible right away.
+ *
+ * @param {HTMLElement} container - The container element to render into
+ */
 export function renderRunners(container) {
-  // Reset state
+  // Fully reset state on every page visit
   config = null;
   installedRunners = [];
   availableRunners = [];
@@ -74,7 +108,7 @@ export function renderRunners(container) {
   loadingFlags = { installed: true, available: true, dxvk: true, dxvkReleases: true, dpi: true };
   activeContainer = container;
 
-  // Render loading skeleton immediately
+  // Immediately render a loading skeleton so the user gets feedback
   container.innerHTML = `
     <div class="page-header">
       <h1>Wine Runners</h1>
@@ -88,12 +122,19 @@ export function renderRunners(container) {
     </div>
   `;
 
-  // Start loading on next macrotask so the spinner paints first
+  // Start data loading in the next macrotask so the spinner is painted first
   setTimeout(() => loadData(container), 0);
 }
 
+/**
+ * Loads configuration and cache data in parallel.
+ * Uses cached data immediately if they are less than 1 hour old.
+ * Then renders the page skeleton and starts loading fresh data.
+ *
+ * @param {HTMLElement} container - The container element
+ */
 function loadData(container) {
-  // Load config and caches in parallel
+  // Load config and both caches in parallel
   Promise.all([
     invoke('load_config').catch(() => null),
     invoke('load_runner_cache').catch(() => ({ runners: [], cached_at: 0 })),
@@ -103,6 +144,7 @@ function loadData(container) {
     runnerCache = runnerCacheData;
     dxvkCache = dxvkCacheData;
 
+    // Guard against stale callbacks: Check if we're still on the same page
     if (activeContainer !== container) return;
 
     if (!config) {
@@ -110,21 +152,20 @@ function loadData(container) {
       return;
     }
 
-    // Use cached data immediately if available (less than 1 hour old)
-    // Note: installed flags will be synced in fireDataFetches after scan_runners completes
+    // Use cache data if less than 1 hour (3600s) old
+    // The "installed" flags will be synchronized later after scan_runners
     const cacheAge = Date.now() / 1000 - (runnerCache.cached_at || 0);
     const dxvkCacheAge = Date.now() / 1000 - (dxvkCache.cached_at || 0);
 
-    // Use sources from config if available, otherwise from cache
+    // Populate runner sources from config or cache
     if (cfg && cfg.runner_sources && cfg.runner_sources.length > 0) {
       availableSources = sortSources(cfg.runner_sources.map(s => s.name));
-      // Also use cached runners if available
       if (runnerCache.runners && runnerCache.runners.length > 0 && cacheAge < 3600) {
         availableRunners = runnerCache.runners.map(r => ({ ...r, installed: false }));
         loadingFlags.available = false;
       }
     } else if (runnerCache.runners && runnerCache.runners.length > 0 && cacheAge < 3600) {
-      // Fallback to cached runners
+      // Fallback: Extract sources from cached runners
       availableRunners = runnerCache.runners.map(r => ({ ...r, installed: false }));
       const sources = [...new Set(availableRunners.map(r => r.source))].sort();
       if (sources.length > 0) {
@@ -132,15 +173,17 @@ function loadData(container) {
       }
       loadingFlags.available = false;
     }
+    // Use DXVK cache if available and not expired
     if (dxvkCache.releases && dxvkCache.releases.length > 0 && dxvkCacheAge < 3600) {
       dxvkReleases = dxvkCache.releases;
       loadingFlags.dxvkReleases = false;
     }
 
-    // Render skeleton — yield a frame so the browser paints it
+    // Render skeleton — give the browser a frame to paint
     renderPageSkeleton(container);
 
-    // Wait for a real paint frame, then fire data fetches for missing/expired data
+    // Double requestAnimationFrame: Only load data after the actual paint,
+    // so the skeleton becomes visible before network requests start
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         if (activeContainer !== container) return;
@@ -150,15 +193,25 @@ function loadData(container) {
   });
 }
 
+/**
+ * Synchronizes the list of available runners with the backend.
+ * Distinguishes between cache usage (if fresh enough) and re-fetching.
+ * After fetching, the "installed" flags are reconciled with the locally found runners.
+ *
+ * @param {HTMLElement} container - The container element
+ * @param {boolean} forceRefresh - Forces a re-fetch even if the cache is current
+ */
 function syncAvailableRunners(container, forceRefresh) {
-  // Only fetch available runners if cache is empty/expired or force refresh
   const cacheAge = Date.now() / 1000 - (runnerCache.cached_at || 0);
+
+  // Only fetch from GitHub if cache is empty, expired, or refresh is forced
   if (forceRefresh || !runnerCache.runners || runnerCache.runners.length === 0 || cacheAge >= 3600) {
     invoke('fetch_available_runners', { basePath: config.install_path }).then(result => {
       if (activeContainer !== container) return;
       availableRunners = result.runners || [];
       fetchErrors = result.errors || [];
-      // Extract unique sources from available runners
+
+      // Update source tabs from the available runners
       const sources = [...new Set(availableRunners.map(r => r.source))].sort();
       if (sources.length > 0) {
         availableSources = sortSources(sources);
@@ -166,22 +219,24 @@ function syncAvailableRunners(container, forceRefresh) {
           selectedSource = availableSources[0];
         }
       }
-      // Sync installed flags
+
+      // Reconcile "installed" flags with locally present runners
       const installedNames = new Set(installedRunners.map(r => r.name));
       availableRunners = availableRunners.map(r => ({ ...r, installed: installedNames.has(r.name) }));
       loadingFlags.available = false;
 
-      // Save to cache and update local state
+      // Save new cache
       const nowCached = Math.floor(Date.now() / 1000);
       runnerCache = { runners: availableRunners, cached_at: nowCached };
       invoke('save_runner_cache', { runners: availableRunners }).catch(() => {});
 
-      // Update cache time in header
+      // Update cache time display in the header
       const cacheTimeEl = container.querySelector('.card-header-info');
       if (cacheTimeEl) {
         cacheTimeEl.textContent = `Cached: ${formatCacheTime(nowCached)}`;
       }
 
+      // Update download section with new data
       patchSection('download-runners-slot', renderDownloadRunnersContent());
       bindDownloadRunnerEvents(container);
 
@@ -195,14 +250,14 @@ function syncAvailableRunners(container, forceRefresh) {
       fetchErrors = [String(err)];
       loadingFlags.available = false;
 
-      // Re-enable refresh button on error
+      // Re-enable refresh button even on error
       const refreshAvailableBtn = document.getElementById('btn-refresh-available');
       if (refreshAvailableBtn) {
         refreshAvailableBtn.disabled = false;
         refreshAvailableBtn.textContent = 'Refresh';
       }
 
-      // Use cached data on error
+      // Fall back to cache data on error, if available
       if (runnerCache.runners && runnerCache.runners.length > 0) {
         availableRunners = runnerCache.runners;
         const installedNames = new Set(installedRunners.map(r => r.name));
@@ -211,13 +266,11 @@ function syncAvailableRunners(container, forceRefresh) {
       patchSection('download-runners-slot', renderDownloadRunnersContent());
     });
   } else {
-    // Use sources from config if available
+    // Cache is current — use cached data directly
     if (config && config.runner_sources && config.runner_sources.length > 0) {
       availableSources = sortSources(config.runner_sources.map(s => s.name));
-      // Load cached runners and sync installed flags later
       availableRunners = runnerCache.runners.map(r => ({ ...r, installed: false }));
     } else {
-      // Fallback to cached runners
       const sources = [...new Set(runnerCache.runners.map(r => r.source))].sort();
       if (sources.length > 0) {
         availableSources = sortSources(sources);
@@ -229,7 +282,7 @@ function syncAvailableRunners(container, forceRefresh) {
     }
     loadingFlags.available = false;
 
-    // Sync installed flags after scan_runners completes (if not already done)
+    // Synchronize "installed" flags if local runners have already been scanned
     if (installedRunners.length > 0) {
       const installedNames = new Set(installedRunners.map(r => r.name));
       availableRunners = availableRunners.map(r => ({ ...r, installed: installedNames.has(r.name) }));
@@ -240,8 +293,22 @@ function syncAvailableRunners(container, forceRefresh) {
   }
 }
 
+/**
+ * Starts all parallel data fetches:
+ * - Scan local runners (scan_runners)
+ * - Detect DXVK version (detect_dxvk_version)
+ * - Fetch DXVK releases (fetch_dxvk_releases)
+ * - Load DPI setting (get_dpi)
+ * - Detect PowerShell status (detect_powershell)
+ *
+ * After each completed fetch, the corresponding section in the DOM is updated.
+ *
+ * @param {HTMLElement} container - The container element
+ * @param {boolean} forceRefresh - Forces re-fetching of online data
+ */
 function fireDataFetches(container, forceRefresh = false) {
-  // First scan installed runners
+  // Scan installed runners — must complete first,
+  // so the "installed" flags for online runners can be set correctly
   invoke('scan_runners', { basePath: config.install_path }).then(result => {
     if (activeContainer !== container) return;
     installedRunners = result.runners || [];
@@ -254,10 +321,11 @@ function fireDataFetches(container, forceRefresh = false) {
       refreshInstalledBtn.textContent = 'Refresh';
     }
 
+    // Display installed runners
     patchSection('installed-runners-slot', renderInstalledRunnersContent());
     bindInstalledRunnerEvents(container);
 
-    // Sync installed flags for cached runners if available
+    // Update "installed" flags for cached available runners
     if (availableRunners.length > 0) {
       const installedNames = new Set(installedRunners.map(r => r.name));
       availableRunners = availableRunners.map(r => ({ ...r, installed: installedNames.has(r.name) }));
@@ -265,12 +333,11 @@ function fireDataFetches(container, forceRefresh = false) {
       bindDownloadRunnerEvents(container);
     }
 
-    // After scan completes, sync available runners
+    // After the scan, synchronize available runners
     syncAvailableRunners(container, forceRefresh);
   }).catch(() => {
     loadingFlags.installed = false;
 
-    // Re-enable refresh button on error
     const refreshInstalledBtn = document.getElementById('btn-refresh-installed');
     if (refreshInstalledBtn) {
       refreshInstalledBtn.disabled = false;
@@ -278,28 +345,27 @@ function fireDataFetches(container, forceRefresh = false) {
     }
 
     patchSection('installed-runners-slot', renderInstalledRunnersContent());
-    // Even on error, try to sync with empty installed runners
+    // Try to load available runners even on scan error
     syncAvailableRunners(container, forceRefresh);
   });
 
-  // Also start DXVK detection in parallel
+  // Start DXVK detection in parallel — checks which DXVK version is installed
   invoke('detect_dxvk_version', { basePath: config.install_path }).then(result => {
     if (activeContainer !== container) return;
     dxvkStatus = result;
     loadingFlags.dxvk = false;
     patchSection('dxvk-status-slot', renderDxvkStatusContent());
-    // Re-render releases after detection completes to show correct "Current" status
+    // Update release list after detection to correctly display "Current" badge
     patchSection('dxvk-releases-slot', renderDxvkReleasesContent());
     bindDxvkEvents(container);
   }).catch(() => {
     loadingFlags.dxvk = false;
     patchSection('dxvk-status-slot', renderDxvkStatusContent());
-    // Also re-render releases on error
     patchSection('dxvk-releases-slot', renderDxvkReleasesContent());
     bindDxvkEvents(container);
   });
 
-  // Only fetch DXVK releases if cache is empty/expired or force refresh
+  // Only fetch DXVK releases if cache is empty/expired or refresh is forced
   const dxvkCacheAge = Date.now() / 1000 - (dxvkCache.cached_at || 0);
   if (forceRefresh || !dxvkReleases.length || dxvkCacheAge >= 3600) {
     invoke('fetch_dxvk_releases').then(result => {
@@ -307,25 +373,27 @@ function fireDataFetches(container, forceRefresh = false) {
       dxvkReleases = result || [];
       loadingFlags.dxvkReleases = false;
 
-      // Save to cache
+      // Save new cache
       invoke('save_dxvk_cache', { releases: dxvkReleases }).catch(() => {});
 
       patchSection('dxvk-releases-slot', renderDxvkReleasesContent());
       bindDxvkEvents(container);
     }).catch(() => {
       loadingFlags.dxvkReleases = false;
-      // Use cached data on error
+      // Fall back to cache data on error
       if (dxvkCache.releases && dxvkCache.releases.length > 0) {
         dxvkReleases = dxvkCache.releases;
       }
       patchSection('dxvk-releases-slot', renderDxvkReleasesContent());
     });
   } else {
+    // Cache is current — display directly
     loadingFlags.dxvkReleases = false;
     patchSection('dxvk-releases-slot', renderDxvkReleasesContent());
     bindDxvkEvents(container);
   }
 
+  // Only load DPI setting and PowerShell status if a runner is selected
   if (config.selected_runner) {
     invoke('get_dpi', { basePath: config.install_path, runnerName: config.selected_runner }).then(result => {
       if (activeContainer !== container) return;
@@ -339,14 +407,14 @@ function fireDataFetches(container, forceRefresh = false) {
       bindPrefixToolEvents(container);
     });
 
-    // Detect PowerShell status
+    // PowerShell detection is optional — errors are ignored
     invoke('detect_powershell', { basePath: config.install_path }).then(result => {
       if (activeContainer !== container) return;
       powershellInstalled = result;
       patchSection('prefix-tools-slot', renderPrefixToolsContent());
       bindPrefixToolEvents(container);
     }).catch(() => {
-      // Ignore errors, PowerShell detection is optional
+      // PowerShell detection is optional
     });
   } else {
     loadingFlags.dpi = false;
@@ -355,13 +423,27 @@ function fireDataFetches(container, forceRefresh = false) {
 
 // --- DOM Patching ---
 
+/**
+ * Updates the content of a slot element in the DOM.
+ * Used to incrementally update individual page sections
+ * without re-rendering the entire page.
+ *
+ * @param {string} slotId - The ID of the element to update
+ * @param {string} html - The new HTML for the slot
+ */
 function patchSection(slotId, html) {
   const slot = document.getElementById(slotId);
   if (slot) slot.innerHTML = html;
 }
 
-// --- Page Skeleton ---
+// --- Page skeleton ---
 
+/**
+ * Shows a notice that the configuration is missing and the user
+ * needs to run the installation wizard first.
+ *
+ * @param {HTMLElement} container - The container element
+ */
 function renderNoConfig(container) {
   container.innerHTML = `
     <div class="page-header">
@@ -386,6 +468,13 @@ function renderNoConfig(container) {
   }
 }
 
+/**
+ * Renders the page skeleton with all sections and loading indicators.
+ * The actual content is loaded asynchronously via patchSection().
+ * Structure: Installed Runners | Download Runners | DXVK + Prefix Tools (Grid)
+ *
+ * @param {HTMLElement} container - The container element
+ */
 function renderPageSkeleton(container) {
   const hasRunner = !!config.selected_runner;
   const hasPrefix = !!config.install_path;
@@ -397,6 +486,7 @@ function renderPageSkeleton(container) {
       <p class="page-subtitle">Manage Wine/Proton compatibility layers</p>
     </div>
 
+    <!-- Section: Installed runners with selection and deletion actions -->
     <div class="card">
       <div class="card-header-row">
         <h3 data-tooltip="Wine/Proton runners available on your system. Click Refresh to scan for installed runners." data-tooltip-pos="right">Installed Runners</h3>
@@ -407,6 +497,7 @@ function renderPageSkeleton(container) {
       <div id="installed-runners-slot">${spinner}</div>
     </div>
 
+    <!-- Section: Download runners with source tabs and installation overlay -->
     <div class="card">
       <div class="card-header-row">
         <h3 data-tooltip="Download Wine/Proton runners from community sources" data-tooltip-pos="right">Download Runners</h3>
@@ -416,6 +507,7 @@ function renderPageSkeleton(container) {
           <button class="btn-sm" id="btn-refresh-available" data-tooltip="Fetch latest runners from all configured sources" data-tooltip-pos="left">Refresh</button>
         </div>
       </div>
+      <!-- Source tabs: Each source has its own tab -->
       <div class="runner-source-tabs-row">
         <div class="runner-source-tabs" id="source-tabs">
           ${availableSources.map(s => `
@@ -425,6 +517,7 @@ function renderPageSkeleton(container) {
         <button class="btn-sm" id="btn-add-source" title="Add new runner source">+</button>
       </div>
       <div id="download-runners-slot">${spinner}</div>
+      <!-- Progress overlay: Shown during a runner installation -->
       <div class="runner-install-overlay" id="runner-install-overlay" style="display:none">
         <div class="runner-install-name" id="install-runner-name"></div>
         <div class="progress-bar-track">
@@ -435,7 +528,9 @@ function renderPageSkeleton(container) {
       </div>
     </div>
 
+    <!-- Grid: DXVK management and prefix tools side by side -->
     <div class="runners-tools-grid">
+      <!-- DXVK section: Version detection and release list -->
       <div class="card">
         <div class="card-header-row">
           <h3 data-tooltip="DirectX to Vulkan translation layer for better performance" data-tooltip-pos="right">DXVK</h3>
@@ -457,6 +552,7 @@ function renderPageSkeleton(container) {
         }
       </div>
 
+      <!-- Prefix tools: Winecfg, Wine Shell, PowerShell -->
       <div class="card">
         <h3 data-tooltip="Wine prefix configuration and utility tools" data-tooltip-pos="right">Prefix Tools</h3>
         <div id="prefix-tools-slot">
@@ -469,21 +565,29 @@ function renderPageSkeleton(container) {
     </div>
   `;
 
-  // Bind skeleton-level events that don't change
+  // Bind skeleton events (refresh buttons, tabs, etc.)
   bindSkeletonEvents(container);
 }
 
-// --- Section Content Renderers (just the inner content, not the card wrapper) ---
+// --- Section content renderers (only the inner content, not the card wrapper) ---
 
+/**
+ * Renders the content of the "Installed Runners" section.
+ * Displays the active runner prominently, as well as a list of all
+ * other installed runners with select and delete buttons.
+ *
+ * @returns {string} HTML string for the section
+ */
 function renderInstalledRunnersContent() {
   if (installedRunners.length === 0) {
     return '<div class="runner-empty-notice">No runners installed yet. Download one below.</div>';
   }
 
+  // Filter out the active runner and display it separately
   const activeRunner = installedRunners.find(r => config.selected_runner === r.name);
   const otherRunners = installedRunners.filter(r => config.selected_runner !== r.name);
 
-  // Active runner display
+  // Display of the active runner (or notice that none is selected)
   let activeHtml;
   if (activeRunner) {
     activeHtml = `
@@ -504,7 +608,7 @@ function renderInstalledRunnersContent() {
     `;
   }
 
-  // Activating overlay
+  // Overlay during runner activation (shows spinner + name)
   let activatingHtml = '';
   if (isActivatingRunner) {
     activatingHtml = `
@@ -515,7 +619,7 @@ function renderInstalledRunnersContent() {
     `;
   }
 
-  // Other installed runners
+  // List of other installed runners with select/delete actions
   let listHtml = '';
   if (otherRunners.length > 0) {
     listHtml = `
@@ -539,9 +643,18 @@ function renderInstalledRunnersContent() {
   return activeHtml + activatingHtml + listHtml;
 }
 
+/**
+ * Renders the content of the "Download Runners" section.
+ * Filters the available runners by the currently selected source
+ * and displays them as a list with install buttons.
+ *
+ * @returns {string} HTML string for the section
+ */
 function renderDownloadRunnersContent() {
+  // Only show runners from the currently selected source
   const filtered = availableRunners.filter(r => r.source === selectedSource);
 
+  // Display error messages from the last fetch
   const errorsHtml = fetchErrors.length > 0
     ? fetchErrors.map(e => `<div class="runner-fetch-error">${escapeHtml(e)}</div>`).join('')
     : '';
@@ -576,6 +689,11 @@ function renderDownloadRunnersContent() {
   return errorsHtml + listHtml;
 }
 
+/**
+ * Renders the DXVK status (currently installed version and found DLLs).
+ *
+ * @returns {string} HTML-String für den Status-Bereich
+ */
 function renderDxvkStatusContent() {
   if (dxvkStatus && dxvkStatus.installed) {
     return `
@@ -591,6 +709,12 @@ function renderDxvkStatusContent() {
   return '<div class="dxvk-current"><span class="dxvk-current-label">Not installed</span></div>';
 }
 
+/**
+ * Renders the list of available DXVK releases.
+ * The currently installed version is marked with a "Current" badge.
+ *
+ * @returns {string} HTML-String für die Release-Liste
+ */
 function renderDxvkReleasesContent() {
   if (dxvkReleases.length === 0) {
     return '<div class="runner-empty-notice">No releases found.</div>';
@@ -619,9 +743,18 @@ function renderDxvkReleasesContent() {
   `;
 }
 
+/**
+ * Renders the content of the "Prefix Tools" section.
+ * Shows Winecfg launcher, Wine Shell, and PowerShell installation option.
+ * If no runner is selected or no prefix exists,
+ * a notice is displayed instead.
+ *
+ * @returns {string} HTML string for the section
+ */
 function renderPrefixToolsContent() {
   const hasRunner = !!config.selected_runner;
 
+  // Guard clause: Tools cannot be used without a runner or prefix
   if (!config.selected_runner || !config.install_path) {
     const msg = !config.selected_runner
       ? 'Select a runner first to use prefix tools.'
@@ -629,11 +762,13 @@ function renderPrefixToolsContent() {
     return `<div class="runners-guard-notice-inline">${msg}</div>`;
   }
 
+  // Log output for running or completed prefix tool operations
   const logHtml = prefixToolLog.length > 0
     ? `<div class="prefix-tool-log" id="prefix-tool-log"><code>${escapeHtml(prefixToolLog.join('\n'))}</code></div>`
     : '';
 
   return `
+    <!-- Winecfg: Opens the Wine configuration window -->
     <div class="prefix-tool-row">
       <div class="prefix-tool-info">
         <span class="prefix-tool-name">Winecfg</span>
@@ -644,6 +779,7 @@ function renderPrefixToolsContent() {
 
     <div class="prefix-tool-divider"></div>
 
+    <!-- Wine Shell: Opens a terminal with preconfigured Wine environment -->
     <div class="prefix-tool-row">
       <div class="prefix-tool-info">
         <span class="prefix-tool-name">Wine Shell</span>
@@ -656,6 +792,7 @@ function renderPrefixToolsContent() {
 
     <div class="prefix-tool-divider"></div>
 
+    <!-- PowerShell: Install via Winetricks (takes several minutes) -->
     <div class="prefix-tool-row">
       <div class="prefix-tool-info">
         <span class="prefix-tool-name">PowerShell</span>
@@ -673,58 +810,63 @@ function renderPrefixToolsContent() {
   `;
 }
 
-// --- Event Binding ---
+// --- Event binding ---
 
+/**
+ * Binds event listeners at the skeleton level (persist across section updates):
+ * - Refresh buttons for installed/available runners and DXVK
+ * - Source tab switching
+ * - Add new source / import LUG sources
+ * - Cancel runner installation
+ *
+ * @param {HTMLElement} container - The container element
+ */
 function bindSkeletonEvents(container) {
-  // Refresh installed runners
+  // Re-scan installed runners
   const refreshInstalledBtn = document.getElementById('btn-refresh-installed');
   if (refreshInstalledBtn) {
     refreshInstalledBtn.addEventListener('click', () => {
       console.log('Refresh installed clicked');
       loadingFlags.installed = true;
-      // Show loading state
       const installedSlot = document.getElementById('installed-runners-slot');
       if (installedSlot) {
         installedSlot.innerHTML = '<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>Scanning for installed runners...</span></div>';
       }
-      // Disable button during refresh
       refreshInstalledBtn.disabled = true;
       refreshInstalledBtn.textContent = '...';
       fireDataFetches(container, false);
     });
   }
 
-  // Refresh available runners
+  // Re-fetch available runners from GitHub (forces cache refresh)
   const refreshAvailableBtn = document.getElementById('btn-refresh-available');
   if (refreshAvailableBtn) {
     refreshAvailableBtn.addEventListener('click', () => {
       console.log('Refresh clicked');
       loadingFlags.available = true;
-      // Show loading state in the download section
       const downloadSlot = document.getElementById('download-runners-slot');
       if (downloadSlot) {
         downloadSlot.innerHTML = '<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>Refreshing runners...</span></div>';
       }
-      // Disable button during refresh
       refreshAvailableBtn.disabled = true;
       refreshAvailableBtn.textContent = '...';
       fireDataFetches(container, true);
     });
   }
 
-  // Add new source button
+  // Add new runner source via dialog
   const addSourceBtn = document.getElementById('btn-add-source');
   if (addSourceBtn) {
     addSourceBtn.addEventListener('click', () => showAddSourceDialog(container));
   }
 
-  // Get LUG Sources button
+  // Import LUG Helper sources from the GitHub repository
   const getLugSourcesBtn = document.getElementById('btn-get-lug-sources');
   if (getLugSourcesBtn) {
     getLugSourcesBtn.addEventListener('click', () => importLugHelperSources(container));
   }
 
-  // Refresh DXVK
+  // Re-fetch DXVK releases
   const refreshDxvkBtn = document.getElementById('btn-refresh-dxvk');
   if (refreshDxvkBtn) {
     refreshDxvkBtn.addEventListener('click', () => {
@@ -734,7 +876,7 @@ function bindSkeletonEvents(container) {
     });
   }
 
-  // Source tabs
+  // Tab switch: Shows runners from the selected source
   container.querySelectorAll('#source-tabs .source-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       selectedSource = tab.dataset.source;
@@ -745,7 +887,7 @@ function bindSkeletonEvents(container) {
     });
   });
 
-  // Cancel runner install
+  // Cancel running runner installation
   const cancelBtn = document.getElementById('btn-cancel-runner-install');
   if (cancelBtn) {
     cancelBtn.addEventListener('click', async () => {
@@ -754,6 +896,12 @@ function bindSkeletonEvents(container) {
   }
 }
 
+/**
+ * Binds event listeners for the installed runners list
+ * (select and delete buttons).
+ *
+ * @param {HTMLElement} container - The container element
+ */
 function bindInstalledRunnerEvents(container) {
   const slot = document.getElementById('installed-runners-slot');
   if (!slot) return;
@@ -767,6 +915,11 @@ function bindInstalledRunnerEvents(container) {
   });
 }
 
+/**
+ * Binds event listeners for the download runners list (install buttons).
+ *
+ * @param {HTMLElement} container - The container element
+ */
 function bindDownloadRunnerEvents(container) {
   const slot = document.getElementById('download-runners-slot');
   if (!slot) return;
@@ -778,6 +931,11 @@ function bindDownloadRunnerEvents(container) {
   });
 }
 
+/**
+ * Binds event listeners for the DXVK release list (install buttons).
+ *
+ * @param {HTMLElement} container - The container element
+ */
 function bindDxvkEvents(container) {
   const slot = document.getElementById('dxvk-releases-slot');
   if (!slot) return;
@@ -789,6 +947,12 @@ function bindDxvkEvents(container) {
   });
 }
 
+/**
+ * Binds event listeners for prefix tools (Winecfg, Wine Shell, PowerShell).
+ * Also scrolls the log window to the bottom.
+ *
+ * @param {HTMLElement} container - The container element
+ */
 function bindPrefixToolEvents(container) {
   const winecfgBtn = document.getElementById('btn-winecfg');
   if (winecfgBtn) {
@@ -805,23 +969,33 @@ function bindPrefixToolEvents(container) {
     psBtn.addEventListener('click', () => installPowershell(container));
   }
 
+  // Scroll log window to the end (for running operations)
   scrollPrefixLog();
 }
 
 // --- Actions ---
 
+/**
+ * Activates a runner: Saves the selection to the configuration and
+ * reads the DPI setting of the new runner. Shows an overlay with
+ * spinner during activation.
+ *
+ * @param {string} name - Name of the runner to activate
+ * @param {HTMLElement} container - The container element
+ */
 async function selectRunner(name, container) {
   if (isActivatingRunner) return;
   isActivatingRunner = true;
   activatingRunnerName = name;
 
-  // Show activating state immediately
+  // Immediately show the activation state (spinner)
   patchSection('installed-runners-slot', renderInstalledRunnersContent());
   bindInstalledRunnerEvents(container);
 
   config.selected_runner = name;
   try {
     await invoke('save_config', { config });
+    // Load DPI value for the new runner
     try {
       currentDpi = await invoke('get_dpi', { basePath: config.install_path, runnerName: name });
     } catch {
@@ -834,13 +1008,20 @@ async function selectRunner(name, container) {
   isActivatingRunner = false;
   activatingRunnerName = '';
 
-  // Update installed runners + prefix tools sections
+  // Update installed runners and prefix tools
   patchSection('installed-runners-slot', renderInstalledRunnersContent());
   bindInstalledRunnerEvents(container);
   patchSection('prefix-tools-slot', renderPrefixToolsContent());
   bindPrefixToolEvents(container);
 }
 
+/**
+ * Shows a dialog for adding a new runner source.
+ * The user enters a name and GitHub API URL.
+ * After adding, the tabs and runner list are updated.
+ *
+ * @param {HTMLElement} container - The container element
+ */
 async function showAddSourceDialog(container) {
   const name = prompt('Enter runner source name (e.g., "LUG Experimental"):');
   if (!name || !name.trim()) return;
@@ -865,14 +1046,13 @@ async function showAddSourceDialog(container) {
         if (!selectedSource || !availableSources.includes(selectedSource)) {
           selectedSource = availableSources[0] || 'LUG';
         }
-        // Re-render the source tabs
+        // Re-render source tabs and bind event listeners
         const tabsContainer = container.querySelector('#source-tabs');
         if (tabsContainer) {
           tabsContainer.innerHTML = availableSources.map(s => `
             <button class="source-tab ${selectedSource === s ? 'active' : ''}" data-source="${s}">${s}</button>
           `).join('');
 
-          // Re-bind tab click events
           tabsContainer.querySelectorAll('.source-tab').forEach(tab => {
             tab.addEventListener('click', () => {
               selectedSource = tab.dataset.source;
@@ -885,7 +1065,7 @@ async function showAddSourceDialog(container) {
         }
       }
 
-      // Refresh runners
+      // Reload runner list with forced refresh
       loadingFlags.available = true;
       patchSection('download-runners-slot', '<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>Refreshing...</span></div>');
       fireDataFetches(container, true);
@@ -897,13 +1077,19 @@ async function showAddSourceDialog(container) {
   }
 }
 
+/**
+ * Imports runner sources from the LUG Helper GitHub repository.
+ * Updates the source tabs and reloads the runner list.
+ *
+ * @param {HTMLElement} container - The container element
+ */
 async function importLugHelperSources(container) {
   try {
     const result = await invoke('import_lug_helper_sources');
 
     alert(result.message);
 
-    // Reload config to get updated runner_sources
+    // Reload config for updated runner_sources
     const cfg = await invoke('load_config');
     if (cfg && cfg.runner_sources && cfg.runner_sources.length > 0) {
       config = cfg;
@@ -911,14 +1097,13 @@ async function importLugHelperSources(container) {
       if (!selectedSource || !availableSources.includes(selectedSource)) {
         selectedSource = availableSources[0] || 'LUG';
       }
-      // Re-render the source tabs
+      // Update source tabs
       const tabsContainer = container.querySelector('#source-tabs');
       if (tabsContainer) {
         tabsContainer.innerHTML = availableSources.map(s => `
           <button class="source-tab ${selectedSource === s ? 'active' : ''}" data-source="${s}">${s}</button>
         `).join('');
 
-        // Re-bind tab click events
         tabsContainer.querySelectorAll('.source-tab').forEach(tab => {
           tab.addEventListener('click', () => {
             selectedSource = tab.dataset.source;
@@ -931,7 +1116,7 @@ async function importLugHelperSources(container) {
       }
     }
 
-    // Refresh runners
+    // Force reload runner list
     loadingFlags.available = true;
     patchSection('download-runners-slot', '<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>Refreshing...</span></div>');
     fireDataFetches(container, true);
@@ -940,28 +1125,51 @@ async function importLugHelperSources(container) {
   }
 }
 
+/**
+ * Deletes an installed runner from the file system.
+ * The currently active runner cannot be deleted.
+ * After deletion, both lists (installed/available) are updated.
+ *
+ * @param {string} name - Name of the runner to delete
+ * @param {HTMLElement} container - The container element
+ */
 async function deleteRunner(name, container) {
+  // Cannot delete the active runner
   if (config.selected_runner === name) return;
 
   try {
     await invoke('delete_runner', { runnerName: name, basePath: config.install_path });
+    // Remove from the local list
     installedRunners = installedRunners.filter(r => r.name !== name);
+    // Reset "installed" flag in the available list
     availableRunners = availableRunners.map(r =>
       r.name === name ? { ...r, installed: false } : r
     );
   } catch (err) {
     console.error('Failed to delete runner:', err);
   }
+  // Update both sections
   patchSection('installed-runners-slot', renderInstalledRunnersContent());
   bindInstalledRunnerEvents(container);
   patchSection('download-runners-slot', renderDownloadRunnersContent());
   bindDownloadRunnerEvents(container);
 }
 
+/**
+ * Installs a runner: Downloads the archive and extracts it.
+ * Shows a progress overlay with download percentage and extraction status.
+ * Receives progress events via the Tauri event listener 'runner-download-progress'.
+ *
+ * @param {string} downloadUrl - Download URL of the runner archive
+ * @param {string} fileName - File name of the archive
+ * @param {string} displayName - Display name of the runner
+ * @param {HTMLElement} container - The container element
+ */
 async function installRunner(downloadUrl, fileName, displayName, container) {
   if (isInstallingRunner) return;
   isInstallingRunner = true;
 
+  // Show and initialize progress overlay
   const overlay = document.getElementById('runner-install-overlay');
   const nameEl = document.getElementById('install-runner-name');
   const fillEl = document.getElementById('install-progress-fill');
@@ -972,9 +1180,11 @@ async function installRunner(downloadUrl, fileName, displayName, container) {
   if (fillEl) { fillEl.style.width = '0%'; fillEl.classList.remove('extracting'); }
   if (statusEl) statusEl.textContent = 'Starting download...';
 
+  // Clean up previous listener
   if (unlistenRunnerProgress) { unlistenRunnerProgress(); unlistenRunnerProgress = null; }
 
   try {
+    // Receive progress events from the Rust backend and update the UI
     unlistenRunnerProgress = await listen('runner-download-progress', (event) => {
       const p = event.payload;
       const fill = document.getElementById('install-progress-fill');
@@ -982,10 +1192,12 @@ async function installRunner(downloadUrl, fileName, displayName, container) {
       if (!fill || !status) return;
 
       if (p.phase === 'downloading') {
+        // Download phase: Update progress bar and size display
         fill.classList.remove('extracting');
         fill.style.width = `${p.percent.toFixed(1)}%`;
         status.textContent = `Downloading... ${formatSize(p.bytes_downloaded)} / ${formatSize(p.total_bytes)}`;
       } else if (p.phase === 'extracting') {
+        // Extraction phase: Pulsing progress bar
         fill.style.width = '100%';
         fill.classList.add('extracting');
         status.textContent = 'Extracting archive...';
@@ -1006,13 +1218,15 @@ async function installRunner(downloadUrl, fileName, displayName, container) {
     if (statusEl) statusEl.textContent = `Error: ${err}`;
   }
 
+  // Clean up: Remove listener and release installation lock
   if (unlistenRunnerProgress) { unlistenRunnerProgress(); unlistenRunnerProgress = null; }
   isInstallingRunner = false;
 
+  // Hide overlay after a short delay (so "Complete" remains visible)
   await delay(1200);
   if (overlay) overlay.style.display = 'none';
 
-  // Refresh installed runners
+  // Re-scan installed runners and update "installed" flags
   try {
     const scanResult = await invoke('scan_runners', { basePath: config.install_path });
     installedRunners = scanResult.runners || [];
@@ -1020,16 +1234,26 @@ async function installRunner(downloadUrl, fileName, displayName, container) {
     availableRunners = availableRunners.map(r => ({ ...r, installed: installedNames.has(r.name) }));
   } catch { /* ignore */ }
 
+  // Update both lists
   patchSection('installed-runners-slot', renderInstalledRunnersContent());
   bindInstalledRunnerEvents(container);
   patchSection('download-runners-slot', renderDownloadRunnersContent());
   bindDownloadRunnerEvents(container);
 }
 
+/**
+ * Installs a DXVK version: Downloads the archive, extracts it,
+ * and copies the DLLs into the Wine prefix. Shows a progress overlay.
+ *
+ * @param {string} downloadUrl - Download URL of the DXVK archive
+ * @param {string} version - Version number (e.g. "2.3")
+ * @param {HTMLElement} container - The container element
+ */
 async function installDxvk(downloadUrl, version, container) {
   if (isInstallingDxvk) return;
   isInstallingDxvk = true;
 
+  // Show DXVK installation overlay
   const overlay = document.getElementById('dxvk-install-overlay');
   const nameEl = document.getElementById('dxvk-install-name');
   const fillEl = document.getElementById('dxvk-progress-fill');
@@ -1043,6 +1267,7 @@ async function installDxvk(downloadUrl, version, container) {
   if (unlistenDxvkProgress) { unlistenDxvkProgress(); unlistenDxvkProgress = null; }
 
   try {
+    // Receive progress events for DXVK installation
     unlistenDxvkProgress = await listen('dxvk-progress', (event) => {
       const p = event.payload;
       const fill = document.getElementById('dxvk-progress-fill');
@@ -1052,6 +1277,7 @@ async function installDxvk(downloadUrl, version, container) {
       fill.style.width = `${p.percent.toFixed(1)}%`;
       status.textContent = p.message;
 
+      // Extraction phase: Pulsing bar
       if (p.phase === 'extracting') {
         fill.classList.add('extracting');
       } else {
@@ -1071,16 +1297,22 @@ async function installDxvk(downloadUrl, version, container) {
 
   await delay(1200);
 
+  // Re-detect DXVK version after installation
   try {
     dxvkStatus = await invoke('detect_dxvk_version', { basePath: config.install_path });
   } catch { /* ignore */ }
 
+  // Update status and release list
   patchSection('dxvk-status-slot', renderDxvkStatusContent());
   patchSection('dxvk-releases-slot', renderDxvkReleasesContent());
   bindDxvkEvents(container);
   if (overlay) overlay.style.display = 'none';
 }
 
+/**
+ * Launches the Winecfg window for the currently selected runner.
+ * Winecfg is the standard configuration tool for Wine.
+ */
 async function launchWinecfg() {
   if (!config || !config.selected_runner) return;
   try {
@@ -1093,6 +1325,12 @@ async function launchWinecfg() {
   }
 }
 
+/**
+ * Opens a terminal with a preconfigured Wine shell.
+ * The shell has all necessary environment variables (WINEPREFIX, PATH) set.
+ *
+ * @param {HTMLElement} container - The container element
+ */
 async function launchWineShell(container) {
   if (!config || !config.selected_runner) return;
   isRunningPrefixTool = true;
@@ -1114,6 +1352,12 @@ async function launchWineShell(container) {
   }
 }
 
+/**
+ * Sets the DPI setting in the Wine prefix (affects scaling of Wine windows).
+ *
+ * @param {number} dpi - The desired DPI value (e.g. 96, 120, 144)
+ * @param {HTMLElement} container - The container element
+ */
 async function setDpi(dpi, container) {
   if (!config || !config.selected_runner) return;
   try {
@@ -1130,6 +1374,13 @@ async function setDpi(dpi, container) {
   bindPrefixToolEvents(container);
 }
 
+/**
+ * Installs PowerShell via Winetricks in the Wine prefix.
+ * This process takes several minutes. Progress is displayed via
+ * Tauri events ('prefix-tool-log') in a log window.
+ *
+ * @param {HTMLElement} container - The container element
+ */
 async function installPowershell(container) {
   if (isRunningPrefixTool || !config || !config.selected_runner) return;
   isRunningPrefixTool = true;
@@ -1140,6 +1391,7 @@ async function installPowershell(container) {
   if (unlistenPrefixLog) { unlistenPrefixLog(); unlistenPrefixLog = null; }
 
   try {
+    // Receive log lines from the backend and append to the display
     unlistenPrefixLog = await listen('prefix-tool-log', (event) => {
       const line = event.payload;
       prefixToolLog.push(line);
@@ -1154,7 +1406,7 @@ async function installPowershell(container) {
     });
     prefixToolLog.push('Done.');
 
-    // Refresh PowerShell status after installation
+    // Update PowerShell status after installation
     try {
       powershellInstalled = await invoke('detect_powershell', { basePath: config.install_path });
     } catch { /* ignore */ }
@@ -1168,6 +1420,11 @@ async function installPowershell(container) {
   bindPrefixToolEvents(container);
 }
 
+/**
+ * Appends a new log line to the prefix tool log window.
+ *
+ * @param {string} text - The log line to append
+ */
 function appendPrefixLogLine(text) {
   const logEl = document.getElementById('prefix-tool-log');
   if (!logEl) return;
@@ -1178,13 +1435,23 @@ function appendPrefixLogLine(text) {
   scrollPrefixLog();
 }
 
+/**
+ * Scrolls the prefix tool log window to the end,
+ * so the latest output is visible.
+ */
 function scrollPrefixLog() {
   const logEl = document.getElementById('prefix-tool-log');
   if (logEl) logEl.scrollTop = logEl.scrollHeight;
 }
 
-// --- Helpers ---
+// --- Helper functions ---
 
+/**
+ * Formats a file size in bytes into a human-readable representation (KB, MB, GB).
+ *
+ * @param {number} bytes - The size in bytes
+ * @returns {string} Formatted size (e.g. "42.5 MB")
+ */
 function formatSize(bytes) {
   if (bytes === 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB'];
@@ -1193,6 +1460,12 @@ function formatSize(bytes) {
   return `${val.toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
 }
 
+/**
+ * Formats a Unix timestamp into a human-readable date/time format.
+ *
+ * @param {number} timestamp - Unix timestamp in seconds
+ * @returns {string} Formatted date (e.g. "12.03.26, 14:30") or "Never"
+ */
 function formatCacheTime(timestamp) {
   if (!timestamp) return 'Never';
   const date = new Date(timestamp * 1000);
@@ -1201,6 +1474,13 @@ function formatCacheTime(timestamp) {
 
 
 
+/**
+ * Creates a Promise that resolves after the specified time.
+ * Used for short UI delays (e.g. so "Complete" remains visible).
+ *
+ * @param {number} ms - Delay in milliseconds
+ * @returns {Promise<void>}
+ */
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }

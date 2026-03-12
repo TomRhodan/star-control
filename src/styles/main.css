@@ -417,6 +417,91 @@ select.input option {
 .modal-kind-danger { border-color: rgba(239, 68, 68, 0.5); }
 .modal-kind-warning { border-color: rgba(234, 179, 8, 0.5); }
 
+/* Wide modal variant (for diffs) */
+.modal-wide {
+  max-width: 900px;
+  width: 90%;
+}
+
+.modal-wide .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-wide .modal-body {
+  padding: 0;
+}
+
+/* Close button */
+.modal-close-btn {
+  padding: 4px;
+  line-height: 1;
+  opacity: 0.6;
+}
+
+.modal-close-btn:hover {
+  opacity: 1;
+}
+
+/* Diff view */
+.diff-container {
+  max-height: 70vh;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  line-height: 1.5;
+  border-top: 1px solid var(--border);
+}
+
+.diff-line {
+  display: flex;
+  min-height: 1.5em;
+}
+
+.diff-line-add {
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.diff-line-remove {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.diff-line-context {
+  background: transparent;
+}
+
+.diff-gutter {
+  min-width: 45px;
+  text-align: right;
+  padding: 0 6px;
+  color: var(--text-muted);
+  user-select: none;
+  border-right: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.diff-content {
+  flex: 1;
+  padding: 0 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.diff-content-add {
+  color: var(--success);
+}
+
+.diff-content-remove {
+  color: var(--danger);
+}
+
+.diff-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
 /* Danger Button Variation */
 .btn-danger {
   background: var(--danger);

@@ -1,23 +1,30 @@
 /**
  * Star Control - About Page
  *
- * This module renders the about page which displays:
+ * This module renders the about page, which displays the following information:
  * - Application version and description
  * - Author information
- * - Credits and inspirations
+ * - Credits and inspiration sources
  * - License information
- * - Links to GitHub, wiki, and other resources
+ * - Links to GitHub, Wiki, and other resources
  *
  * @module pages/about
  */
 
+// Tauri plugin for opening external URLs in the default browser
 import { openUrl } from '@tauri-apps/plugin-opener';
+// Static image assets for logo and community badge
 import logoUrl from '../assets/logos/StarControl-Transparent-Logo-Image.png';
 import madeByCommunityUrl from '../assets/logos/MadeByTheCommunity_White.png';
 
 /**
- * Renders the about page into the given container.
- * @param {HTMLElement} container - The container element to render into.
+ * Renders the about page into the provided container.
+ * Creates a hero banner with logo and version, as well as a grid
+ * with cards for app info, imprint, credits, and license.
+ * All external links are opened via the Tauri openUrl plugin,
+ * so they appear in the system browser instead of the WebView.
+ *
+ * @param {HTMLElement} container - The container element to render into
  */
 export function renderAbout(container) {
   container.innerHTML = `
@@ -32,6 +39,7 @@ export function renderAbout(container) {
     </div>
 
     <div class="about-grid">
+      <!-- Card: General app information (name, version, description, source code link) -->
       <div class="about-card">
         <h3>App Info</h3>
         <div class="about-info-row">
@@ -54,6 +62,7 @@ export function renderAbout(container) {
         </div>
       </div>
 
+      <!-- Card: Imprint with author and contact details -->
       <div class="about-card">
         <h3>Impressum</h3>
         <div class="about-info-row">
@@ -68,12 +77,15 @@ export function renderAbout(container) {
         </div>
       </div>
 
+      <!-- Card: Credits and acknowledgments to community projects -->
       <div class="about-card">
         <h3>Credits & Inspirations</h3>
         <div class="about-credits-layout">
+          <!-- Community badge: "Made by the Community" -->
           <div class="about-community-badge">
             <img src="${madeByCommunityUrl}" alt="Made by the Community" />
           </div>
+          <!-- Links to the projects that inspired Star Control -->
           <div class="about-credits-links">
             <div class="about-credit-item">
               <a href="#" class="about-link" data-url="https://github.com/starcitizen-lug/lug-helper">LUG Helper</a>
@@ -89,11 +101,13 @@ export function renderAbout(container) {
             </div>
           </div>
         </div>
+        <!-- Legal disclaimer: Star Control is not affiliated with CIG -->
         <div class="about-disclaimer">
           Star Citizen is a registered trademark of Cloud Imperium Games Corporation. Star Control is not affiliated with or endorsed by Cloud Imperium Games.
         </div>
       </div>
 
+      <!-- Card: License information (GPL-3.0) -->
       <div class="about-card">
         <h3>License</h3>
         <div class="about-info-row">
@@ -114,7 +128,8 @@ export function renderAbout(container) {
     </div>
   `;
 
-  // Bind external link clicks
+  // Intercept external links: Use openUrl instead of normal navigation,
+  // so links open in the system browser (not in the Tauri WebView)
   container.querySelectorAll('.about-link[data-url]').forEach(link => {
     link.addEventListener('click', (e) => {
       e.preventDefault();

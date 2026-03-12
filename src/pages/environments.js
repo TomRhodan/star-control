@@ -1,20 +1,22 @@
 /**
- * Star Control - Profiles Page
+ * Star Control - Environments Page (formerly Profiles)
  *
- * This module manages Star Citizen configuration:
- * - USER.cfg editing (resolution, graphics settings)
- * - Controller/action map management
- * - Backup and restore of profiles
- * - Device (joystick) reordering
- * - Localization (language pack) management
+ * This module manages Star Citizen configuration per environment (LIVE, PTU, etc.):
+ * - USER.cfg editing (resolution, graphics, performance settings)
+ * - Controller/actionmap management (edit, add, delete keybindings)
+ * - Profile management: save, load, compare, transfer snapshots
+ * - Joystick reordering via drag-and-drop
+ * - Localization (install, update, remove community language packs)
+ * - Version/storage management (copy Data.p4k, symlink, delete environments)
  *
- * @module pages/profiles
+ * @module pages/environments
  */
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
-import { confirm, prompt } from '../utils/dialogs.js';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import { confirm, prompt, showDiff } from '../utils/dialogs.js';
 import { escapeHtml } from '../utils.js';
 
 // ==================== Debug Logging ====================
@@ -51,63 +53,101 @@ function debugLog(category, level, message) {
 
 // ==================== State ====================
 
-/** @type {Object|null} Application configuration */
+/** @type {Object|null} App configuration (install path, runner, etc.) */
 let config = null;
+/** @type {Object} Current USER.cfg settings as key-value pairs */
 let userCfgSettings = {};
+/** @type {string|null} Currently selected SC version (e.g., "LIVE", "PTU") */
 let activeScVersion = null;
+/** @type {Array} Detected SC versions with metadata (path, Data.p4k, etc.) */
 let scVersions = [];
 
 // Data.p4k copy state
-let copyingVersion = null; // { version: string, startTime: number }
+/** @type {Object|null} Active copy operation: { version: string, startTime: number } */
+let copyingVersion = null;
 
-// Event listener cleanup (prevent leaks on re-render)
+// Event listener cleanup (prevents memory leaks on re-renders)
 let unlistenProgress = null;
 let unlistenCopyComplete = null;
 
-// New state
+// Binding and profile state
+/** @type {Object|null} Parsed actionmaps from actionmaps.xml */
 let parsedActionMaps = null;
+/** @type {Object|null} Action definitions from the backend (categories, display names) */
 let actionDefinitions = null;
+/** @type {Array} Complete list of all keybindings (default + custom) */
 let completeBindingList = [];
+/** @type {Array} Exported layout files */
 let exportedLayouts = [];
-let selectedBindingSource = null; // null = active profile, string = layout filename
+/** @type {string|null} Selected binding source: null = active profile, string = layout filename */
+let selectedBindingSource = null;
+/** @type {Array} All saved profiles (backups) for the active version */
 let backups = [];
+/** @type {string} Current search term for binding filtering */
 let bindingFilter = '';
+/** @type {string} Active binding category filter */
 let bindingCategory = 'all';
-let collapsedCategories = new Set(['performance', 'quality', 'shaders', 'textures', 'effects', 'clarity', 'lod']);
-window.expandedBindingCategories = new Set(); // Track expanded binding categories - must be global for inline onclick
+/** @type {Set<string>} Collapsed USER.cfg categories */
+let collapsedCategories = new Set(['quality', 'shaders', 'textures', 'effects', 'clarity', 'lod', 'input', 'advanced']);
+/** Global: Which binding categories are expanded (must be global for inline onclick) */
+window.expandedBindingCategories = new Set();
+/** @type {number|null} Instance number of the joystick currently being dragged */
 let draggedJoystickInstance = null;
-let activeProfileTab = 'profile'; // 'profile' | 'usercfg' | 'localization'
+/** @type {string} Active tab: 'profile' | 'usercfg' | 'localization' | 'storage' */
+let activeProfileTab = 'profile';
+/** @type {string|null} ID of the currently loaded/active profile */
 let lastRestoredBackupId = null;
+/** @type {Object} Mapping: SC version -> last active profile ID (per version) */
 const lastRestoredPerVersion = {};
-let activeProfileStatus = null; // { matched, files } from check_profile_status
+/** @type {Object|null} Profile status: { matched, files } — shows if profile is in sync with SC files */
+let activeProfileStatus = null;
+/** @type {boolean} Whether the changes detail panel is shown */
 let showChangesPanel = false;
-let savedUserCfgSnapshot = {}; // snapshot of settings at load/apply time
+/** @type {Object} Snapshot of USER.cfg at last load/save (for change detection) */
+let savedUserCfgSnapshot = {};
+/** @type {string} Raw USER.cfg content at last load/save (for external change detection) */
+let savedUserCfgRaw = '';
+/** @type {Object|null} Localization status of the active version (installed language, commit, etc.) */
 let localizationStatus = null;
-let localizationLabels = {}; // HashMap: technical ID -> Translated Label
+/** @type {Object} HashMap: technical action ID -> translated label from localization data */
+let localizationLabels = {};
+/** @type {Array} Available language packs */
 let availableLanguages = [];
+/** @type {boolean} Whether the localization labels have already been loaded */
 let localizationLoaded = false;
+/** @type {Array} Remote information about language packs (last update, commit date) */
+let remoteLanguageInfo = [];
+/** @type {boolean} Whether a localization operation is currently running */
 let localizationLoading = false;
 
 // Binding editor state
-let bindingEditorAction = null; // The action being edited
-let bindingEditorDevice = 'keyboard'; // 'keyboard' | 'mouse' | 'gamepad' | 'joystick'
-let customizedOnly = false; // Filter to show only customized bindings
+/** @type {Object|null} The action currently being edited in the editor */
+let bindingEditorAction = null;
+/** @type {string} Selected device type in editor: 'keyboard' | 'mouse' | 'gamepad' | 'joystick' */
+let bindingEditorDevice = 'keyboard';
+/** @type {boolean} Filter: Only show user-customized bindings */
+let customizedOnly = false;
 
-let useHumanReadable = true; // Toggle between human-readable and raw mode
-let renderGeneration = 0; // Monotonic counter to discard stale renders
+/** @type {boolean} Toggle: Human-readable input names (e.g., "Button #5") instead of raw format ("button5") */
+let useHumanReadable = true;
+/** @type {number} Monotonic counter for detecting stale render passes */
+let renderGeneration = 0;
+/** @type {boolean} Whether the one-time migration check has already been performed */
 let migrationChecked = false;
 
-// Track which collapsible panels are open (persists across re-renders within session)
+// Which collapsible panels are open (persists within the session)
 if (!window.expandedPanels) window.expandedPanels = { bindings: false, devices: false };
 
 // ==================== Contextual Hints ====================
 
+/** Reads the IDs of already dismissed hints from localStorage */
 function getDismissedHints() {
   try {
     return JSON.parse(localStorage.getItem('starcontrol-dismissed-hints') || '[]');
   } catch { return []; }
 }
 
+/** Permanently dismisses a hint and saves the decision in localStorage */
 function dismissHint(id) {
   const dismissed = getDismissedHints();
   if (!dismissed.includes(id)) {
@@ -118,6 +158,13 @@ function dismissHint(id) {
   if (el) el.remove();
 }
 
+/**
+ * Renders a hint banner that the user can permanently dismiss.
+ * Returns an empty string if the hint has already been dismissed.
+ * @param {string} id - Unique ID of the hint
+ * @param {string} html - HTML content of the hint text
+ * @returns {string} HTML string of the banner or empty string
+ */
 function renderHint(id, html) {
   if (getDismissedHints().includes(id)) return '';
   return `
@@ -133,81 +180,288 @@ function renderHint(id, html) {
   `;
 }
 
-// Default USER.cfg settings
+/**
+ * Default USER.cfg settings with metadata.
+ * Each entry defines: default value, label, min/max, step size,
+ * category, description, and detailed help text.
+ * The categories control the grouping in the UI.
+ */
 const DEFAULT_SETTINGS = {
-  // Essential (visible by default)
-  r_width: { value: 1920, label: 'Resolution Width', min: 640, max: 7680, step: 1, category: 'essential', type: 'number', desc: 'Horizontal screen resolution' },
-  r_height: { value: 1080, label: 'Resolution Height', min: 480, max: 4320, step: 1, category: 'essential', type: 'number', desc: 'Vertical screen resolution' },
-  r_Fullscreen: { value: 2, label: 'Window Mode', min: 0, max: 2, step: 1, category: 'essential', desc: '0=Windowed, 1=Fullscreen, 2=Borderless', labels: ['Windowed', 'Fullscreen', 'Borderless'] },
-  'r.graphicsRenderer': { value: 0, label: 'Graphics Renderer', min: 0, max: 1, step: 1, category: 'essential', desc: '0=Vulkan, 1=DX11', labels: ['Vulkan', 'DX11'] },
-  r_VSync: { value: 0, label: 'VSync', min: 0, max: 1, type: 'toggle', category: 'essential', desc: 'Enable vertical sync' },
-  sys_MaxFPS: { value: 0, label: 'Max FPS', min: 0, max: 300, step: 5, category: 'essential', desc: 'Maximum FPS (0 = unlimited)' },
-  sys_MaxIdleFPS: { value: 30, label: 'Max Idle FPS', min: 5, max: 120, step: 5, category: 'essential', desc: 'Max FPS when window not focused' },
-  'r.TSR': { value: 0, label: 'TSR (Upscaling)', min: 0, max: 1, type: 'toggle', category: 'essential', desc: 'Temporal Super Resolution' },
-  'pl_pit.forceSoftwareCursor': { value: 0, label: 'Software Cursor', min: 0, max: 1, type: 'toggle', category: 'essential', desc: 'Force software cursor (helps with multi-monitor)' },
-  // Performance
-  sys_budget_sysmem: { value: 16384, label: 'System RAM (MB)', min: 4096, max: 65536, step: 4096, category: 'performance', desc: 'Amount of system RAM available to Star Citizen' },
-  sys_budget_videomem: { value: 8192, label: 'Video RAM (MB)', min: 2048, max: 24576, step: 2048, category: 'performance', desc: 'Amount of video RAM available' },
-  sys_streaming_CPU: { value: 1, label: 'Streaming CPU', min: 0, max: 1, type: 'toggle', category: 'performance', desc: 'Enable CPU-based texture streaming' },
-  sys_limit_phys_thread_count: { value: 0, label: 'Physics Thread Limit', min: 0, max: 16, step: 1, category: 'performance', desc: 'Limit physics threads (0 = auto)' },
-  sys_PakStreamCache: { value: 1, label: 'Pak Stream Cache', min: 0, max: 1, type: 'toggle', category: 'performance', desc: 'Enable pak file caching' },
-  ca_thread: { value: 1, label: 'Audio Thread', min: 0, max: 1, type: 'toggle', category: 'performance', desc: 'Enable dedicated audio thread' },
-  e_ParticlesThread: { value: 1, label: 'Particles Thread', min: 0, max: 1, type: 'toggle', category: 'performance', desc: 'Enable particle threading' },
-  sys_job_system_enable: { value: 1, label: 'Job System', min: 0, max: 1, type: 'toggle', category: 'performance', desc: 'Enable job system' },
-  sys_spec_Quality: { value: 3, label: 'Overall Quality', min: 1, max: 4, step: 1, category: 'quality', desc: 'Overall graphics quality preset (1=Low, 4=Very High)' },
-  sys_spec_GameEffects: { value: 3, label: 'Game Effects', min: 1, max: 4, step: 1, category: 'quality', desc: 'Quality of game effects' },
-  sys_spec_Light: { value: 3, label: 'Lighting', min: 1, max: 4, step: 1, category: 'quality', desc: 'Lighting quality' },
-  sys_spec_ObjectDetail: { value: 3, label: 'Object Detail', min: 1, max: 4, step: 1, category: 'quality', desc: 'Object detail level' },
-  sys_spec_Particles: { value: 3, label: 'Particles', min: 1, max: 4, step: 1, category: 'quality', desc: 'Particle effects quality' },
-  sys_spec_Physics: { value: 3, label: 'Physics', min: 1, max: 4, step: 1, category: 'quality', desc: 'Physics simulation quality' },
-  sys_spec_PostProcessing: { value: 3, label: 'Post Processing', min: 1, max: 4, step: 1, category: 'quality', desc: 'Post-processing effects' },
-  sys_spec_Shading: { value: 3, label: 'Shading', min: 1, max: 4, step: 1, category: 'quality', desc: 'Shading quality' },
-  sys_spec_Shadows: { value: 3, label: 'Shadows', min: 1, max: 4, step: 1, category: 'quality', desc: 'Shadow quality' },
-  sys_spec_Sound: { value: 3, label: 'Sound', min: 1, max: 4, step: 1, category: 'quality', desc: 'Sound quality' },
-  sys_spec_Texture: { value: 3, label: 'Textures', min: 1, max: 4, step: 1, category: 'quality', desc: 'Texture quality' },
-  sys_spec_TextureResolution: { value: 3, label: 'Texture Resolution', min: 1, max: 4, step: 1, category: 'quality', desc: 'Texture resolution scale' },
-  sys_spec_VolumetricEffects: { value: 3, label: 'Volumetric Effects', min: 1, max: 4, step: 1, category: 'quality', desc: 'Volumetric effects quality' },
-  sys_spec_Water: { value: 3, label: 'Water', min: 1, max: 4, step: 1, category: 'quality', desc: 'Water rendering quality' },
-  q_Quality: { value: 3, label: 'Shader Quality', min: 0, max: 3, step: 1, category: 'shaders', desc: 'Overall shader quality (0-3)' },
-  q_Renderer: { value: 3, label: 'Renderer', min: 0, max: 3, step: 1, category: 'shaders', desc: 'Renderer shader quality' },
-  q_ShaderFX: { value: 3, label: 'FX Shaders', min: 0, max: 3, step: 1, category: 'shaders', desc: 'Special effects shaders' },
-  q_ShaderGeneral: { value: 3, label: 'General', min: 0, max: 3, step: 1, category: 'shaders', desc: 'General shaders' },
-  q_ShaderPostProcess: { value: 3, label: 'Post Process', min: 0, max: 3, step: 1, category: 'shaders', desc: 'Post-processing shaders' },
-  q_ShaderShadow: { value: 3, label: 'Shadow', min: 0, max: 3, step: 1, category: 'shaders', desc: 'Shadow shaders' },
-  r_TexMaxAnisotropy: { value: 16, label: 'Anisotropy', min: 0, max: 16, step: 1, category: 'textures', desc: 'Maximum anisotropy level (0, 2, 4, 8, 16)' },
-  r_TexturesStreamingResidencyEnabled: { value: 1, label: 'Texture Streaming', min: 0, max: 1, type: 'toggle', category: 'textures', desc: 'Enable texture streaming' },
-  r_TexturesStreamPoolSize: { value: 8192, label: 'Stream Pool Size (MB)', min: 2048, max: 16384, step: 1024, category: 'textures', desc: 'Texture stream pool size' },
-  r_SSAOQuality: { value: 2, label: 'SSAO Quality', min: 0, max: 4, step: 1, category: 'effects', desc: 'Screen Space Ambient Occlusion quality (0=off)' },
-  r_ssdoHalfRes: { value: 1, label: 'SSDO Half Res', min: 0, max: 1, type: 'toggle', category: 'effects', desc: 'Run SSDO at half resolution' },
-  r_FogShadows: { value: 0, label: 'Fog Shadows', min: 0, max: 1, type: 'toggle', category: 'effects', desc: 'Enable fog shadows' },
-  e_Tessellation: { value: 0, label: 'Tessellation', min: 0, max: 1, type: 'toggle', category: 'effects', desc: 'Enable tessellation' },
-  e_ParticlesShadows: { value: 0, label: 'Particle Shadows', min: 0, max: 1, type: 'toggle', category: 'effects', desc: 'Enable particle shadows' },
-  r_HDRBloomRatio: { value: 0, label: 'HDR Bloom', min: 0, max: 1, type: 'toggle', category: 'clarity', desc: 'HDR Bloom effect (0=off)' },
-  r_DepthOfField: { value: 0, label: 'Depth of Field', min: 0, max: 1, type: 'toggle', category: 'clarity', desc: 'Enable depth of field' },
-  r_MotionBlur: { value: 0, label: 'Motion Blur', min: 0, max: 1, type: 'toggle', category: 'clarity', desc: 'Enable motion blur' },
-  r_Sharpening: { value: 1, label: 'Sharpening', min: 0, max: 1, type: 'toggle', category: 'clarity', desc: 'Enable sharpening' },
-  r_Flares: { value: 0, label: 'Lens Flares', min: 0, max: 1, type: 'toggle', category: 'clarity', desc: 'Enable lens flares' },
-  r_ColorGrading: { value: 0, label: 'Color Grading', min: 0, max: 1, type: 'toggle', category: 'clarity', desc: 'Enable color grading' },
-  e_ViewDistRatio: { value: 100, label: 'View Distance', min: 0, max: 255, step: 5, category: 'lod', desc: 'General view distance (0-255)' },
-  e_ViewDistRatioDetail: { value: 100, label: 'Detail Distance', min: 0, max: 255, step: 5, category: 'lod', desc: 'Detail view distance' },
-  e_VegetationMinSize: { value: 0.5, label: 'Vegetation Min Size', min: 0, max: 2, step: 0.1, category: 'lod', desc: 'Minimum vegetation size' },
+  // Essential settings (visible by default)
+  _resolution: { value: '1920x1080', label: 'Resolution', category: 'essential', type: 'resolution', virtual: true,
+    desc: 'Render resolution (width x height)',
+    help: 'Sets the internal rendering resolution. Higher resolutions produce sharper images but significantly increase GPU load. Match your monitor\'s native resolution for best clarity; lower it for better performance on weaker GPUs.' },
+  _windowMode: { value: 2, label: 'Window Mode', min: 0, max: 2, step: 1, category: 'essential', labels: ['Windowed', 'Fullscreen', 'Borderless'], virtual: true,
+    desc: 'Windowed, Fullscreen, or Borderless mode',
+    help: 'Controls how the game window is displayed. Fullscreen gives exclusive GPU access for best performance. Borderless allows easy Alt-Tab but may add slight input lag. Windowed mode is useful for multi-tasking but has the most overhead.' },
+  'r.graphicsRenderer': { value: 0, label: 'Graphics Renderer', min: 0, max: 1, step: 1, category: 'essential', labels: ['Vulkan', 'DX11'],
+    desc: 'Graphics API: Vulkan (recommended) or DX11',
+    help: 'Selects the graphics API. Vulkan is the default since 4.0 and pre-builds shaders to reduce stuttering. DX11 is a legacy fallback with generally worse performance. Only switch to DX11 if Vulkan causes crashes on your hardware.' },
+  r_VSync: { value: 0, label: 'VSync', min: 0, max: 1, type: 'toggle', category: 'essential',
+    desc: 'Sync frames to monitor refresh rate',
+    help: 'Synchronizes rendered frames with your monitor\'s refresh rate to eliminate screen tearing. Adds input latency and can reduce FPS if your system can\'t maintain the refresh rate. Disable for lowest input lag; enable if tearing is distracting.' },
+  r_VSync_disablePIAdjustment: { value: 1, label: 'VSync PI Fix', min: 0, max: 1, type: 'toggle', category: 'essential',
+    desc: 'Disable VSync time-step PI adjustment',
+    help: 'Disables the proportional-integral adjustment for VSync frame timing. Can fix micro-judder when VSync is enabled. If you experience slight stuttering with VSync on, try toggling this. No effect when VSync is off.' },
+  sys_MaxFPS: { value: 0, label: 'Max FPS', min: 0, max: 300, step: 5, category: 'essential',
+    desc: 'Frame rate cap (0 = unlimited)',
+    help: 'Limits the maximum frames per second. Set to 0 for no limit, or cap at your monitor\'s refresh rate to reduce GPU heat and power usage. Capping slightly below your monitor\'s refresh rate (e.g. 141 for a 144Hz display) can smooth frame pacing.' },
+  sys_MaxIdleFPS: { value: 30, label: 'Max Idle FPS', min: 5, max: 120, step: 5, category: 'essential',
+    desc: 'Frame rate cap when window is not focused',
+    help: 'Limits FPS when Star Citizen is in the background or minimized. Reduces GPU/CPU usage and heat while Alt-Tabbed. Lower values save more power; 15-30 is recommended for background idle.' },
+  'r.TSR': { value: 0, label: 'TSR (Upscaling)', min: 0, max: 1, type: 'toggle', category: 'essential',
+    desc: 'Temporal Super Resolution upscaling',
+    help: 'Enables CryEngine\'s built-in Temporal Super Resolution upscaler. Renders at a lower internal resolution and reconstructs a higher-quality image, boosting FPS with some loss of sharpness. Disabling this also disables all temporal anti-aliasing.' },
+  r_DisplayInfo: { value: 0, label: 'Debug HUD', min: 0, max: 4, step: 1, category: 'essential',
+    desc: 'Performance debug overlay (0=off, 1-4 detail)',
+    help: 'Shows real-time performance metrics on screen. Level 1 shows basic FPS, level 2 adds frame timing, level 3 includes RAM/VRAM usage, and level 4 shows GPU load statistics. Useful for troubleshooting; disable for normal play.' },
+  r_displayFrameGraph: { value: 0, label: 'Frame Graph', min: 0, max: 1, type: 'toggle', category: 'essential',
+    desc: 'Frame timing graph overlay',
+    help: 'Shows a real-time frame timing graph for performance analysis. Helps identify stuttering patterns, frame spikes, and GPU/CPU bottlenecks. Enable temporarily for troubleshooting; disable for normal play.' },
+  r_DisplaySessionInfo: { value: 0, label: 'Session Info QR', min: 0, max: 1, type: 'toggle', category: 'essential',
+    alwaysWrite: true,
+    desc: 'QR code overlay for bug reports (PTU default: on)',
+    help: 'Displays a QR code on screen containing session information for Star Citizen bug reports. PTU enables this by default — Star Control always writes this setting explicitly so the QR code stays off unless you enable it.' },
+  // Graphics Quality (verified)
+  sys_spec: { value: 3, label: 'Overall Quality', min: 1, max: 4, step: 1, category: 'quality',
+    desc: 'Master quality preset (1=Low, 4=Very High)',
+    help: 'Sets the global graphics quality preset, overriding all individual sys_spec settings. 1=Low, 2=Medium, 3=High, 4=Very High. Higher settings increase visual fidelity but require a more powerful GPU and CPU. Adjust individual settings below to fine-tune after choosing a base preset.' },
+  sys_spec_GameEffects: { value: 3, label: 'Game Effects', min: 1, max: 4, step: 1, category: 'quality',
+    desc: 'Quality of in-game visual effects',
+    help: 'Controls the quality of gameplay visual effects such as explosions, energy weapons, shield impacts, and environmental effects. Lowering this can improve FPS in combat-heavy situations with many simultaneous effects on screen.' },
+  sys_spec_ObjectDetail: { value: 3, label: 'Object Detail', min: 1, max: 4, step: 1, category: 'quality',
+    desc: 'Geometric detail level of objects',
+    help: 'Controls the polygon count and detail level of ships, stations, and props. Higher values show more detailed 3D models at greater distances. Lowering this reduces GPU vertex processing load and can help in crowded areas like landing zones.' },
+  sys_spec_Particles: { value: 3, label: 'Particles', min: 1, max: 4, step: 1, category: 'quality',
+    desc: 'Particle system quality and density',
+    help: 'Controls the density, resolution, and complexity of particle effects (smoke, fire, exhaust, debris). Lower values reduce particle counts and simplify effects, which can significantly help FPS during explosions and atmospheric flight.' },
+  sys_spec_Physics: { value: 3, label: 'Physics', min: 1, max: 4, step: 1, category: 'quality',
+    desc: 'Physics simulation detail level',
+    help: 'Controls the complexity of physics simulations including debris, ragdoll, and environmental interactions. Higher values allow more physics objects and more accurate collision. Lowering this is CPU-bound and helps on systems with weaker processors.' },
+  sys_spec_Shading: { value: 3, label: 'Shading', min: 1, max: 4, step: 1, category: 'quality',
+    desc: 'Material and lighting shading quality',
+    help: 'Controls the complexity of surface shading, material rendering, and lighting calculations. Higher values produce more realistic materials and lighting at the cost of GPU shader performance. One of the most impactful settings for visual quality vs. performance.' },
+  sys_spec_Shadows: { value: 3, label: 'Shadows', min: 1, max: 4, step: 1, category: 'quality',
+    desc: 'Shadow map resolution and quality',
+    help: 'Controls shadow map resolution, cascade distances, and filtering quality. Higher values produce sharper, more detailed shadows that extend further. Shadows are GPU-intensive; lowering this is one of the most effective ways to improve performance.' },
+  sys_spec_Texture: { value: 3, label: 'Textures', min: 1, max: 4, step: 1, category: 'quality',
+    desc: 'Texture filtering and quality level',
+    help: 'Controls texture filtering quality and mipmap selection. Higher values produce sharper textures, especially at oblique angles. Depends heavily on available VRAM. If you see blurry textures, increase this or raise the Stream Pool Size.' },
+  sys_spec_Water: { value: 3, label: 'Water', min: 1, max: 4, step: 1, category: 'quality',
+    desc: 'Water surface rendering quality',
+    help: 'Controls the quality of water rendering including reflections, refraction, tessellation, and wave simulation. Higher values produce more realistic water surfaces. Performance impact is mainly noticeable on planets with large bodies of water.' },
+  // Shader Quality (verified)
+  q_ShaderFX: { value: 3, label: 'FX Shaders', min: 0, max: 3, step: 1, category: 'shaders',
+    desc: 'Visual effects shader complexity (0-3)',
+    help: 'Controls the shader quality for special visual effects like explosions, energy beams, and quantum travel effects. 0=Low, 1=Medium, 2=High, 3=Very High. Lower values simplify effect rendering for better FPS during action sequences.' },
+  q_ShaderGeneral: { value: 3, label: 'General', min: 0, max: 3, step: 1, category: 'shaders',
+    desc: 'General surface shader quality (0-3)',
+    help: 'Controls the quality of general-purpose shaders used for most surfaces and objects. Affects overall material rendering complexity. This is a broad setting that impacts visual quality across the entire scene; lowering it can provide a noticeable FPS boost.' },
+  q_ShaderPostProcess: { value: 3, label: 'Post Process', min: 0, max: 3, step: 1, category: 'shaders',
+    desc: 'Post-processing shader quality (0-3)',
+    help: 'Controls the quality of post-processing effects such as tone mapping, color grading, and screen-space effects. Lower values use simplified post-processing passes. Moderate performance impact; lowering primarily affects visual polish rather than geometry detail.' },
+  q_ShaderShadow: { value: 3, label: 'Shadow', min: 0, max: 3, step: 1, category: 'shaders',
+    desc: 'Shadow rendering shader quality (0-3)',
+    help: 'Controls the complexity of shadow rendering shaders including filtering and soft shadow calculations. Lower values use simpler shadow techniques that render faster. Works in conjunction with sys_spec_Shadows for overall shadow quality.' },
+  q_ShaderGlass: { value: 3, label: 'Glass', min: 0, max: 3, step: 1, category: 'shaders',
+    desc: 'Glass and transparency shader quality (0-3)',
+    help: 'Controls the quality of glass and transparent surface rendering, including refraction, reflection, and multi-layer transparency. Visible on cockpit canopies, windows, and visor HUDs. Lower values simplify transparency calculations.' },
+  q_ShaderParticle: { value: 3, label: 'Particle', min: 0, max: 3, step: 1, category: 'shaders',
+    desc: 'Particle effect shader quality (0-3)',
+    help: 'Controls the shader complexity for particle effects. Unlike q_ShaderFX, this specifically affects how individual particles are rendered (lighting, soft edges, refraction). Not affected by the q_Quality master setting. Lower values can help in particle-heavy scenes.' },
+  q_ShaderSky: { value: 3, label: 'Sky', min: 0, max: 3, step: 1, category: 'shaders',
+    desc: 'Sky and atmosphere shader quality (0-3)',
+    help: 'Controls the quality of sky rendering, atmospheric scattering, and cloud shaders. Higher values produce more realistic planetary atmospheres and space skyboxes. Lower values simplify atmospheric calculations with minor visual differences in space.' },
+  q_ShaderWater: { value: 3, label: 'Water', min: 0, max: 3, step: 1, category: 'shaders',
+    desc: 'Water surface shader quality (0-3)',
+    help: 'Controls the shader complexity for water surfaces including wave simulation, caustics, and subsurface scattering. Works together with sys_spec_Water. Lower values use simplified water rendering that is less GPU-intensive near oceans and lakes.' },
+  q_ShaderCompute: { value: 3, label: 'Compute', min: 0, max: 3, step: 1, category: 'shaders',
+    desc: 'GPU compute shader quality (0-3)',
+    help: 'Controls the quality of GPU compute shaders used for general-purpose GPU calculations like cloth simulation, advanced lighting, and physics effects. Lower values reduce compute shader workload. Impact varies depending on scene complexity.' },
+  // Textures (verified)
+  r_TexturesStreamPoolSize: { value: 8192, label: 'Stream Pool Size (MB)', min: 2048, max: 16384, step: 1024, category: 'textures',
+    desc: 'VRAM allocated for texture streaming (MB)',
+    help: 'Sets the amount of VRAM (in MB) reserved for streaming textures. Should be set based on your GPU\'s VRAM: 2048 for 4GB, 4096 for 6GB, 8192 for 8-12GB, 12288+ for 16GB+. Too high causes VRAM overflow and stuttering; too low causes blurry textures.' },
+  // Visual Effects (verified)
+  r_ssao: { value: 1, label: 'SSAO', min: 0, max: 1, type: 'toggle', category: 'effects',
+    desc: 'Screen Space Ambient Occlusion',
+    help: 'Adds soft shadows in creases and corners where ambient light is occluded. SSAO is the simpler, older technique compared to SSDO. When SSDO is enabled, SSAO can be disabled (they are somewhat redundant). Disabling both removes ambient shadow detail but improves FPS.' },
+  r_ssdo: { value: 2, label: 'Directional Occlusion', min: 0, max: 3, step: 1, category: 'effects',
+    desc: 'Screen Space Directional Occlusion quality', labels: ['Off', 'Fast', 'Optimized', 'Reference'],
+    help: 'An advanced form of ambient occlusion that also calculates directional light blocking and subtle color bleeding. Produces more realistic lighting than SSAO alone. 0=Off, 1=Fast (local lights + sun), 2=Optimized (all lights + ambient), 3=Reference (debug, very slow). Level 2 is recommended for quality; 1 for performance.' },
+  r_SSReflections: { value: 1, label: 'SS Reflections', min: 0, max: 1, type: 'toggle', category: 'effects',
+    desc: 'Screen Space Reflections on surfaces',
+    help: 'Enables real-time reflections calculated from on-screen geometry. Adds realistic reflections on floors, wet surfaces, and metallic objects. Disabling may cause surfaces to look flat or washed out but can provide a few extra FPS. Most noticeable in interiors and landing zones.' },
+  r_HDRDisplayOutput: { value: 0, label: 'HDR Output', min: 0, max: 1, type: 'toggle', category: 'effects',
+    desc: 'Enable HDR display output',
+    help: 'Enables High Dynamic Range output for HDR-capable monitors. Provides wider color range and higher contrast for more vivid visuals. Only enable if your monitor supports HDR; on SDR monitors this will cause washed-out colors. No significant performance impact.' },
+  r_HDRDisplayMaxNits: { value: 1500, label: 'HDR Max Nits', min: 400, max: 4000, step: 100, category: 'effects',
+    desc: 'Maximum HDR brightness in nits',
+    help: 'Sets the maximum brightness for HDR output in nits. Match this to your monitor\'s peak HDR brightness (check your monitor specs). Too high causes clipping; too low wastes HDR range. Only has effect when HDR Output is enabled.' },
+  r_HDRDisplayRefWhite: { value: 200, label: 'HDR Ref White', min: 80, max: 500, step: 10, category: 'effects',
+    desc: 'HDR reference white level in nits',
+    help: 'Sets the reference white point for HDR content in nits. Controls the brightness of standard (non-highlight) content. 200 is a good starting point; increase if the image looks dim, decrease if it looks washed out. Only has effect when HDR Output is enabled.' },
+  'r.GI.Specular.HalfRes': { value: 1, label: 'GI Specular Half-Res', min: 0, max: 1, type: 'toggle', category: 'effects',
+    desc: 'Render specular GI at half resolution',
+    help: 'Renders specular global illumination at half resolution for better performance. Reduces the GPU cost of reflective GI calculations with minimal visual difference. Disable for full-resolution specular GI if you have GPU headroom.' },
+  'r.GI.Specular.Temporal': { value: 1, label: 'GI Specular Temporal', min: 0, max: 1, type: 'toggle', category: 'effects',
+    desc: 'Temporal filtering for specular GI',
+    help: 'Enables temporal filtering for specular global illumination, reducing noise by accumulating data across frames. Produces smoother, more stable reflections. Disable only if you notice ghosting artifacts on fast-moving reflective surfaces.' },
+  'r.Shadows.ScreenSpace': { value: 1, label: 'Screen-Space Shadows', min: 0, max: 1, type: 'toggle', category: 'effects',
+    desc: 'Screen-space shadow rendering',
+    help: 'Enables screen-space shadow calculations for fine contact shadows. Adds subtle shadow detail where objects meet surfaces, improving visual depth. Moderate GPU cost; disable for a few extra FPS if shadows aren\'t a priority.' },
+  'r.Shadows.ScreenSpace.Quality': { value: 3, label: 'SS Shadow Quality', min: 0, max: 3, step: 1, category: 'effects',
+    desc: 'Screen-space shadow quality (0-3)',
+    help: 'Controls the quality of screen-space shadows. 0=Low (fast, noisy), 3=Very High (smooth, detailed). Higher values produce cleaner contact shadows at more GPU cost. Only has effect when Screen-Space Shadows is enabled.' },
+  // Visual Clarity (verified)
+  r_DepthOfField: { value: 0, label: 'Depth of Field', min: 0, max: 1, type: 'toggle', category: 'clarity',
+    desc: 'Blur objects outside the focal point',
+    help: 'Simulates camera focus by blurring objects at different distances. Creates a cinematic look but can reduce visual clarity, especially in gameplay. Most players disable this for clearer visibility. Minor performance impact when enabled.' },
+  r_MotionBlur: { value: 0, label: 'Motion Blur', min: 0, max: 2, step: 1, category: 'clarity', labels: ['Off', 'Camera', 'Camera+Object'],
+    desc: 'Blur effect during camera/object movement',
+    help: 'Adds blur when the camera or objects move quickly. 0=Off, 1=Camera motion blur only, 2=Camera and per-object motion blur. Can feel cinematic but reduces clarity during fast movement. Most competitive players disable this. Minor GPU cost at level 1, moderate at level 2.' },
+  r_Sharpening: { value: 1, label: 'Sharpening', min: 0, max: 1, step: 0.05, category: 'clarity',
+    desc: 'Post-process image sharpening (0.0-1.0)',
+    help: 'Applies a post-processing sharpening filter to the final image. Higher values make edges and textures look crisper, but too much can cause shimmering and make jagged edges more visible. Values around 0.2-0.5 balance clarity with smoothness. Negligible performance cost.' },
+  r_OpticsBloom: { value: 1, label: 'Bloom', min: 0, max: 1, type: 'toggle', category: 'clarity',
+    desc: 'Glow effect around bright light sources',
+    help: 'Adds a soft glow around bright light sources like stars, engines, and explosions. Creates a more realistic lighting look but can reduce contrast. Disable for a cleaner, sharper image. Very low performance impact.' },
+  r_ChromaticAberration: { value: 0, label: 'Chromatic Aberration', min: 0, max: 100, step: 5, category: 'clarity',
+    desc: 'Lens color fringing effect intensity',
+    help: 'Simulates the color fringing that occurs in real camera lenses, splitting colors at screen edges. A purely cinematic effect that many players find distracting. Set to 0 for the cleanest image. No meaningful performance impact; purely a visual preference.' },
+  r_filmgrain: { value: 1, label: 'Film Grain', min: 0, max: 1, type: 'toggle', category: 'clarity',
+    desc: 'Film grain visual noise effect',
+    help: 'Adds a subtle film grain noise overlay to the image for a cinematic look. Many players disable this for a cleaner, sharper image. No performance impact; purely a visual preference.' },
+  r_vignetteBlur: { value: 1, label: 'Vignette Blur', min: 0, max: 1, type: 'toggle', category: 'clarity',
+    desc: 'Screen edge darkening/blur effect',
+    help: 'Darkens and slightly blurs the edges of the screen, mimicking a real camera lens vignette. Disable for a cleaner, more uniform image. No performance impact; purely a visual preference.' },
+  r_Gamma: { value: 1.0, label: 'Gamma', min: 0.5, max: 1.5, step: 0.05, category: 'clarity',
+    desc: 'Display gamma correction',
+    help: 'Adjusts the brightness curve of the display. Higher values brighten dark areas, lower values darken them. The default of 1.0 is usually correct for most monitors. Adjust if the game looks too dark or washed out. Affects HUD elements as well.' },
+  r_Contrast: { value: 0.5, label: 'Contrast', min: 0.0, max: 1.0, step: 0.05, category: 'clarity',
+    desc: 'Display contrast adjustment',
+    help: 'Adjusts the contrast between light and dark areas. Higher values increase the difference between bright and dark tones. Default of 0.5 is balanced; increase for punchier visuals, decrease if details are lost in shadows or highlights. No performance impact.' },
+  // View Distance (verified)
+  e_ViewDistRatio: { value: 100, label: 'View Distance', min: 0, max: 255, step: 5, category: 'lod',
+    desc: 'Max draw distance for objects',
+    help: 'Controls how far away objects remain visible before being culled. Higher values render objects at greater distances, improving the view of distant ships and stations but increasing draw calls. Default is around 60; values of 100+ provide excellent draw distance at some CPU/GPU cost.' },
+  e_ViewDistRatioDetail: { value: 100, label: 'Detail Distance', min: 0, max: 255, step: 5, category: 'lod',
+    desc: 'Max draw distance for small detail objects',
+    help: 'Controls the draw distance specifically for small detail objects like debris, small props, and surface clutter. Lower values cull fine details sooner, reducing draw calls in complex scenes. Reducing this is an effective way to improve FPS in detailed environments like landing zones.' },
+  e_ViewDistRatioVegetation: { value: 100, label: 'Vegetation Distance', min: 0, max: 255, step: 5, category: 'lod',
+    desc: 'Max draw distance for vegetation',
+    help: 'Controls how far vegetation (trees, grass, bushes) is rendered on planetary surfaces. Lower values cause vegetation to pop in closer to the player. Reducing this can significantly improve FPS on planets with dense vegetation like microTech and Hurston.' },
+  e_LodRatio: { value: 4, label: 'LOD Ratio', min: 4, max: 40, step: 2, category: 'lod',
+    desc: 'Distance at which models switch to lower detail',
+    help: 'Controls the distance at which objects transition to lower-detail LOD models. Higher values keep high-poly models visible longer, improving visual quality at a distance but increasing GPU load. Default ranges from 4 (Low) to 40 (Very High). Values of 6-20 are a good balance.' },
+  // Input
+  i_Mouse_Accel: { value: 0, label: 'Mouse Acceleration', min: 0, max: 1, step: 0.1, category: 'input',
+    desc: 'Mouse movement acceleration (0=off)',
+    help: 'Adds acceleration to mouse movement, making faster mouse motions move the cursor proportionally further. Most players prefer 0 (off) for consistent, predictable aiming. Enable only if you prefer acceleration-style mouse behavior.' },
+  i_Mouse_Smooth: { value: 0, label: 'Mouse Smoothing', min: 0, max: 1, step: 0.1, category: 'input',
+    desc: 'Mouse input smoothing (0=off)',
+    help: 'Smooths out mouse input by averaging recent movements, reducing jitter but adding slight input lag. Most players prefer 0 (off) for the most responsive, direct mouse input. Higher values make mouse movement feel floaty.' },
+  // Advanced (unverified — may have no effect)
+  sys_budget_sysmem: { value: 16384, label: 'System RAM (MB)', min: 4096, max: 65536, step: 4096, category: 'advanced',
+    desc: 'System RAM budget hint for the engine (MB)',
+    help: 'Tells the engine how much system RAM is available for budgeting. Set to your actual RAM in MB (16384=16GB, 32768=32GB, 65536=64GB). This is a hint for memory management, not a hard limit. Setting it too high on a system with less RAM may cause instability.' },
+  sys_budget_videomem: { value: 8192, label: 'Video RAM (MB)', min: 2048, max: 24576, step: 2048, category: 'advanced',
+    desc: 'Video RAM budget hint for the engine (MB)',
+    help: 'Tells the engine how much VRAM is available for budgeting. Match your GPU\'s VRAM (4096=4GB, 8192=8GB, 12288=12GB, 16384=16GB, 24576=24GB). Helps the engine make better streaming and quality decisions. Setting this too high can cause stuttering from VRAM overflow.' },
+  sys_streaming_CPU: { value: 1, label: 'Streaming CPU', min: 0, max: 1, type: 'toggle', category: 'advanced',
+    desc: 'CPU-assisted texture streaming',
+    help: 'Enables CPU-based texture streaming to help manage texture loading. When enabled, the CPU assists in scheduling and prioritizing texture streams. Should generally be left on. Disabling may cause more texture pop-in or loading delays.' },
+  sys_limit_phys_thread_count: { value: 0, label: 'Physics Thread Limit', min: 0, max: 16, step: 1, category: 'advanced',
+    desc: 'Max physics threads (0 = automatic)',
+    help: 'Limits the number of CPU threads used for physics calculations. 0 lets the engine decide automatically based on your CPU. Manually limiting this can help if physics processing causes stalls on CPUs with few cores, or to free up cores for other tasks.' },
+  sys_PakStreamCache: { value: 1, label: 'Pak Stream Cache', min: 0, max: 1, type: 'toggle', category: 'advanced',
+    desc: 'Cache pak file data in memory',
+    help: 'Enables caching of game data files (pak archives) in memory for faster repeated access. Reduces disk I/O and load times at the cost of some RAM usage. Should generally be left on, especially with SSDs. Disabling may increase loading times and stuttering.' },
+  ca_thread: { value: 1, label: 'Animation Thread', min: 0, max: 1, type: 'toggle', category: 'advanced',
+    desc: 'Dedicated thread for character animations',
+    help: 'Enables a separate thread for character animation processing. Improves performance by offloading animation calculations from the main thread. Should be left on for multi-core CPUs. Only disable for debugging purposes.' },
+  e_ParticlesThread: { value: 1, label: 'Particles Thread', min: 0, max: 1, type: 'toggle', category: 'advanced',
+    desc: 'Dedicated thread for particle systems',
+    help: 'Enables a separate thread for particle system updates. Offloads particle simulation from the main thread, improving FPS in particle-heavy scenes like battles. Should be left on for multi-core CPUs. Only disable for debugging purposes.' },
+  sys_job_system_enable: { value: 1, label: 'Job System', min: 0, max: 1, type: 'toggle', category: 'advanced',
+    desc: 'Multi-threaded job scheduling system',
+    help: 'Enables the engine\'s multi-threaded job system for distributing work across CPU cores. Critical for performance on modern multi-core CPUs. WARNING: Disabling makes the game nearly unusable and should only be done for debugging thread-safety issues.' },
+  sys_spec_Light: { value: 3, label: 'Lighting', min: 1, max: 4, step: 1, category: 'advanced',
+    desc: 'Dynamic lighting quality (1=Low, 4=Very High)',
+    help: 'Controls the quality of dynamic lighting including light count, shadow-casting lights, and illumination calculations. Higher values allow more dynamic lights with better accuracy. Lowering can help FPS in scenes with many light sources like station interiors.' },
+  sys_spec_PostProcessing: { value: 3, label: 'Post Processing', min: 1, max: 4, step: 1, category: 'advanced',
+    desc: 'Post-processing effects quality (1-4)',
+    help: 'Controls the quality of screen-space post-processing effects like color grading, tone mapping, and lens effects. Higher values use more complex post-processing passes. Moderate GPU impact; lowering affects visual polish but not geometry or texture detail.' },
+  sys_spec_TextureResolution: { value: 3, label: 'Texture Resolution', min: 1, max: 4, step: 1, category: 'advanced',
+    desc: 'Texture resolution multiplier (1-4)',
+    help: 'Controls the maximum texture resolution scale. Higher values load larger texture mipmaps, producing sharper surfaces at the cost of more VRAM. Lower values force smaller mipmaps, reducing VRAM usage but making surfaces blurrier. Depends heavily on available VRAM.' },
+  sys_spec_VolumetricEffects: { value: 3, label: 'Volumetric Effects', min: 1, max: 4, step: 1, category: 'advanced',
+    desc: 'Volumetric fog, clouds, and light shafts (1-4)',
+    help: 'Controls the quality of volumetric rendering including fog, god rays, cloud density, and atmospheric haze. Higher values produce more detailed volumetrics but are GPU-intensive. Lowering this can help FPS significantly in atmospheric environments and nebulae.' },
+  sys_spec_Sound: { value: 3, label: 'Sound', min: 1, max: 4, step: 1, category: 'advanced',
+    desc: 'Audio processing quality (1-4)',
+    help: 'Controls the quality and complexity of audio processing including number of simultaneous sounds, reverb quality, and spatial audio. Higher values produce richer soundscapes. Lowering has minimal performance impact on most systems but can help on very CPU-limited setups.' },
+  q_Quality: { value: 3, label: 'Shader Quality', min: 0, max: 3, step: 1, category: 'advanced',
+    desc: 'Master shader quality preset (0-3)',
+    help: 'Sets all shader quality levels at once (except q_ShaderParticle and q_ShaderDecal). 0=Low, 1=Medium, 2=High, 3=Very High. Overrides individual q_Shader* settings when changed. Adjust individual shader settings after this for fine-tuning.' },
+  q_Renderer: { value: 3, label: 'Renderer', min: 0, max: 3, step: 1, category: 'advanced',
+    desc: 'Renderer quality level (0-3)',
+    help: 'Controls the overall renderer quality level affecting various internal rendering decisions. 0=Low, 1=Medium, 2=High, 3=Very High. Influences rendering paths and quality selections across the pipeline. Generally leave at the same level as q_Quality.' },
+  r_TexturesStreamingResidencyEnabled: { value: 1, label: 'Texture Streaming', min: 0, max: 1, type: 'toggle', category: 'advanced',
+    desc: 'Dynamic texture streaming system',
+    help: 'Enables the texture residency streaming system that dynamically loads and unloads textures based on visibility. Essential for managing VRAM usage efficiently. Disabling forces all textures to load fully, which can exceed VRAM and cause severe stuttering.' },
+  e_VegetationMinSize: { value: 0.5, label: 'Vegetation Min Size', min: 0, max: 2, step: 0.1, category: 'advanced',
+    desc: 'Minimum rendered vegetation size threshold',
+    help: 'Sets the minimum size for vegetation objects to be rendered. Higher values skip smaller plants and grass, reducing draw calls on planets. 0 renders all vegetation; values around 0.5-1.0 cull tiny plants for better FPS without visibly reducing foliage density.' },
+  'pl_pit.forceSoftwareCursor': { value: 0, label: 'Software Cursor', min: 0, max: 1, type: 'toggle', category: 'advanced',
+    desc: 'Use software cursor instead of hardware',
+    help: 'Forces a software-rendered cursor instead of the hardware cursor. Can fix cursor issues on multi-monitor setups or when the cursor disappears or appears on the wrong screen. Adds minimal overhead. Only enable if you experience cursor problems.' },
+  Con_Restricted: { value: 1, label: 'Console Restricted', min: 0, max: 1, type: 'toggle', category: 'advanced',
+    desc: 'Restrict console commands (0=unlock all)',
+    help: 'When set to 1 (default), only basic console commands are available. Set to 0 to unlock extended console commands for advanced debugging and configuration. Required for many debug CVars to take effect. No performance impact.' },
 };
 
+/** Display labels for graphics quality levels (1-4) */
 const QUALITY_LEVELS = ['', 'Low', 'Medium', 'High', 'Very High'];
+/** Display labels for shader quality levels (0-3) */
 const SHADER_LEVELS = ['', 'Low', 'Medium', 'High'];
+
+// CVar keys that should display quality/shader level labels
+const QUALITY_KEYS = new Set(['sys_spec', 'sys_spec_GameEffects', 'sys_spec_ObjectDetail', 'sys_spec_Particles', 'sys_spec_Physics', 'sys_spec_Shading', 'sys_spec_Shadows', 'sys_spec_Texture', 'sys_spec_Water', 'sys_spec_Light', 'sys_spec_PostProcessing', 'sys_spec_TextureResolution', 'sys_spec_VolumetricEffects', 'sys_spec_Sound']);
+const SHADER_KEYS = new Set(['q_ShaderFX', 'q_ShaderGeneral', 'q_ShaderPostProcess', 'q_ShaderShadow', 'q_ShaderGlass', 'q_ShaderParticle', 'q_ShaderSky', 'q_ShaderWater', 'q_ShaderCompute', 'q_Quality', 'q_Renderer']);
+
+/** Predefined resolution presets for the resolution dropdown */
+const RESOLUTION_PRESETS = [
+  { w: 1280, h: 720, label: '720p' },
+  { w: 1600, h: 900, label: '900p' },
+  { w: 1920, h: 1080, label: '1080p' },
+  { w: 2560, h: 1080, label: 'UW 1080p' },
+  { w: 2560, h: 1440, label: '1440p' },
+  { w: 3440, h: 1440, label: 'UW 1440p' },
+  { w: 3840, h: 2160, label: '4K' },
+  { w: 5120, h: 2160, label: 'UW 4K' },
+  { w: 7680, h: 4320, label: '8K' },
+];
 
 // ==================== Entry Point ====================
 
 /**
- * Set the active profile tab and render
- * @param {string} tab - The tab to show: 'profile', 'usercfg', 'localization'
+ * Sets the active tab and renders the page.
+ * Called by the navigation when a tab is directly targeted.
+ * @param {string} tab - The tab to display: 'profile', 'usercfg', 'localization', 'storage'
  */
 export function setActiveProfileTab(tab) {
   activeProfileTab = tab;
 }
 
+/**
+ * Main render function: Loads all data and renders the environments page.
+ * Uses a generation counter so that with rapidly successive calls,
+ * only the latest render is actually displayed.
+ * @param {HTMLElement} container - DOM container for the page
+ */
 export async function renderEnvironments(container) {
-  // Increment generation to discard stale renders from overlapping calls
+  // Increment generation to discard stale renders from parallel calls
   const thisGeneration = ++renderGeneration;
 
   // One-time migration: rename old binding_database.json to .bak
@@ -242,7 +496,7 @@ export async function renderEnvironments(container) {
     activeScVersion = scVersions[0].version;
   }
 
-  // Load localization labels in background if possible
+  // Load localization labels in the background (for translated action names in bindings)
   if (config?.install_path && activeScVersion && !localizationLoaded && !localizationLoading) {
     loadLocalizationLabels().then((loaded) => {
       if (loaded) {
@@ -255,7 +509,7 @@ export async function renderEnvironments(container) {
     }).catch(e => console.error('Failed to load localization labels:', e));
   }
 
-  // Show loading skeleton while data loads
+  // Show loading skeleton while data is being loaded
   container.innerHTML = `
     <div class="profiles-loading-skeleton">
       <div class="dash-skeleton">
@@ -267,7 +521,7 @@ export async function renderEnvironments(container) {
     </div>
   `;
 
-  // Load active profile state from disk
+  // Load active profile per version from disk
   try {
     const saved = await invoke('load_active_profiles');
     Object.assign(lastRestoredPerVersion, saved);
@@ -276,7 +530,7 @@ export async function renderEnvironments(container) {
     }
   } catch (e) { /* ignore */ }
 
-  // Load all data in parallel
+  // Load all data in parallel (definitions, bindings, layouts, backups, etc.)
   await Promise.all([
     loadActionDefinitions(),
     loadDevicesAndBindings(),
@@ -288,7 +542,7 @@ export async function renderEnvironments(container) {
   ]);
   await loadProfileStatus();
 
-  // Discard this render if a newer renderEnvironments call has started
+  // Discard this render if a newer renderEnvironments call has been initiated
   if (thisGeneration !== renderGeneration) return;
 
   // Render
@@ -308,8 +562,9 @@ export async function renderEnvironments(container) {
   attachProfilesEventListeners();
 }
 
-// ==================== Data Loading ====================
+// ==================== Load Data ====================
 
+/** Loads the action definitions (categories, display names) from the backend */
 async function loadActionDefinitions() {
   try {
     actionDefinitions = await invoke('get_action_definitions');
@@ -319,8 +574,13 @@ async function loadActionDefinitions() {
   }
 }
 
+/** @type {Object} Statistics: total binding count / custom binding count */
 let bindingStats = { total: 0, custom: 0 };
 
+/**
+ * Loads the complete binding list for the active profile from the backend.
+ * Contains both default and custom bindings.
+ */
 async function loadCompleteBindingList() {
   completeBindingList = [];
   bindingStats = { total: 0, custom: 0 };
@@ -343,6 +603,7 @@ async function loadCompleteBindingList() {
 }
 
 
+/** Parses the actionmaps (actionmaps.xml) for the active version and source */
 async function loadDevicesAndBindings() {
   if (!config?.install_path || !activeScVersion) {
     parsedActionMaps = null;
@@ -359,6 +620,7 @@ async function loadDevicesAndBindings() {
   }
 }
 
+/** Loads the list of exported keyboard/controller layouts */
 async function loadExportedLayouts() {
   if (!config?.install_path || !activeScVersion) {
     exportedLayouts = [];
@@ -375,6 +637,7 @@ async function loadExportedLayouts() {
 }
 
 
+/** Loads all saved profiles (backups) for the active SC version */
 async function loadBackups() {
   if (!activeScVersion) {
     backups = [];
@@ -387,6 +650,7 @@ async function loadBackups() {
   }
 }
 
+/** Checks if the active profile is in sync with SC files (matched/changed) */
 async function loadProfileStatus() {
   if (!config?.install_path || !activeScVersion || !lastRestoredBackupId) {
     activeProfileStatus = null;
@@ -401,6 +665,7 @@ async function loadProfileStatus() {
   }
 }
 
+/** Reads the USER.cfg file and parses the settings into userCfgSettings */
 async function loadUserCfgSettings() {
   if (!config?.install_path || !activeScVersion) {
     userCfgSettings = {};
@@ -409,12 +674,19 @@ async function loadUserCfgSettings() {
   try {
     const content = await invoke('read_user_cfg', { gp: config.install_path, v: activeScVersion });
     userCfgSettings = parseUserCfg(content);
+    savedUserCfgRaw = content;
   } catch (e) {
     userCfgSettings = {};
+    savedUserCfgRaw = '';
   }
   savedUserCfgSnapshot = { ...userCfgSettings };
 }
 
+/**
+ * Loads the localization labels from Data.p4k (cached).
+ * These labels are used for translated action names in the binding view.
+ * @returns {boolean} true if successfully loaded, false otherwise
+ */
 async function loadLocalizationLabels() {
   if (!config?.install_path || !activeScVersion) {
     localizationLabels = {};
@@ -445,6 +717,11 @@ async function loadLocalizationLabels() {
   }
 }
 
+/**
+ * Loads the localization status and available languages.
+ * Also fetches remote information about the language packs in the background
+ * (last commit date, etc.) without blocking the UI.
+ */
 async function loadLocalizationData() {
   if (!config?.install_path || !activeScVersion) {
     localizationStatus = null;
@@ -454,7 +731,7 @@ async function loadLocalizationData() {
   try {
     const [status, languages] = await Promise.all([
       invoke('get_localization_status', { gamePath: config.install_path, version: activeScVersion }),
-      invoke('get_available_languages'),
+      invoke('get_available_languages', { version: activeScVersion }),
     ]);
     localizationStatus = status;
     availableLanguages = languages;
@@ -462,8 +739,32 @@ async function loadLocalizationData() {
     localizationStatus = null;
     availableLanguages = [];
   }
+
+  // Load remote info in background (non-blocking)
+  invoke('fetch_remote_language_info', { forceRefresh: false })
+    .then(info => {
+      remoteLanguageInfo = info || [];
+      // Re-render only the localization tab content if visible
+      const tabEl = document.querySelector('.localization-tab');
+      if (tabEl && activeProfileTab === 'localization') {
+        tabEl.innerHTML = `${renderLocalizationStatus()}${renderLanguageSelector()}`;
+      }
+    })
+    .catch(() => { /* ignore */ });
 }
 
+// Mapping of old/removed CVar names to their successors (for migration)
+const LEGACY_CVAR_MAP = {
+  sys_spec_Quality: 'sys_spec',
+};
+
+/**
+ * Parses the content of a USER.cfg file into a key-value object.
+ * Handles: comments, inline comments, legacy CVars, and
+ * virtual settings (_windowMode from r_Fullscreen + r_FullscreenWindow).
+ * @param {string} content - Raw content of USER.cfg
+ * @returns {Object} Parsed settings
+ */
 function parseUserCfg(content) {
   const settings = {};
   const lines = content.split('\n');
@@ -472,7 +773,7 @@ function parseUserCfg(content) {
     if (trimmed && !trimmed.startsWith(';') && !trimmed.startsWith('#')) {
       const match = trimmed.match(/^([\w.]+)\s*=\s*(.+)$/);
       if (match) {
-        const key = match[1];
+        let key = match[1];
         let value = match[2].trim();
         // Strip inline comments
         const commentIdx = value.indexOf(';');
@@ -480,18 +781,47 @@ function parseUserCfg(content) {
         if (!isNaN(value) && value !== '') {
           value = parseFloat(value);
         }
+        // Migrate legacy CVars
+        if (LEGACY_CVAR_MAP[key]) key = LEGACY_CVAR_MAP[key];
         settings[key] = value;
       }
     }
   }
+
+  // Calculate virtual _windowMode setting from r_Fullscreen + r_FullscreenWindow
+  const rFullscreen = settings.r_Fullscreen;
+  const rFullscreenWindow = settings.r_FullscreenWindow;
+  if (rFullscreen !== undefined || rFullscreenWindow !== undefined) {
+    const fs = (rFullscreen !== undefined) ? rFullscreen : 0;
+    const fsw = (rFullscreenWindow !== undefined) ? rFullscreenWindow : 0;
+    if (fs === 1) {
+      settings._windowMode = 1; // Fullscreen
+    } else if (fsw === 1) {
+      settings._windowMode = 2; // Borderless
+    } else if (fs === 2) {
+      // Legacy: r_Fullscreen=2 was old borderless
+      settings._windowMode = 2;
+    } else {
+      settings._windowMode = 0; // Windowed
+    }
+    // Remove raw CVars — they are managed by the virtual setting
+    delete settings.r_Fullscreen;
+    delete settings.r_FullscreenWindow;
+  }
+
   return settings;
 }
 
 // ==================== Version Selector ====================
+
+/** Standard SC versions that are always shown in the selector (even if not installed) */
 const STANDARD_VERSIONS = ['LIVE', 'PTU', 'EPTU', 'TECH-PREVIEW', 'HOTFIX'];
 
-// ==================== Version Selector ====================
-
+/**
+ * Renders the version selector as a card strip.
+ * Detected and standard versions are shown, sorted by priority.
+ * Each card displays the status (installed, missing, copying) via a colored dot.
+ */
 function renderVersionSelector() {
   if (scVersions.length === 0 || (!config?.install_path)) {
     return `
@@ -560,6 +890,10 @@ function renderVersionSelector() {
 
 // ==================== Main Content ====================
 
+/**
+ * Renders the main page content with tab navigation
+ * (Profiles, USER.cfg, Localization, Storage).
+ */
 function renderMainContent() {
   if (scVersions.length === 0 || !activeScVersion) {
     return '';
@@ -598,6 +932,10 @@ function renderMainContent() {
   `;
 }
 
+/**
+ * Renders the view for a version that does not exist yet.
+ * Offers options to create the folder or to symlink/copy the Data.p4k.
+ */
 function renderEmptyVersionState() {
   const versionsWithP4k = scVersions.filter(v => v.has_data_p4k !== false).map(v => v.version);
   
@@ -635,6 +973,10 @@ function renderEmptyVersionState() {
   `;
 }
 
+/**
+ * Renders the Storage tab with version information and the option
+ * to delete an entire environment ("Danger Zone").
+ */
 function renderStorageTab() {
   const vInfo = scVersions.find(v => v.version === activeScVersion);
   if (!vInfo) return '';
@@ -686,6 +1028,11 @@ function renderStorageTab() {
   `;
 }
 
+/**
+ * Renders the Profile tab: active profile, profile card grid, import banner.
+ * Shows the sync status (in sync / changed / unsaved changes),
+ * and when a profile is loaded, also the collapsible keybinding and joystick sections.
+ */
 function renderProfileTab() {
   const vInfo = scVersions.find(v => v.version === activeScVersion);
   const files = [];
@@ -768,7 +1115,7 @@ function renderProfileTab() {
               <span class="profile-active-star">★</span>
               ${displayLabel}
             </span>
-            ${statusText ? `<span class="${statusClass}" ${!isDirty && statusClass === 'profile-status-changed' ? 'id="btn-toggle-changes"' : ''}>${statusText}</span>` : ''}
+            ${statusText ? `<span class="${statusClass}" ${statusClass === 'profile-status-changed' ? 'id="btn-toggle-changes"' : ''}>${statusText}</span>` : ''}
           </div>
           <div class="profile-active-actions">
             ${isOutOfSync ? `
@@ -850,6 +1197,7 @@ function renderProfileTab() {
   `;
 }
 
+/** Renders the Localization tab: installation status + language selector */
 function renderLocalizationTab() {
   return `
     <div class="localization-tab">
@@ -859,6 +1207,11 @@ function renderLocalizationTab() {
   `;
 }
 
+/**
+ * Renders the current localization status card.
+ * Shows language, source, commit version, repository link, and file size.
+ * Contains update and remove buttons.
+ */
 function renderLocalizationStatus() {
   const status = localizationStatus;
 
@@ -879,6 +1232,8 @@ function renderLocalizationStatus() {
 
   const langName = status.language_name || status.language_code || 'Unknown';
   const sizeStr = status.file_size ? formatFileSize(status.file_size) : 'Unknown';
+  const shortSha = status.commit_sha ? status.commit_sha.substring(0, 7) : null;
+  const commitDateStr = status.commit_date ? formatCommitDate(status.commit_date) : null;
 
   return `
     <div class="profile-info-card">
@@ -896,6 +1251,30 @@ function renderLocalizationStatus() {
         <div class="profile-info-row">
           <span class="profile-info-label">Source</span>
           <span class="profile-info-value">${escapeHtml(status.source_label)}</span>
+        </div>
+      ` : ''}
+      ${commitDateStr || shortSha ? `
+        <div class="profile-info-row">
+          <span class="profile-info-label">Translation Version</span>
+          <span class="profile-info-value">
+            ${commitDateStr ? escapeHtml(commitDateStr) : ''}
+            ${shortSha ? `<code class="localization-commit-hash">${escapeHtml(shortSha)}</code>` : ''}
+          </span>
+        </div>
+      ` : ''}
+      ${status.repo_url ? `
+        <div class="profile-info-row">
+          <span class="profile-info-label">Repository</span>
+          <span class="profile-info-value">
+            <a href="#" class="localization-repo-link" data-url="${escapeHtml(status.repo_url)}">
+              ${escapeHtml(status.source_repo || status.repo_url)}
+              <svg class="localization-repo-link-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                <polyline points="15 3 21 3 21 9"></polyline>
+                <line x1="10" y1="14" x2="21" y2="3"></line>
+              </svg>
+            </a>
+          </span>
         </div>
       ` : ''}
       ${status.installed_at ? `
@@ -921,12 +1300,17 @@ function renderLocalizationStatus() {
   `;
 }
 
+/**
+ * Renders the table of available languages with install buttons.
+ * Groups languages by language code (one language can have multiple sources).
+ * Shows remote information (last update) when available.
+ */
 function renderLanguageSelector() {
   if (availableLanguages.length === 0) {
     return '<div class="sc-hint">No languages available.</div>';
   }
 
-  // Group languages by code
+  // Group languages by code (one language can have multiple translation sources)
   const grouped = {};
   for (const lang of availableLanguages) {
     if (!grouped[lang.language_code]) {
@@ -940,6 +1324,7 @@ function renderLanguageSelector() {
     grouped[lang.language_code].sources.push({
       source_repo: lang.source_repo,
       source_label: lang.source_label,
+      repo_url: lang.repo_url,
     });
   }
 
@@ -947,6 +1332,15 @@ function renderLanguageSelector() {
   const isInstalled = localizationStatus?.installed;
   const installedCode = localizationStatus?.language_code;
   const installedSource = localizationStatus?.source_label;
+
+  // Flatten: one row per source (not per language)
+  const rows = [];
+  for (const lang of languages) {
+    const isActive = isInstalled && installedCode === lang.language_code;
+    for (const src of lang.sources) {
+      rows.push({ lang, src, isActive, isSrcActive: isActive && installedSource === src.source_label });
+    }
+  }
 
   return `
     <div class="sc-section">
@@ -960,37 +1354,52 @@ function renderLanguageSelector() {
           Available Languages
         </h3>
       </div>
-      <div class="localization-languages-grid">
-        ${languages.map(lang => {
-          const isActive = isInstalled && installedCode === lang.language_code;
+      <div class="localization-table">
+        <div class="localization-table-header">
+          <span class="localization-col-lang">Language</span>
+          <span class="localization-col-source">Source</span>
+          <span class="localization-col-updated">Updated</span>
+          <span class="localization-col-action"></span>
+        </div>
+        ${rows.map(({ lang, src, isSrcActive }, idx) => {
+          const remoteInfo = remoteLanguageInfo.find(
+            r => r.source_repo === src.source_repo && r.language_code === lang.language_code
+          );
+          const lastUpdated = remoteInfo ? formatCommitDate(remoteInfo.commit_date) : '';
+          const prevLang = idx > 0 ? rows[idx - 1].lang.language_code : null;
+          const isNewGroup = prevLang !== null && prevLang !== lang.language_code;
           return `
-            <div class="localization-lang-card ${isActive ? 'active' : ''}">
-              <div class="localization-lang-info">
-                <span class="localization-lang-flag">${escapeHtml(lang.flag)}</span>
-                <span class="localization-lang-name">${escapeHtml(lang.language_name)}</span>
-                <span class="localization-lang-code">${escapeHtml(lang.language_code)}</span>
-              </div>
-              <div class="localization-lang-sources">
-                ${lang.sources.map(src => {
-                  const isSrcActive = isActive && installedSource === src.source_label;
-                  return `
-                    <div class="localization-source-item">
-                      ${isSrcActive ? '<span class="localization-installed-badge">Installed</span>' : `
-                        <button class="btn-install" data-action="install-lang"
-                                data-lang-code="${escapeHtml(lang.language_code)}"
-                                data-source-repo="${escapeHtml(src.source_repo)}"
-                                data-lang-name="${escapeHtml(lang.language_name)}"
-                                data-source-label="${escapeHtml(src.source_label)}"
-                                ${localizationLoading ? 'disabled' : ''}>
-                          Install
-                        </button>
-                      `}
-                      <span class="localization-source-label">${escapeHtml(src.source_label)}</span>
-                    </div>
-                  `;
-                }).join('')}
-              </div>
-            </div>
+          <div class="localization-table-row ${isSrcActive ? 'active' : ''} ${isNewGroup ? 'localization-group-first' : ''}">
+            <span class="localization-col-lang">
+              <span class="localization-lang-flag">${escapeHtml(lang.flag)}</span>
+              <span class="localization-lang-name">${escapeHtml(lang.language_name)}</span>
+            </span>
+            <span class="localization-col-source">
+              <span class="localization-source-label">${escapeHtml(src.source_label)}</span>
+              ${src.repo_url ? `
+                <a href="#" class="localization-repo-link-icon" data-url="${escapeHtml(src.repo_url)}" title="Open repository">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                    <polyline points="15 3 21 3 21 9"></polyline>
+                    <line x1="10" y1="14" x2="21" y2="3"></line>
+                  </svg>
+                </a>
+              ` : ''}
+            </span>
+            <span class="localization-col-updated">${escapeHtml(lastUpdated)}</span>
+            <span class="localization-col-action">
+              ${isSrcActive ? '<span class="localization-installed-badge">Installed</span>' : `
+                <button class="btn-install" data-action="install-lang"
+                        data-lang-code="${escapeHtml(lang.language_code)}"
+                        data-source-repo="${escapeHtml(src.source_repo)}"
+                        data-lang-name="${escapeHtml(lang.language_name)}"
+                        data-source-label="${escapeHtml(src.source_label)}"
+                        ${localizationLoading ? 'disabled' : ''}>
+                  Install
+                </button>
+              `}
+            </span>
+          </div>
           `;
         }).join('')}
       </div>
@@ -1001,6 +1410,7 @@ function renderLanguageSelector() {
   `;
 }
 
+/** Formats bytes into human-readable file size (KB, MB, GB, etc.) */
 function formatFileSize(bytes) {
   if (bytes === 0) return '0 B';
   const k = 1024;
@@ -1009,8 +1419,23 @@ function formatFileSize(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
+/** Formats an ISO date into German date format (e.g. "12. Mär. 2026") */
+function formatCommitDate(isoDate) {
+  if (!isoDate) return '';
+  try {
+    const date = new Date(isoDate);
+    return date.toLocaleDateString('de-DE', { day: 'numeric', month: 'short', year: 'numeric' });
+  } catch {
+    return isoDate;
+  }
+}
+
 // ==================== Localization Actions ====================
 
+/**
+ * Installs a language pack for the active SC version.
+ * Shows a notification on success/error and updates the UI.
+ */
 async function installLocalization(langCode, sourceRepo, displayName, sourceLabel) {
   if (!config?.install_path || !activeScVersion) return;
   localizationLoading = true;
@@ -1035,6 +1460,7 @@ async function installLocalization(langCode, sourceRepo, displayName, sourceLabe
   renderEnvironments(document.getElementById('content'));
 }
 
+/** Removes the installed localization after user confirmation */
 async function removeLocalization() {
   if (!config?.install_path || !activeScVersion) return;
 
@@ -1060,6 +1486,7 @@ async function removeLocalization() {
   renderEnvironments(document.getElementById('content'));
 }
 
+/** Finds the source repository for the currently installed localization */
 function resolveSourceRepo() {
   if (!localizationStatus?.installed) return null;
   const code = localizationStatus.language_code;
@@ -1074,7 +1501,11 @@ function resolveSourceRepo() {
 
 // ==================== Keybindings Section ====================
 
-/** Lightweight in-place refresh of the bindings list (no full page re-render, preserves scroll) */
+/**
+ * Lightweight in-place update of the binding list.
+ * Avoids a full page re-render and preserves the scroll position.
+ * Called after binding changes (add, edit, delete).
+ */
 function refreshBindingsInPlace() {
   // Re-render category HTML inside .bindings-body
   const body = document.querySelector('.bindings-body');
@@ -1129,7 +1560,7 @@ function refreshBindingsInPlace() {
   }
 }
 
-/** Attach only binding-related event listeners (search, add/edit/remove buttons) */
+/** Attaches only the binding-related event listeners (search, edit, add, delete) */
 function attachBindingEventListeners() {
   document.getElementById('binding-search')?.addEventListener('input', (e) => {
     const term = e.target.value.toLowerCase().trim();
@@ -1220,9 +1651,13 @@ function attachBindingEventListeners() {
   });
 }
 
+/**
+ * Renders the collapsible joystick section with drag-and-drop reordering.
+ * Only joysticks are shown — keyboards/gamepads have fixed instance numbers.
+ */
 function renderDeviceMapCollapsible() {
   const activeBackup = lastRestoredBackupId ? backups.find(b => b.id === lastRestoredBackupId) : null;
-  // Only show joysticks — keyboards/gamepads have fixed instance numbers and can't be reordered
+  // Only show joysticks — keyboards/gamepads have fixed instance numbers
   const deviceMap = (activeBackup?.device_map || [])
     .filter(dm => dm.device_type === 'joystick')
     .sort((a, b) => a.sc_instance - b.sc_instance);
@@ -1260,8 +1695,12 @@ function renderDeviceMapCollapsible() {
   `;
 }
 
+/**
+ * Renders the collapsible keybindings section with search field, filter toggle,
+ * and category-based grouping of all bindings.
+ */
 function renderBindingsCollapsible() {
-  // Apply customized filter
+  // Apply filter: only customized bindings when enabled
   const sourceList = customizedOnly
     ? completeBindingList.filter(b => b.is_custom)
     : completeBindingList;
@@ -1325,11 +1764,19 @@ function renderBindingsCollapsible() {
 }
 
 
+/**
+ * Renders a single binding category as a collapsible block with table.
+ * Filters entries by search term (searches action names, devices, inputs).
+ * @param {string} categoryKey - Technical category name (e.g. "spaceship_movement")
+ * @param {string} label - Display label of the category
+ * @param {Array} items - Bindings in this category
+ * @returns {string} HTML string or empty string if no matches
+ */
 function renderBindingCategory(categoryKey, label, items) {
   const query = (bindingFilter || '').toLowerCase();
   const isExpanded = query.length > 0 || window.expandedBindingCategories.has(categoryKey);
 
-  // Initial filtering - search ALL fields including device name, button/axis/hat names
+  // Filter across ALL fields: action name, device name, input, category
   const filteredItems = !query ? items : items.filter(b => {
     const deviceName = resolveDeviceLabel(b.current_input);
     const inputDisplay = useHumanReadable ? formatInputDisplayText(b.current_input) : b.current_input;
@@ -1441,6 +1888,10 @@ function renderBindingCategory(categoryKey, label, items) {
   `;
 }
 
+/**
+ * Determines the device type based on the input prefix.
+ * e.g. "kb1_w" -> 'keyboard', "js2_button5" -> 'joystick'
+ */
 function resolveDeviceType(input) {
   if (!input) return 'none';
   if (input.startsWith('kb')) return 'keyboard';
@@ -1450,6 +1901,7 @@ function resolveDeviceType(input) {
   return 'unknown';
 }
 
+/** Translates a device type key into a human-readable label */
 function formatDeviceType(deviceType) {
   const labels = {
     keyboard: 'Keyboard',
@@ -1502,10 +1954,16 @@ function getDeviceIconSvg(deviceType) {
   return `<span class="device-icon">${icon}</span>`;
 }
 
+/**
+ * Converts a raw input format into human-readable text.
+ * e.g. "button26" -> "Button #26", "x" -> "X-Axis", "hat1_up" -> "Hat #1 Up"
+ * @param {string} input - Raw input string (without device prefix)
+ * @returns {string} Human-readable representation
+ */
 function formatInputDisplayText(input) {
   if (!input) return '';
 
-  // button26 -> Button #26
+  // button26 → Button #26
   const btnMatch = input.match(/button(\d+)/i);
   if (btnMatch) return `Button #${btnMatch[1]}`;
 
@@ -1528,7 +1986,7 @@ function formatInputDisplayText(input) {
     }
   }
 
-  // Hats mit Richtung: hat1_up, hat1_down, hat1_left, hat1_right
+  // Hats with direction: hat1_up, hat1_down, hat1_left, hat1_right
   const hatDirMatch = input.match(/hat(\d+)_(up|down|left|right)/i);
   if (hatDirMatch) {
     const hatNum = hatDirMatch[1];
@@ -1537,7 +1995,7 @@ function formatInputDisplayText(input) {
     return `Hat #${hatNum} ${dirMap[dir] || dir}`;
   }
 
-  // Hats ohne Richtung
+  // Hats without direction
   const hatMatch = input.match(/hat(\d+)/i);
   if (hatMatch) return `Hat #${hatMatch[1]}`;
 
@@ -1546,12 +2004,26 @@ function formatInputDisplayText(input) {
 
 // ==================== Binding Editor ====================
 
-/** Strip device prefix for display (e.g. "js2_x" → "x", "kb1_w" → "w", "mo1_button2" → "button2") */
+/** Strips the device prefix for display (e.g. "js2_x" -> "x", "kb1_w" -> "w") */
 function stripDevicePrefix(input) {
   if (!input) return input;
   return input.replace(/^(js|kb|mo)\d+_/, '');
 }
 
+/**
+ * Opens the binding editor as a modal window.
+ * Supports three input sources:
+ * 1. Keyboard input via browser keydown events (local)
+ * 2. Mouse buttons via browser mousedown events (local)
+ * 3. Joystick/Gamepad via Rust backend hardware events (through Tauri listen)
+ *
+ * Joystick inputs are automatically remapped from Linux gilrs instance numbers
+ * to SC instance numbers (via the profile's device map).
+ *
+ * @param {string} actionName - Name of the action to edit
+ * @param {string} category - Actionmap category (e.g. "spaceship_movement")
+ * @param {string|null} currentInput - Current binding (null for new binding)
+ */
 function openBindingEditor(actionName, category, currentInput) {
   bindingEditorAction = { actionName, category, currentInput };
   bindingEditorDevice = resolveDeviceType(currentInput) || 'keyboard';
@@ -1610,11 +2082,11 @@ function openBindingEditor(actionName, category, currentInput) {
   document.body.appendChild(modal);
   requestAnimationFrame(() => modal.classList.add('show'));
 
-  // Get active profile's device map for Linux→SC instance remapping
+  // Get the active profile's device map for Linux->SC instance number mapping
   const activeBackup = lastRestoredBackupId ? backups.find(b => b.id === lastRestoredBackupId) : null;
   const profileDeviceMap = activeBackup?.device_map || [];
 
-  // Load connected devices and show alongside profile device map
+  // Load connected devices and display alongside the profile's device map
   const deviceSelect = modal.querySelector('#capture-device-select');
   let connectedDevices = [];
 
@@ -1676,16 +2148,20 @@ function openBindingEditor(actionName, category, currentInput) {
 
   const inputField = modal.querySelector('#binding-input-field');
   let inputCapturedUnlisten = null;
-  let isLocked = false; // Jitter protection lock
+  let isLocked = false; // Jitter protection: prevents axis noise from overwriting button input
   let capturedDeviceUuid = '';
   let capturedDeviceName = '';
   let capturedRawCode = currentInput || ''; // Raw internal code for saving (with js{N}_ prefix)
 
+  /**
+   * Processes a captured input (keyboard, mouse, or joystick).
+   * Locks for 1 second after capture to suppress axis noise.
+   */
   const setCapturedInput = (captureData) => {
     if (isLocked) return;
     isLocked = true;
 
-    // Handle both old string format (keyboard/mouse) and new object format (joystick)
+    // Support both formats: String (keyboard/mouse) and Object (joystick)
     let code, deviceUuid, deviceName;
     if (typeof captureData === 'string') {
       // Keyboard or mouse input (legacy format)
@@ -1726,14 +2202,14 @@ function openBindingEditor(actionName, category, currentInput) {
 
     inputField.classList.add('captured-pulse');
 
-    // Lock for 1 second after capture to prevent axis jitter from overwriting buttons
+    // 1-second lock after capture so axis noise doesn't overwrite button input
     setTimeout(() => {
       inputField.classList.remove('captured-pulse');
       isLocked = false;
     }, 1000);
   };
 
-  // 1. Listen for Backend Hardware Events (Joysticks via Rust)
+  // 1. Listen for backend hardware events (joysticks via Rust/gilrs)
   listen('input-captured', (event) => {
     console.log('[EDITOR] Hardware event received from Rust:', event.payload);
     setCapturedInput(event.payload);
@@ -1741,7 +2217,7 @@ function openBindingEditor(actionName, category, currentInput) {
     inputCapturedUnlisten = unlisten;
   });
 
-  // 2. Local Keyboard Capture
+  // 2. Local keyboard capture (browser keydown events)
   const handleKeyDownCapture = (e) => {
     e.preventDefault();
     if (['Control', 'Alt', 'Shift', 'Meta', 'AltGraph'].includes(e.key)) return;
@@ -1761,9 +2237,9 @@ function openBindingEditor(actionName, category, currentInput) {
     }
   };
 
-  // 3. Local Mouse Button Capture
+  // 3. Local mouse button capture (ignores left-click for UI interaction)
   const handleMouseDownCapture = (e) => {
-    // Ignore Left Mouse Button (0) to allow clicking UI buttons like "Save"
+    // Ignore left mouse button (0) so UI buttons like "Save" remain clickable
     if (e.button === 0) return;
 
     const btnMap = { 1: 'button3', 2: 'button2', 3: 'button4', 4: 'button5' };
@@ -1776,7 +2252,7 @@ function openBindingEditor(actionName, category, currentInput) {
   window.addEventListener('keydown', handleKeyDownCapture);
   window.addEventListener('mousedown', handleMouseDownCapture);
 
-  // Start Hardware Capture in Backend
+  // Start hardware capture in the backend (joystick events via gilrs)
   invoke('start_input_capture').catch(err => console.error('[EDITOR] Backend capture start failed:', err));
 
   const cleanupAndClose = () => {
@@ -1833,7 +2309,7 @@ function openBindingEditor(actionName, category, currentInput) {
       return;
     }
 
-    // Check for binding conflicts — compare by input identifier + same device (product name)
+    // Check binding conflicts: same input on the same device?
     if (completeBindingList.length > 0) {
       const newInputBare = stripDevicePrefix(newInput);
       const captureDev = (capturedDeviceName || '').trim().toLowerCase();
@@ -1862,8 +2338,8 @@ function openBindingEditor(actionName, category, currentInput) {
 
     try {
       // Determine which existing binding to replace:
-      // - Edit mode (currentInput set): replace that specific binding
-      // - Add mode (currentInput null): check if same device type already bound → replace it
+      // - Edit mode (currentInput set): replace exactly this binding
+      // - Add mode (currentInput null): check if same device type already bound -> replace
       let oldInput = currentInput || null;
       if (!oldInput) {
         const newPrefix = (newInput.match(/^(js|kb|mo|gp|xi)\d+_/) || [])[0];
@@ -1905,10 +2381,10 @@ function openBindingEditor(actionName, category, currentInput) {
   });
 }
 
-// Make globally accessible
+// Make globally accessible (for inline onclick handlers)
 window.openBindingEditor = openBindingEditor;
 
-
+/** Formats a technical category name into a human-readable title */
 function formatCategoryName(name) {
   return name
     .replace(/^spaceship_/, '')
@@ -1920,6 +2396,10 @@ function formatCategoryName(name) {
 
 // ==================== Changes Panel ====================
 
+/**
+ * Renders the detail panel showing changed files between profile and SC.
+ * Clickable files (status: modified) open a diff dialog.
+ */
 function renderChangesPanel(files) {
   const statusOrder = { modified: 0, new: 1, deleted: 2, unchanged: 3 };
   const sorted = [...files].sort((a, b) => (statusOrder[a.status] ?? 4) - (statusOrder[b.status] ?? 4));
@@ -1927,7 +2407,7 @@ function renderChangesPanel(files) {
   return `
     <div class="profile-changes-panel">
       ${sorted.map(f => `
-        <div class="profile-file-status">
+        <div class="profile-file-status${f.status === 'modified' ? ' file-clickable' : ''}"${f.status === 'modified' ? ` data-file="${escapeHtml(f.file)}"` : ''}>
           <span class="file-name">${escapeHtml(f.file)}</span>
           <span class="status-badge status-${f.status}">${f.status}</span>
         </div>
@@ -1935,8 +2415,9 @@ function renderChangesPanel(files) {
     </div>`;
 }
 
-// ==================== Backups Section ====================
+// ==================== Profile/Backup Section ====================
 
+/** Formats the file list of a backup into a human-readable summary */
 function formatBackupFiles(files) {
   let profiles = 0, mappings = 0, characters = 0;
   for (const f of files) {
@@ -1951,6 +2432,7 @@ function formatBackupFiles(files) {
   return parts.join(' + ') || '0 files';
 }
 
+/** Translates the technical backup type into a human-readable badge label */
 function formatProfileTypeBadge(backupType) {
   const map = {
     'manual': 'saved',
@@ -1966,25 +2448,39 @@ function formatProfileTypeBadge(backupType) {
 
 // ==================== USER.cfg UI ====================
 
+/** Counts the number of settings that differ from default values */
 function getChangedSettingsCount() {
   let count = 0;
   for (const [key, setting] of Object.entries(DEFAULT_SETTINGS)) {
+    if (setting.type === 'resolution') {
+      // Count resolution as changed if either dimension differs from default
+      const w = userCfgSettings.r_width !== undefined ? userCfgSettings.r_width : 1920;
+      const h = userCfgSettings.r_height !== undefined ? userCfgSettings.r_height : 1080;
+      if (w !== 1920 || h !== 1080) count++;
+      continue;
+    }
     const currentValue = userCfgSettings[key] !== undefined ? userCfgSettings[key] : setting.value;
     if (currentValue !== setting.value) count++;
   }
   return count;
 }
 
+/**
+ * Renders the complete USER.cfg settings UI.
+ * Groups settings into categories (Essential, Quality, Shader, etc.).
+ * Advanced categories are collapsed by default.
+ */
 function renderUserCfgUI() {
   const essentialCategory = { key: 'essential', label: 'Essential Settings' };
   const advancedCategories = [
-    { key: 'performance', label: 'Performance' },
     { key: 'quality', label: 'Graphics Quality' },
     { key: 'shaders', label: 'Shader Quality' },
     { key: 'textures', label: 'Textures' },
     { key: 'effects', label: 'Visual Effects' },
     { key: 'clarity', label: 'Visual Clarity' },
     { key: 'lod', label: 'View Distance' },
+    { key: 'input', label: 'Input' },
+    { key: 'advanced', label: 'Advanced (unverified)', hint: 'These settings are not officially documented and may have no effect in current Star Citizen versions.' },
   ];
 
   const changedCount = getChangedSettingsCount();
@@ -2026,6 +2522,10 @@ function renderUserCfgUI() {
   `;
 }
 
+/**
+ * Renders a settings category with optional collapse/expand.
+ * Shows a badge with the number of changed settings.
+ */
 function renderCategorySettings(category, collapsible) {
   const settings = Object.entries(DEFAULT_SETTINGS)
     .filter(([_, s]) => s.category === category.key)
@@ -2035,6 +2535,11 @@ function renderCategorySettings(category, collapsible) {
 
   const isCollapsed = collapsible && collapsedCategories.has(category.key);
   const changedInCategory = settings.filter(s => {
+    if (s.type === 'resolution') {
+      const w = userCfgSettings.r_width !== undefined ? userCfgSettings.r_width : 1920;
+      const h = userCfgSettings.r_height !== undefined ? userCfgSettings.r_height : 1080;
+      return w !== 1920 || h !== 1080;
+    }
     const val = userCfgSettings[s.key] !== undefined ? userCfgSettings[s.key] : s.value;
     return val !== s.value;
   }).length;
@@ -2052,16 +2557,32 @@ function renderCategorySettings(category, collapsible) {
         ` : ''}
       </div>
       <div class="usercfg-settings ${isCollapsed ? 'collapsed' : ''}">
+        ${category.hint ? `<div class="usercfg-category-hint">${escapeHtml(category.hint)}</div>` : ''}
         ${settings.map(s => renderSettingControl(s.key, s)).join('')}
       </div>
     </div>
   `;
 }
 
+/** Renders an info icon button that shows help text as a popover on click */
+function renderHelpIcon(setting) {
+  if (!setting.help) return '';
+  return `<button class="usercfg-help-btn" data-help="${escapeHtml(setting.help)}" title="${escapeHtml(setting.desc)}">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+  </button>`;
+}
+
+/**
+ * Renders a single setting control (slider, toggle, number, resolution).
+ * Shows the default value when the current value differs.
+ * @param {string} key - CVar key
+ * @param {Object} setting - Setting definition from DEFAULT_SETTINGS
+ */
 function renderSettingControl(key, setting) {
   const value = userCfgSettings[key] !== undefined ? userCfgSettings[key] : setting.value;
   const isChanged = value !== setting.value;
   const changedClass = isChanged ? 'usercfg-changed' : '';
+  const helpIcon = renderHelpIcon(setting);
 
   const resetBtn = isChanged
     ? `<button class="usercfg-reset" data-key="${key}" title="Reset to default">
@@ -2069,11 +2590,46 @@ function renderSettingControl(key, setting) {
       </button>`
     : '';
 
+  if (setting.type === 'resolution') {
+    const w = userCfgSettings.r_width !== undefined ? userCfgSettings.r_width : 1920;
+    const h = userCfgSettings.r_height !== undefined ? userCfgSettings.r_height : 1080;
+    const resIsChanged = w !== 1920 || h !== 1080;
+    const resChangedClass = resIsChanged ? 'usercfg-changed' : '';
+    const resResetBtn = resIsChanged
+      ? `<button class="usercfg-reset" data-key="_resolution" title="Reset to default">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+        </button>`
+      : '';
+    const currentRes = `${w}x${h}`;
+    const presetMatch = RESOLUTION_PRESETS.find(p => p.w === w && p.h === h);
+    const presetOptions = RESOLUTION_PRESETS.map(p => {
+      const val = `${p.w}x${p.h}`;
+      return `<option value="${val}" ${val === currentRes ? 'selected' : ''}>${p.w} × ${p.h}  (${p.label})</option>`;
+    }).join('');
+    return `
+      <div class="usercfg-row ${resChangedClass}">
+        <span class="usercfg-label">${helpIcon}Resolution${resIsChanged ? ' <span class="usercfg-default">(Default: 1920 × 1080)</span>' : ''}</span>
+        <div class="usercfg-control-wrap">
+          <div class="usercfg-resolution-wrap">
+            <input type="number" class="usercfg-res-input" data-key="r_width" value="${w}" min="640" max="7680" aria-label="Width" />
+            <span class="usercfg-res-sep">×</span>
+            <input type="number" class="usercfg-res-input" data-key="r_height" value="${h}" min="480" max="4320" aria-label="Height" />
+            <select class="usercfg-res-preset" data-key="_resolution" aria-label="Resolution preset">
+              <option value="" ${!presetMatch ? 'selected' : ''}>Custom</option>
+              ${presetOptions}
+            </select>
+          </div>
+          ${resResetBtn}
+        </div>
+      </div>
+    `;
+  }
+
   if (setting.type === 'toggle') {
     const defaultLabel = setting.value ? 'On' : 'Off';
     return `
-      <div class="usercfg-row ${changedClass}" data-tooltip="${escapeHtml(setting.desc)}" data-tooltip-pos="left">
-        <span class="usercfg-label">${setting.label}${isChanged ? ` <span class="usercfg-default">(Default: ${defaultLabel})</span>` : ''}</span>
+      <div class="usercfg-row ${changedClass}">
+        <span class="usercfg-label">${helpIcon}${setting.label}${isChanged ? ` <span class="usercfg-default">(Default: ${defaultLabel})</span>` : ''}</span>
         <div class="usercfg-control-wrap">
           <label class="toggle-switch">
             <input type="checkbox" class="usercfg-input" data-key="${key}" ${value ? 'checked' : ''} />
@@ -2087,8 +2643,8 @@ function renderSettingControl(key, setting) {
 
   if (setting.type === 'number') {
     return `
-      <div class="usercfg-row ${changedClass}" data-tooltip="${escapeHtml(setting.desc)}" data-tooltip-pos="left">
-        <span class="usercfg-label">${setting.label}${isChanged ? ` <span class="usercfg-default">(Default: ${setting.value})</span>` : ''}</span>
+      <div class="usercfg-row ${changedClass}">
+        <span class="usercfg-label">${helpIcon}${setting.label}${isChanged ? ` <span class="usercfg-default">(Default: ${setting.value})</span>` : ''}</span>
         <div class="usercfg-control-wrap">
           <input type="number" class="usercfg-number-input" data-key="${key}"
                  min="${setting.min}" max="${setting.max}" step="${setting.step}" value="${value}"
@@ -2101,17 +2657,17 @@ function renderSettingControl(key, setting) {
 
   let displayValue = value;
   if (setting.labels) displayValue = setting.labels[value] || value;
-  else if (setting.category === 'quality') displayValue = QUALITY_LEVELS[value] || value;
-  else if (setting.category === 'shaders') displayValue = SHADER_LEVELS[value] || value;
+  else if (QUALITY_KEYS.has(key)) displayValue = QUALITY_LEVELS[value] || value;
+  else if (SHADER_KEYS.has(key)) displayValue = SHADER_LEVELS[value] || value;
 
   let defaultDisplay = setting.value;
   if (setting.labels) defaultDisplay = setting.labels[setting.value] || setting.value;
-  else if (setting.category === 'quality') defaultDisplay = QUALITY_LEVELS[setting.value] || setting.value;
-  else if (setting.category === 'shaders') defaultDisplay = SHADER_LEVELS[setting.value] || setting.value;
+  else if (QUALITY_KEYS.has(key)) defaultDisplay = QUALITY_LEVELS[setting.value] || setting.value;
+  else if (SHADER_KEYS.has(key)) defaultDisplay = SHADER_LEVELS[setting.value] || setting.value;
 
   return `
-    <div class="usercfg-row ${changedClass}" title="${escapeHtml(setting.desc)}">
-      <span class="usercfg-label">${setting.label}${isChanged ? ` <span class="usercfg-default">(Default: ${defaultDisplay})</span>` : ''}</span>
+    <div class="usercfg-row ${changedClass}">
+      <span class="usercfg-label">${helpIcon}${setting.label}${isChanged ? ` <span class="usercfg-default">(Default: ${defaultDisplay})</span>` : ''}</span>
       <div class="usercfg-control-wrap">
         <div class="usercfg-slider-wrap">
           <input type="range" class="usercfg-slider" data-key="${key}"
@@ -2127,33 +2683,66 @@ function renderSettingControl(key, setting) {
 
 // ==================== Actions ====================
 
+/** @type {boolean} Prevents double-saving of USER.cfg */
+let isSavingUserCfg = false;
+
+/**
+ * Saves the USER.cfg settings to disk.
+ * Checks for external changes beforehand (read-before-write) and
+ * warns the user if the file was modified externally.
+ */
 async function applyUserCfg() {
   if (!config?.install_path || !activeScVersion) return;
+  if (isSavingUserCfg) return;
 
-  document.querySelectorAll('.usercfg-slider').forEach(slider => {
-    const val = parseFloat(slider.value);
-    if (!isNaN(val)) userCfgSettings[slider.dataset.key] = val;
-  });
-  document.querySelectorAll('.usercfg-number-input').forEach(input => {
-    const val = parseFloat(input.value);
-    if (!isNaN(val)) userCfgSettings[input.dataset.key] = val;
-  });
-  document.querySelectorAll('.usercfg-input[type="checkbox"]').forEach(checkbox => {
-    userCfgSettings[checkbox.dataset.key] = checkbox.checked ? 1 : 0;
-  });
-
-  const content = generateUserCfg();
+  // Write guard — disable button during save
+  isSavingUserCfg = true;
+  const applyBtn = document.getElementById('btn-apply-usercfg');
+  if (applyBtn) applyBtn.disabled = true;
 
   try {
+    // Read-before-write: detect external changes via raw content comparison
+    const diskContent = await invoke('read_user_cfg', { gp: config.install_path, v: activeScVersion });
+    if (diskContent !== savedUserCfgRaw) {
+      const proceed = await confirm(
+        'Die USER.cfg wurde außerhalb von Star Control geändert. Trotzdem überschreiben?',
+        { title: 'Externe Änderungen erkannt', kind: 'warning' }
+      );
+      if (!proceed) return;
+    }
+
+    // Collect current UI values
+    document.querySelectorAll('.usercfg-slider').forEach(slider => {
+      const val = parseFloat(slider.value);
+      if (!isNaN(val)) userCfgSettings[slider.dataset.key] = val;
+    });
+    document.querySelectorAll('.usercfg-number-input').forEach(input => {
+      const val = parseFloat(input.value);
+      if (!isNaN(val)) userCfgSettings[input.dataset.key] = val;
+    });
+    document.querySelectorAll('.usercfg-input[type="checkbox"]').forEach(checkbox => {
+      userCfgSettings[checkbox.dataset.key] = checkbox.checked ? 1 : 0;
+    });
+    document.querySelectorAll('.usercfg-res-input').forEach(input => {
+      const val = parseInt(input.value, 10);
+      if (!isNaN(val)) userCfgSettings[input.dataset.key] = val;
+    });
+
+    const content = generateUserCfg();
     await invoke('write_user_cfg', { gp: config.install_path, v: activeScVersion, c: content });
     savedUserCfgSnapshot = { ...userCfgSettings };
+    savedUserCfgRaw = content;
     showNotification('USER.cfg saved. Restart Star Citizen to apply changes.', 'success');
     updateChangedCounts();
   } catch (e) {
     showNotification('Failed to write USER.cfg', 'error');
+  } finally {
+    isSavingUserCfg = false;
+    if (applyBtn) applyBtn.disabled = false;
   }
 }
 
+/** Resets all USER.cfg settings to default values and clears the file */
 async function resetUserCfg() {
   if (!config?.install_path || !activeScVersion) return;
   const confirmed = await confirm('Reset all settings to defaults?', { title: 'Reset USER.cfg', kind: 'warning' });
@@ -2168,6 +2757,13 @@ async function resetUserCfg() {
   }
 }
 
+/**
+ * Generates the USER.cfg content from the current settings.
+ * Only settings that differ from defaults are written.
+ * Virtual settings (_windowMode, _resolution) are resolved into real CVars.
+ * Unmanaged keys (e.g. g_language) are preserved under "Other".
+ * @returns {string} Generated USER.cfg file content
+ */
 function generateUserCfg() {
   const lines = [
     '; Star Citizen USER.cfg Configuration',
@@ -2176,22 +2772,56 @@ function generateUserCfg() {
     '',
   ];
 
-  const categoryOrder = ['essential', 'performance', 'quality', 'shaders', 'textures', 'effects', 'clarity', 'lod'];
+  const categoryOrder = ['essential', 'quality', 'shaders', 'textures', 'effects', 'clarity', 'lod', 'input', 'advanced'];
+
+  // Resolve virtual _windowMode setting into r_Fullscreen + r_FullscreenWindow
+  const windowMode = userCfgSettings._windowMode !== undefined ? userCfgSettings._windowMode : DEFAULT_SETTINGS._windowMode.value;
+  const windowModeDefault = DEFAULT_SETTINGS._windowMode.value;
+  let windowModeCVars = null;
+  if (windowMode !== windowModeDefault) {
+    if (windowMode === 0) {
+      windowModeCVars = { r_Fullscreen: 0, r_FullscreenWindow: 0 };
+    } else if (windowMode === 1) {
+      windowModeCVars = { r_Fullscreen: 1, r_FullscreenWindow: 0 };
+    } else {
+      windowModeCVars = { r_Fullscreen: 0, r_FullscreenWindow: 1 };
+    }
+  }
+
+  // Resolve virtual _resolution setting into r_width + r_height
+  const resW = userCfgSettings.r_width !== undefined ? userCfgSettings.r_width : 1920;
+  const resH = userCfgSettings.r_height !== undefined ? userCfgSettings.r_height : 1080;
+  const resChanged = resW !== 1920 || resH !== 1080;
 
   for (const cat of categoryOrder) {
     const catSettings = Object.entries(DEFAULT_SETTINGS).filter(([_, s]) => s.category === cat);
     const changedSettings = [];
 
     for (const [key, setting] of catSettings) {
+      // Skip virtual settings — they are expanded separately
+      if (setting.virtual) continue;
       const currentValue = userCfgSettings[key] !== undefined ? userCfgSettings[key] : setting.value;
-      if (currentValue !== setting.value) {
+      if (currentValue !== setting.value || setting.alwaysWrite) {
         const defaultStr = setting.type === 'toggle' ? (setting.value ? '1' : '0') : String(setting.value);
         changedSettings.push({ key, setting, value: currentValue, defaultValue: defaultStr });
       }
     }
 
-    if (changedSettings.length > 0) {
+    if (changedSettings.length > 0 || (cat === 'essential' && (windowModeCVars || resChanged))) {
       lines.push(`;--- ${cat.charAt(0).toUpperCase() + cat.slice(1)} ---`);
+
+      // Emit resolution CVars in essential category
+      if (cat === 'essential' && resChanged) {
+        if (resW !== 1920) lines.push(`r_width = ${resW}  ; default: 1920`);
+        if (resH !== 1080) lines.push(`r_height = ${resH}  ; default: 1080`);
+      }
+
+      // Emit window mode CVars in essential category
+      if (cat === 'essential' && windowModeCVars) {
+        lines.push(`r_Fullscreen = ${windowModeCVars.r_Fullscreen}  ; default: 0`);
+        lines.push(`r_FullscreenWindow = ${windowModeCVars.r_FullscreenWindow}  ; default: 1`);
+      }
+
       for (const { key, setting, value, defaultValue } of changedSettings) {
         if (setting.type === 'toggle') {
           lines.push(`${key} = ${value ? 1 : 0}  ; default: ${defaultValue}`);
@@ -2203,8 +2833,13 @@ function generateUserCfg() {
     }
   }
 
-  // Preserve extra keys not managed by DEFAULT_SETTINGS (e.g. g_language, custom CVars)
+  // Preserve unmanaged keys (e.g. g_language, custom CVars)
   const managedKeys = new Set(Object.keys(DEFAULT_SETTINGS));
+  // Also exclude raw CVars managed by virtual settings
+  managedKeys.add('r_Fullscreen');
+  managedKeys.add('r_FullscreenWindow');
+  managedKeys.add('r_width');
+  managedKeys.add('r_height');
   const extraKeys = Object.keys(userCfgSettings).filter(k => !managedKeys.has(k));
   if (extraKeys.length > 0) {
     lines.push(';--- Other ---');
@@ -2220,6 +2855,10 @@ function generateUserCfg() {
   return lines.join('\n');
 }
 
+/**
+ * Creates a new profile from the current SC files.
+ * Shows an inline input field for the profile name.
+ */
 async function saveProfile() {
   if (!config?.install_path || !activeScVersion) return;
 
@@ -2273,6 +2912,10 @@ async function saveProfile() {
   });
 }
 
+/**
+ * Loads a saved profile into Star Citizen (replaces current SC files).
+ * Shows a confirmation dialog with file list.
+ */
 async function loadProfile(backupId) {
   if (!config?.install_path || !activeScVersion) return;
   const backup = backups.find(b => b.id === backupId);
@@ -2301,6 +2944,7 @@ async function loadProfile(backupId) {
   }
 }
 
+/** Deletes a saved profile after confirmation */
 async function deleteProfile(backupId) {
   const backup = backups.find(b => b.id === backupId);
   const displayName = backup?.label || 'Unnamed profile';
@@ -2323,6 +2967,10 @@ async function deleteProfile(backupId) {
   }
 }
 
+/**
+ * Deletes a complete SC environment (folder + all data) after double confirmation.
+ * Resets the active version if the deleted version was active.
+ */
 async function deleteScVersion(version) {
   if (!version) return;
 
@@ -2398,8 +3046,12 @@ async function handleDeviceDrop(sourceInstance, targetInstance, sourceDeviceType
   }
 }
 
-// ==================== Import from Version ====================
+// ==================== Import from Another Version ====================
 
+/**
+ * Shows the dialog for importing profiles/settings from another SC version.
+ * Allows selecting the source version and a specific saved profile.
+ */
 async function showImportVersionDialog() {
   if (!config?.install_path || !activeScVersion) return;
 
@@ -2539,6 +3191,10 @@ async function showImportVersionDialog() {
 
 // ==================== Data.p4k Copy Dropdown ====================
 
+/**
+ * Shows a dropdown for selecting the source version for copying Data.p4k.
+ * Displayed when clicking the copy button of a version without Data.p4k.
+ */
 async function showDataP4kCopyDropdown(targetVersion, event) {
   event.stopPropagation();
 
@@ -2594,8 +3250,13 @@ async function showDataP4kCopyDropdown(targetVersion, event) {
   }, 0);
 }
 
-// ==================== Data.p4k Copy Progress Modal ====================
+// ==================== Data.p4k Copy Progress ====================
 
+/**
+ * Shows a modal window with progress bar, speed, and ETA
+ * for the Data.p4k file copy operation (~100+ GB).
+ * Supports cancellation during copying.
+ */
 async function showDataP4kCopyProgressModal(sourceVersion, targetVersion) {
   // Remove existing modal
   document.querySelector('#data-p4k-copy-modal')?.remove();
@@ -2783,6 +3444,12 @@ async function showDataP4kCopyProgressModal(sourceVersion, targetVersion) {
 
 // ==================== Event Listeners ====================
 
+/**
+ * Attaches all event listeners for the Environments page.
+ * This central function is called after each render and connects
+ * tab navigation, version selection, profile actions, binding editor,
+ * drag-and-drop, USER.cfg controls, localization, and more.
+ */
 function attachProfilesEventListeners() {
   // Tab navigation
   document.querySelectorAll('.profile-tab').forEach(tab => {
@@ -2792,12 +3459,12 @@ function attachProfilesEventListeners() {
     });
   });
 
-  // Dismiss hint buttons
+  // Hint dismiss buttons
   document.querySelectorAll('[data-action="dismiss-hint"]').forEach(btn => {
     btn.addEventListener('click', () => dismissHint(btn.dataset.hintId));
   });
 
-  // Collapsible panel toggles
+  // Collapsible panel toggles (Bindings, Devices)
   document.querySelectorAll('.collapsible-header').forEach(header => {
     header.addEventListener('click', () => {
       const panel = header.dataset.panel;
@@ -2809,10 +3476,10 @@ function attachProfilesEventListeners() {
     });
   });
 
-  // Version Cards
+  // Version cards: switch SC version on click
   document.querySelectorAll('.sc-version-card').forEach(card => {
     card.addEventListener('click', async () => {
-      // Warn if there are unsaved USER.cfg changes
+      // Warn about unsaved USER.cfg changes
       if (hasUnsavedChanges()) {
         const proceed = await confirm('You have unsaved USER.cfg changes. Switching versions will discard them.', {
           title: 'Unsaved Changes',
@@ -2863,9 +3530,9 @@ function attachProfilesEventListeners() {
     showDataP4kCopyProgressModal(source, version);
   });
 
-  // Device drag-and-drop (pointer events — works in WebKitGTK)
-  // The entire card is draggable. Pointer capture ensures smooth tracking even
-  // when the cursor leaves the card bounds during fast moves.
+  // Device drag-and-drop (Pointer Events — works in WebKitGTK)
+  // The entire card is draggable. Pointer Capture ensures smooth tracking,
+  // even when the cursor leaves card boundaries during fast movements.
   document.querySelectorAll('.device-card.draggable').forEach(card => {
     card.addEventListener('pointerdown', (e) => {
       // Ignore clicks on buttons (alias button)
@@ -2880,10 +3547,10 @@ function attachProfilesEventListeners() {
       const offsetX = e.clientX - rect.left;
       const offsetY = e.clientY - rect.top;
 
-      // Capture pointer so events keep flowing even when cursor leaves the element
+      // Pointer Capture: events keep flowing even when the cursor leaves the element
       card.setPointerCapture(e.pointerId);
 
-      // Floating clone follows the pointer smoothly in both axes
+      // Floating clone follows the cursor smoothly in both axes
       const clone = card.cloneNode(true);
       clone.classList.add('drag-clone');
       clone.style.cssText = `position:fixed;width:${rect.width}px;top:${rect.top}px;left:${rect.left}px;z-index:1000;pointer-events:none;will-change:transform;`;
@@ -2891,12 +3558,12 @@ function attachProfilesEventListeners() {
       card.classList.add('dragging');
 
       function onMove(ev) {
-        // Use transform for smooth, jank-free movement (GPU-composited)
+        // Use transform for jank-free movement (GPU-accelerated)
         const dx = ev.clientX - offsetX - rect.left;
         const dy = ev.clientY - offsetY - rect.top;
         clone.style.transform = `translate(${dx}px, ${dy}px)`;
 
-        // Highlight drop target using bounding-box overlap check
+        // Highlight drop target via bounding box overlap check
         document.querySelectorAll('.device-card.draggable').forEach(c => {
           if (c === card) return;
           const r = c.getBoundingClientRect();
@@ -2912,7 +3579,7 @@ function attachProfilesEventListeners() {
         clone.remove();
         card.classList.remove('dragging');
 
-        // Find the drop target (the card under the pointer)
+        // Find drop target (the card under the cursor)
         let targetInstance = null;
         let targetDeviceType = 'joystick';
         document.querySelectorAll('.device-card.draggable').forEach(c => {
@@ -3108,7 +3775,7 @@ function attachProfilesEventListeners() {
     });
   });
 
-  // Save / Load / Delete profiles
+  // Profile save / load / delete
   document.getElementById('btn-save-current')?.addEventListener('click', saveProfile);
   document.getElementById('btn-save-first-profile')?.addEventListener('click', saveProfile);
 
@@ -3130,6 +3797,24 @@ function attachProfilesEventListeners() {
   document.getElementById('btn-toggle-changes')?.addEventListener('click', () => {
     showChangesPanel = !showChangesPanel;
     renderEnvironments(document.getElementById('content'));
+  });
+
+  document.querySelector('.profile-changes-panel')?.addEventListener('click', async (e) => {
+    const row = e.target.closest('.file-clickable');
+    if (!row) return;
+    const file = row.dataset.file;
+    if (!file || !config?.install_path || !activeScVersion || !lastRestoredBackupId) return;
+    try {
+      const lines = await invoke('get_file_diff', {
+        file,
+        gp: config.install_path,
+        v: activeScVersion,
+        bid: lastRestoredBackupId,
+      });
+      await showDiff(file, lines);
+    } catch (err) {
+      console.error('Failed to load diff:', err);
+    }
   });
 
   // Apply to SC button
@@ -3286,8 +3971,8 @@ function attachProfilesEventListeners() {
 
       let displayValue = value;
       if (setting.labels) displayValue = setting.labels[value] || value;
-      else if (setting.category === 'quality') displayValue = QUALITY_LEVELS[value] || value;
-      else if (setting.category === 'shaders') displayValue = SHADER_LEVELS[value] || value;
+      else if (QUALITY_KEYS.has(key)) displayValue = QUALITY_LEVELS[value] || value;
+      else if (SHADER_KEYS.has(key)) displayValue = SHADER_LEVELS[value] || value;
 
       e.target.parentElement.querySelector('.usercfg-value').textContent = displayValue;
       userCfgSettings[key] = value;
@@ -3317,6 +4002,42 @@ function attachProfilesEventListeners() {
     });
   });
 
+  // Resolution inputs
+  document.querySelectorAll('.usercfg-res-input').forEach(input => {
+    input.addEventListener('change', (e) => {
+      const key = e.target.dataset.key; // r_width or r_height
+      const value = parseInt(e.target.value, 10);
+      if (!isNaN(value)) {
+        userCfgSettings[key] = value;
+        // Update preset dropdown to match
+        const preset = document.querySelector('.usercfg-res-preset');
+        if (preset) {
+          const w = userCfgSettings.r_width !== undefined ? userCfgSettings.r_width : 1920;
+          const h = userCfgSettings.r_height !== undefined ? userCfgSettings.r_height : 1080;
+          const match = RESOLUTION_PRESETS.find(p => p.w === w && p.h === h);
+          preset.value = match ? `${w}x${h}` : '';
+        }
+        updateResolutionHighlight();
+      }
+    });
+  });
+
+  // Resolution preset dropdown
+  document.querySelectorAll('.usercfg-res-preset').forEach(select => {
+    select.addEventListener('change', (e) => {
+      const val = e.target.value;
+      if (!val) return; // "Custom" selected
+      const [w, h] = val.split('x').map(Number);
+      userCfgSettings.r_width = w;
+      userCfgSettings.r_height = h;
+      const wInput = document.querySelector('.usercfg-res-input[data-key="r_width"]');
+      const hInput = document.querySelector('.usercfg-res-input[data-key="r_height"]');
+      if (wInput) wInput.value = w;
+      if (hInput) hInput.value = h;
+      updateResolutionHighlight();
+    });
+  });
+
   // Localization: install language buttons
   document.querySelectorAll('[data-action="install-lang"]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -3327,6 +4048,44 @@ function attachProfilesEventListeners() {
         btn.dataset.sourceLabel,
       );
     });
+  });
+
+  // Help icon popovers (event delegation on the entire usercfg section)
+  document.querySelector('.usercfg-section')?.addEventListener('click', (e) => {
+    const helpBtn = e.target.closest('.usercfg-help-btn');
+    if (!helpBtn) return;
+    e.stopPropagation();
+
+    // Remove any existing popover
+    const existing = document.querySelector('.usercfg-help-popover');
+    if (existing) {
+      existing.remove();
+      // If clicking the same button, just close
+      if (existing._triggerBtn === helpBtn) return;
+    }
+
+    const helpText = helpBtn.dataset.help;
+    if (!helpText) return;
+
+    const popover = document.createElement('div');
+    popover.className = 'usercfg-help-popover';
+    popover._triggerBtn = helpBtn;
+    popover.textContent = helpText;
+
+    // Position near the button
+    const rect = helpBtn.getBoundingClientRect();
+    popover.style.top = `${rect.bottom + 6}px`;
+    popover.style.left = `${Math.max(8, rect.left - 100)}px`;
+    document.body.appendChild(popover);
+
+    // Close on outside click
+    const closeHandler = (ev) => {
+      if (!popover.contains(ev.target) && ev.target !== helpBtn) {
+        popover.remove();
+        document.removeEventListener('click', closeHandler, true);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', closeHandler, true), 0);
   });
 
   // Localization: update button
@@ -3345,12 +4104,36 @@ function attachProfilesEventListeners() {
   // Localization: remove button
   document.getElementById('btn-remove-localization')?.addEventListener('click', removeLocalization);
 
-  // Reset individual setting to default (event delegation)
+  // Localization: repo links (event delegation)
+  document.querySelectorAll('.localization-repo-link, .localization-repo-link-icon').forEach(link => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      const url = link.dataset.url;
+      if (url) openUrl(url);
+    });
+  });
+
+  // Reset individual setting to default value (event delegation)
   document.querySelector('.usercfg-section')?.addEventListener('click', (e) => {
     const btn = e.target.closest('.usercfg-reset');
     if (!btn) return;
 
     const key = btn.dataset.key;
+
+    // Special handling for resolution reset
+    if (key === '_resolution') {
+      delete userCfgSettings.r_width;
+      delete userCfgSettings.r_height;
+      const wInput = document.querySelector('.usercfg-res-input[data-key="r_width"]');
+      const hInput = document.querySelector('.usercfg-res-input[data-key="r_height"]');
+      const preset = document.querySelector('.usercfg-res-preset');
+      if (wInput) wInput.value = 1920;
+      if (hInput) hInput.value = 1080;
+      if (preset) preset.value = '1920x1080';
+      updateResolutionHighlight();
+      return;
+    }
+
     const setting = DEFAULT_SETTINGS[key];
     if (!setting) return;
 
@@ -3370,8 +4153,8 @@ function attachProfilesEventListeners() {
       if (valueSpan) {
         let display = setting.value;
         if (setting.labels) display = setting.labels[setting.value] || setting.value;
-        else if (setting.category === 'quality') display = QUALITY_LEVELS[setting.value] || setting.value;
-        else if (setting.category === 'shaders') display = SHADER_LEVELS[setting.value] || setting.value;
+        else if (QUALITY_KEYS.has(key)) display = QUALITY_LEVELS[setting.value] || setting.value;
+        else if (SHADER_KEYS.has(key)) display = SHADER_LEVELS[setting.value] || setting.value;
         valueSpan.textContent = display;
       }
     } else if (numberInput) {
@@ -3383,7 +4166,7 @@ function attachProfilesEventListeners() {
     updateSettingHighlight(row, key, setting, setting.value);
   });
 
-  // Data.p4k copy progress listener — clean up previous listeners to prevent leaks
+  // Data.p4k copy progress listener — clean up old listeners to prevent leaks
   if (unlistenProgress) { unlistenProgress(); unlistenProgress = null; }
   if (unlistenCopyComplete) { unlistenCopyComplete(); unlistenCopyComplete = null; }
 
@@ -3409,6 +4192,43 @@ function attachProfilesEventListeners() {
   }).then(fn => { unlistenCopyComplete = fn; });
 }
 
+/** Updates the resolution setting highlight (changed/default) */
+function updateResolutionHighlight() {
+  const row = document.querySelector('.usercfg-res-input')?.closest('.usercfg-row');
+  if (!row) return;
+  const w = userCfgSettings.r_width !== undefined ? userCfgSettings.r_width : 1920;
+  const h = userCfgSettings.r_height !== undefined ? userCfgSettings.r_height : 1080;
+  const isChanged = w !== 1920 || h !== 1080;
+  const label = row.querySelector('.usercfg-label');
+  const controlWrap = row.querySelector('.usercfg-control-wrap');
+
+  if (isChanged) {
+    row.classList.add('usercfg-changed');
+    if (label && !label.querySelector('.usercfg-default')) {
+      const helpBtn = label.querySelector('.usercfg-help-btn');
+      const helpHtml = helpBtn ? helpBtn.outerHTML : '';
+      label.innerHTML = `${helpHtml}Resolution <span class="usercfg-default">(Default: 1920 × 1080)</span>`;
+    }
+    if (controlWrap && !controlWrap.querySelector('.usercfg-reset')) {
+      const btn = document.createElement('button');
+      btn.className = 'usercfg-reset';
+      btn.dataset.key = '_resolution';
+      btn.title = 'Reset to default';
+      btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>';
+      controlWrap.appendChild(btn);
+    }
+  } else {
+    row.classList.remove('usercfg-changed');
+    if (label) {
+      const defaultSpan = label.querySelector('.usercfg-default');
+      if (defaultSpan) defaultSpan.remove();
+    }
+    const resetBtn = controlWrap?.querySelector('.usercfg-reset');
+    if (resetBtn) resetBtn.remove();
+  }
+  updateChangedCounts();
+}
+
 function updateSettingHighlight(row, key, setting, value) {
   const isChanged = value !== setting.value;
   if (!row) return;
@@ -3422,13 +4242,16 @@ function updateSettingHighlight(row, key, setting, value) {
       ? (setting.value ? 'On' : 'Off')
       : (setting.labels
         ? (setting.labels[setting.value] || setting.value)
-        : (setting.category === 'quality'
+        : (QUALITY_KEYS.has(key)
           ? (QUALITY_LEVELS[setting.value] || setting.value)
-          : (setting.category === 'shaders'
+          : (SHADER_KEYS.has(key)
             ? (SHADER_LEVELS[setting.value] || setting.value)
             : setting.value)));
     if (!label.querySelector('.usercfg-default')) {
-      label.innerHTML = `${setting.label} <span class="usercfg-default">(Default: ${defaultLabel})</span>`;
+      // Preserve help icon if present
+      const helpBtn = label.querySelector('.usercfg-help-btn');
+      const helpHtml = helpBtn ? helpBtn.outerHTML : '';
+      label.innerHTML = `${helpHtml}${setting.label} <span class="usercfg-default">(Default: ${defaultLabel})</span>`;
     }
     // Add reset button if not present
     if (controlWrap && !controlWrap.querySelector('.usercfg-reset')) {

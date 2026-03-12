@@ -1,27 +1,31 @@
-//! Star Control Library - Core Tauri application logic.
+//! Star Control Library – Main library of the Tauri application.
 //!
-//! This is the main library crate for Star Control, a desktop application
+//! This is the central library crate of Star Control, a desktop application
 //! for managing Star Citizen on Linux with Wine/Proton.
 //!
 //! ## Modules
 //!
-//! - `config`: Application configuration management
-//! - `dashboard`: RSI news, server status, and community stats
-//! - `dxvk`: DXVK installation and detection
-//! - `installer`: Game installation and launching
-//! - `localization`: Language pack management
-//! - `prefix_tools`: Wine prefix utilities (winecfg, DPI, PowerShell)
-//! - `runners`: Wine runner (Wine/Proton) management
-//! - `sc_config`: Star Citizen configuration and profile management
-//! - `system_check`: System requirements checking
+//! - `config`: Application configuration management (installation paths, runner sources, etc.)
+//! - `dashboard`: RSI news, server status and community statistics from the RSI website
+//! - `dxvk`: Installation and detection of DXVK (DirectX-to-Vulkan translation layer)
+//! - `installer`: Game installation and launching the RSI Launcher / the game itself
+//! - `localization`: Language pack management for Star Citizen (e.g. German translation)
+//! - `prefix_tools`: Wine prefix tools (winecfg, DPI settings, PowerShell)
+//! - `runners`: Wine/Proton runner management (download, install, delete)
+//! - `sc_config`: Star Citizen configuration, profile management and binding editor
+//! - `system_check`: System requirements check (vm.max_map_count, file limits, etc.)
+//! - `binding_capture`: Input device event capture (joysticks, gamepads) for the binding editor
+//! - `action_definitions`: Definitions of available actions/key bindings in the game
 //!
-//! ## Window State Management
+//! ## Window State
 //!
-//! The application saves and restores window position, size, and scale
-//! to provide a seamless user experience across sessions.
+//! The application saves the window's position, size and scale factor on close
+//! and restores them on the next start, so the user can seamlessly continue working.
 
 use tauri::Manager;
 
+// ── Module Declarations ──
+// Each module encapsulates a self-contained functional area of the application.
 mod config;
 mod dashboard;
 mod dxvk;
@@ -29,30 +33,37 @@ mod installer;
 mod localization;
 mod prefix_tools;
 mod binding_capture;
-// binding_database removed — bindings are now managed via profile-scoped commands in sc_config
+// binding_database was removed – bindings are now managed per profile in sc_config
 mod runners;
 mod sc_config;
 mod system_check;
 mod action_definitions;
 
+// simplelog is used for file-based logging (writes to ~/.config/star-control/logs/debug.log)
 use simplelog::{ CombinedLogger, WriteLogger, LevelFilter, Config };
 use std::fs::File;
 
-/// Initialize the logging system with file output.
-/// Logs are written to ~/.config/star-control/logs/debug.log
+/// Initializes the logging system with file output.
+///
+/// Logs are written to `~/.config/star-control/logs/debug.log`.
+/// This function is called once at app startup, before other
+/// components are initialized. The frontend can also log to this file
+/// via the `app_log` command.
 fn init_logging() {
+    // Determine log directory (XDG_CONFIG_HOME or fallback to current directory)
     let log_dir = dirs
         ::config_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("star-control")
         .join("logs");
 
-    // Create log directory if it doesn't exist
+    // Create directory if it does not exist yet
     let _ = std::fs::create_dir_all(&log_dir);
 
     let log_file_path = log_dir.join("debug.log");
 
-    // Create or open log file in append mode
+    // Open log file in append mode (or create new), so logs persist across
+    // multiple sessions
     let log_file = match File::options().create(true).append(true).open(&log_file_path) {
         Ok(file) => file,
         Err(e) => {
@@ -61,7 +72,7 @@ fn init_logging() {
         }
     };
 
-    // Initialize combined logger (file + terminal)
+    // CombinedLogger allows multiple logger backends – here only file logging at debug level
     let logger = CombinedLogger::init(
         vec![WriteLogger::new(LevelFilter::Debug, Config::default(), log_file)]
     );
@@ -76,10 +87,15 @@ fn init_logging() {
     }
 }
 
-/// Log a message from JavaScript with category and level
+/// Receives log messages from the JavaScript frontend and forwards them to Rust logging.
+///
+/// Called from the frontend via `debugLog(category, level, message)`.
+/// This places frontend and backend logs together in the same log file,
+/// which greatly simplifies debugging.
 #[tauri::command]
 fn app_log(level: String, category: String, message: String) {
     let full_message = format!("[{}] {}", category, message);
+    // Map the frontend log level to the corresponding Rust log level
     match level.as_str() {
         "error" => log::error!("{}", full_message),
         "warn" => log::warn!("{}", full_message),
@@ -88,7 +104,10 @@ fn app_log(level: String, category: String, message: String) {
     }
 }
 
-/// Get the path to the debug log file
+/// Returns the file path to the debug log file.
+///
+/// Used by the frontend to display the path to the user or
+/// to open the file e.g. in a file manager.
 #[tauri::command]
 fn get_log_file_path() -> String {
     dirs::config_dir()
@@ -100,48 +119,68 @@ fn get_log_file_path() -> String {
         .to_string()
 }
 
-/// Simple greeting command for testing Tauri command infrastructure.
+/// Simple test command to verify the Tauri command infrastructure.
+/// Can be used to test the IPC connection between frontend and backend.
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! Welcome to Star Control.", name)
 }
 
-/// Returns the path to the window state file.
-/// The file is stored in the config directory under `star-control/window-state.json`.
+// ── Window State ──
+// The window state is saved on close and restored on start,
+// so the window always appears at the same position and size.
+
+/// Returns the path to the window state file (`~/.config/star-control/window-state.json`).
 fn window_state_path() -> Option<std::path::PathBuf> {
     dirs::config_dir().map(|p| p.join("star-control").join("window-state.json"))
 }
 
-/// Represents the saved window state including position, size, and scale.
+/// Represents the saved window state.
+///
+/// All coordinates and sizes are stored in **logical** units
+/// (not physical pixels), so the values work independently of
+/// the monitor's scale factor.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct WindowState {
+    /// Window width in logical units
     width: u32,
+    /// Window height in logical units
     height: u32,
+    /// X position of the window (logical)
     x: i32,
+    /// Y position of the window (logical)
     y: i32,
+    /// Whether the window was maximized
     maximized: bool,
+    /// Monitor scale factor at the time of saving (e.g. 1.0, 1.25, 2.0)
     #[serde(default = "default_scale")]
     scale: f64,
 }
 
-/// Default scale factor for the window (1.0 = 100%).
+/// Default scale factor (1.0 = 100%), used when the value
+/// is missing from an older configuration file.
 fn default_scale() -> f64 {
     1.0
 }
 
-/// Loads the window state from the configuration file.
-/// Returns None if the file doesn't exist or cannot be parsed.
+/// Loads the saved window state from the JSON file.
+///
+/// Returns `None` if the file does not exist (first launch)
+/// or cannot be read/parsed.
 fn load_window_state() -> Option<WindowState> {
     let path = window_state_path()?;
     let data = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&data).ok()
 }
 
-/// Saves the current window state to the configuration file.
-/// This is called when the window is closed.
-/// Converts physical coordinates to logical coordinates for proper scaling.
+/// Saves the current window state to the JSON file.
+///
+/// Called when the window is closed (CloseRequested event).
+/// The Tauri API returns physical pixels, which are converted here to logical units,
+/// so the values can be correctly restored across different scale factors.
 fn save_window_state_from(window: &tauri::WebviewWindow) {
     if let Some(path) = window_state_path() {
+        // Query current window data – abort on errors
         let Ok(size) = window.inner_size() else {
             return;
         };
@@ -153,10 +192,9 @@ fn save_window_state_from(window: &tauri::WebviewWindow) {
         };
         let maximized = window.is_maximized().unwrap_or(false);
 
-        // Convert physical size to logical size for storage
+        // Convert physical pixels to logical units (division by scale factor)
         let logical_width = ((size.width as f64) / scale) as u32;
         let logical_height = ((size.height as f64) / scale) as u32;
-        // Convert physical position to logical position
         let logical_x = ((pos.x as f64) / scale) as i32;
         let logical_y = ((pos.y as f64) / scale) as i32;
 
@@ -169,6 +207,7 @@ fn save_window_state_from(window: &tauri::WebviewWindow) {
             scale,
         };
 
+        // Ensure config directory exists and save state as JSON
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -178,16 +217,18 @@ fn save_window_state_from(window: &tauri::WebviewWindow) {
     }
 }
 
-/// Restores the window state from the configuration file.
-/// This is called when the application starts.
-/// Limits the window size to the monitor size to prevent issues.
+/// Restores the window state from the saved configuration.
+///
+/// Called at app startup. The saved logical coordinates are converted back
+/// to physical pixels for positioning. The window size is clamped to the
+/// monitor size to prevent the window from being larger than the screen
+/// (e.g. after a monitor change).
 fn restore_window_state(window: &tauri::WebviewWindow) {
     if let Some(state) = load_window_state() {
-        // Use logical size directly
         let mut width = state.width;
         let mut height = state.height;
 
-        // Limit to monitor size (in logical coordinates)
+        // Clamp window size to monitor size (with 50px buffer for taskbars etc.)
         if let Ok(Some(monitor)) = window.current_monitor() {
             let monitor_scale = monitor.scale_factor();
             let monitor_physical = monitor.size();
@@ -198,10 +239,12 @@ fn restore_window_state(window: &tauri::WebviewWindow) {
             height = height.min(monitor_logical_h.saturating_sub(50));
         }
 
-        // Set size using LogicalSize (better for Wayland)
+        // Use LogicalSize – works better on Wayland than PhysicalSize
         let _ = window.set_size(tauri::LogicalSize::new(width, height));
 
-        // Set position (on X11 only, Wayland ignores it)
+        // Set position: convert logical to physical coordinates.
+        // On Wayland the position is ignored by the compositor (security policy),
+        // on X11 it works as expected.
         let current_scale = window.scale_factor().unwrap_or(1.0);
         let _ = window.set_position(
             tauri::PhysicalPosition::new(
@@ -210,23 +253,34 @@ fn restore_window_state(window: &tauri::WebviewWindow) {
             )
         );
 
+        // If the window was maximized when last closed, maximize again
         if state.maximized {
             let _ = window.maximize();
         }
     }
 }
 
-/// Main entry point for the Tauri application.
-/// Initializes all plugins, commands, and sets up window event handlers.
+/// Main entry point of the Tauri application.
+///
+/// Initializes logging, registers plugins and all IPC commands,
+/// sets up window restoration and starts the event loop.
+/// This function is called from `main.rs` and only returns
+/// when the application is terminated.
 pub fn run() {
-    // Initialize logging first
+    // Logging must be initialized first so that all subsequent
+    // initialization steps can already be logged
     init_logging();
 
     tauri::Builder
         ::default()
+        // Dialog plugin: enables native file picker dialogs
         .plugin(tauri_plugin_dialog::init())
+        // Opener plugin: enables opening URLs in the default browser
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            // Restore window state in a separate thread.
+            // The short delay (200ms) is needed so the window is fully
+            // created before size and position are set.
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(200));
@@ -236,16 +290,24 @@ pub fn run() {
             });
             Ok(())
         })
+        // ── IPC Command Registration ──
+        // All functions registered here can be called from the JavaScript frontend
+        // via `invoke("command_name", { args })`.
         .invoke_handler(
             tauri::generate_handler![
+                // General commands
                 greet,
                 app_log,
                 get_log_file_path,
+
+                // System checks (vm.max_map_count, file limits, monitor detection)
                 system_check::run_system_check,
                 system_check::fix_mapcount,
                 system_check::fix_filelimit,
                 system_check::detect_monitors,
                 system_check::get_default_install_path,
+
+                // App configuration (setup, installation path, runner sources)
                 config::check_needs_setup,
                 config::create_install_directory,
                 config::validate_install_path,
@@ -259,25 +321,35 @@ pub fn run() {
                 config::reset_app,
                 config::add_runner_source_from_github,
                 config::import_lug_helper_sources,
+
+                // Wine/Proton runner management (download, installation, deletion)
                 runners::fetch_available_runners,
                 runners::install_runner,
                 runners::cancel_runner_install,
                 runners::delete_runner,
+
+                // DXVK management (DirectX-to-Vulkan translation layer)
                 dxvk::fetch_dxvk_releases,
                 dxvk::detect_dxvk_version,
                 dxvk::install_dxvk,
+
+                // Wine prefix tools (configuration, DPI, PowerShell)
                 prefix_tools::run_winecfg,
                 prefix_tools::launch_wine_shell,
                 prefix_tools::get_dpi,
                 prefix_tools::set_dpi,
                 prefix_tools::install_powershell,
                 prefix_tools::detect_powershell,
+
+                // Game installation and launch (RSI Launcher / Star Citizen)
                 installer::run_installation,
                 installer::cancel_installation,
                 installer::check_installation,
                 installer::is_game_running,
                 installer::launch_game,
                 installer::stop_game,
+
+                // Star Citizen configuration and profile management
                 sc_config::read_user_cfg,
                 sc_config::write_user_cfg,
                 sc_config::detect_sc_versions,
@@ -286,16 +358,24 @@ pub fn run() {
                 sc_config::import_profile,
                 sc_config::read_attributes,
                 sc_config::write_attributes,
+
+                // Binding editor (parse actionmaps, assign/remove bindings)
                 sc_config::parse_actionmaps,
                 sc_config::get_action_definitions,
                 sc_config::get_complete_binding_list,
                 sc_config::assign_binding,
                 sc_config::remove_binding,
+
+                // P4K archive access (read and list game files)
                 sc_config::read_p4k,
                 sc_config::list_p4k,
+
+                // Localization within SC configuration
                 sc_config::get_localization_labels,
                 sc_config::get_localization_ini,
                 sc_config::list_localization_languages,
+
+                // Per-profile binding management (save/load bindings per profile)
                 sc_config::get_profile_bindings,
                 sc_config::assign_profile_binding,
                 sc_config::remove_profile_binding,
@@ -303,6 +383,8 @@ pub fn run() {
                 sc_config::set_profile_device_alias,
                 sc_config::migrate_binding_database,
                 sc_config::reorder_profile_devices,
+
+                // Profile backup system
                 sc_config::backup_profile,
                 sc_config::restore_profile,
                 sc_config::backup_profile_manual,
@@ -312,6 +394,9 @@ pub fn run() {
                 sc_config::load_active_profiles,
                 sc_config::save_active_profile,
                 sc_config::update_backup_label,
+                sc_config::update_backup_from_sc,
+
+                // Environments management (import, create, link SC versions)
                 sc_config::list_importable_versions,
                 sc_config::import_from_version,
                 sc_config::import_version_as_profile,
@@ -322,20 +407,34 @@ pub fn run() {
                 sc_config::delete_sc_version,
                 sc_config::create_sc_version,
                 sc_config::link_data_p4k,
-                sc_config::update_backup_from_sc,
+
+                // File diff (comparison of configuration files)
+                sc_config::get_file_diff,
+
+                // Input device capture for the binding editor (joysticks, gamepads)
                 binding_capture::start_input_capture,
                 binding_capture::stop_input_capture,
                 binding_capture::list_connected_devices,
+
+                // Language pack management (e.g. German translation for Star Citizen)
                 localization::check_localization_update,
                 localization::get_available_languages,
                 localization::get_localization_status,
                 localization::install_localization,
                 localization::remove_localization,
+                localization::fetch_remote_language_info,
+
+                // Dashboard (RSI news, server status, community statistics)
                 dashboard::fetch_rsi_news,
                 dashboard::fetch_server_status,
-                dashboard::fetch_community_stats
+                dashboard::fetch_community_stats,
+                dashboard::fetch_community_stats_history
             ]
         )
+        // Window event handler: save window state on close,
+        // so it can be restored on the next start.
+        // The detour via `get_webview_window()` is needed because the event handler
+        // only receives a Window reference, but we need a WebviewWindow.
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 if let Some(ww) = window.app_handle().get_webview_window(window.label()) {

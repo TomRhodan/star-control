@@ -1,18 +1,18 @@
-//! Game installation and launch module.
+//! Module for Star Citizen game installation and launching.
 //!
-//! This module handles:
-//! - Running the full installation process (winetricks, DXVK, RSI Launcher)
-//! - Launching Star Citizen with appropriate Wine settings
+//! This module handles the following tasks:
+//! - Performing the entire installation process (Winetricks, DXVK, RSI Launcher)
+//! - Launching Star Citizen with the appropriate Wine settings
 //! - Stopping running game processes
-//! - Checking installation status
+//! - Checking the installation status
 //!
-//! Installation is performed in multiple phases:
-//! 1. Prepare environment (download winetricks)
-//! 2. Winetricks (win11, arial, tahoma, powershell)
-//! 3. DXVK installation
-//! 4. Registry configuration
-//! 5. RSI Launcher download and install
-//! 6. Launch
+//! The installation proceeds in multiple phases:
+//! 1. Prepare environment (download Winetricks)
+//! 2. Run Winetricks (win11, arial, tahoma, powershell)
+//! 3. Install DXVK
+//! 4. Configure registry
+//! 5. Download and install RSI Launcher
+//! 6. Launch the game
 
 use crate::config::{ AppConfig, PerformanceSettings };
 use serde::{ Deserialize, Serialize };
@@ -23,33 +23,50 @@ use std::sync::atomic::{ AtomicBool, Ordering };
 use std::sync::Mutex;
 use tauri::{ AppHandle, Emitter };
 
-/// Flag to signal cancellation of installation.
+/// Global flag for cancelling a running installation.
+/// Set to `true` when the user cancels the installation.
 static INSTALL_CANCEL: AtomicBool = AtomicBool::new(false);
 
-/// Stores the PID of the running game process and the install path (for wineserver cleanup).
+/// Stores the PID of the running game process together with the installation path.
+/// Needed to terminate the process later (stop_game) and
+/// clean up the associated wineserver.
 static GAME_PID: Mutex<Option<(u32, String)>> = Mutex::new(None);
 
-/// Progress update during installation.
+/// Progress message during installation.
+/// Sent as an event to the frontend so the UI can display the current status.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct InstallProgress {
+    /// Current phase (e.g. "prepare", "winetricks", "dxvk", "download", "install", "launch")
     pub phase: String,
+    /// Description of the current step within the phase
     pub step: String,
+    /// Progress in percent (0.0 to 100.0)
     pub percent: f64,
+    /// Detailed log line for the console display in the frontend
     pub log_line: String,
 }
 
 /// Current status of the game installation.
+/// Queried by the frontend to decide whether to install or launch.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct InstallationStatus {
+    /// Whether the installation is complete (runner present AND launcher installed)
     pub installed: bool,
+    /// Whether a Wine runner was found in the filesystem
     pub has_runner: bool,
+    /// Name of the selected runner (e.g. "wine-ge-proton8-25")
     pub runner_name: Option<String>,
+    /// Path to the installation directory (Wine prefix)
     pub install_path: String,
+    /// Whether the RSI Launcher .exe exists in the Wine prefix
     pub launcher_exe_exists: bool,
+    /// Status message for display in the frontend
     pub message: String,
 }
 
-/// Expands tilde (~) in a path to the user's home directory.
+/// Replaces the tilde (~) at the beginning of a path with the user's home directory.
+/// Needed because paths from the configuration may contain a tilde
+/// that is not automatically resolved by the operating system.
 fn expand_tilde(path: &str) -> String {
     if path.starts_with('~') {
         if let Ok(home) = std::env::var("HOME") {
@@ -59,7 +76,9 @@ fn expand_tilde(path: &str) -> String {
     path.to_string()
 }
 
-/// Emits a progress update event to the frontend.
+/// Sends a progress message as an event to the frontend.
+/// The frontend receives these via the "install-progress" event listener
+/// and uses them to update the progress bar and log output.
 fn emit_progress(app: &AppHandle, phase: &str, step: &str, percent: f64, log_line: &str) {
     let _ = app.emit("install-progress", InstallProgress {
         phase: phase.to_string(),
@@ -69,13 +88,19 @@ fn emit_progress(app: &AppHandle, phase: &str, step: &str, percent: f64, log_lin
     });
 }
 
-/// Checks if the installation has been cancelled.
+/// Checks whether the installation was cancelled by the user.
+/// Called at various points in the installation process
+/// to return early with an error message when cancelled.
 fn is_cancelled() -> bool {
     INSTALL_CANCEL.load(Ordering::Relaxed)
 }
 
-/// Streams command output to the frontend to avoid pipe deadlocks.
-/// Uses separate threads for stdout and stderr.
+/// Streams the output of a child process (stdout/stderr) to the frontend in real time.
+///
+/// Stdout and stderr are read in separate threads to avoid pipe deadlocks.
+/// A deadlock occurs when the child process fills the stderr buffer while we
+/// are blocking on stdout — the process cannot write further and
+/// both sides hang.
 fn stream_command_output(
     app: &AppHandle,
     phase: &str,
@@ -83,8 +108,7 @@ fn stream_command_output(
     percent: f64,
     child: &mut std::process::Child
 ) {
-    // Read stdout and stderr on separate threads to avoid pipe deadlocks.
-    // A deadlock occurs when the child fills the stderr buffer while we block on stdout.
+    // Read stderr in a separate thread so we can process stdout simultaneously
     let stderr_handle = child.stderr.take().map(|stderr| {
         let app = app.clone();
         let phase = phase.to_string();
@@ -97,6 +121,7 @@ fn stream_command_output(
         })
     });
 
+    // Read stdout in the current thread and send each line as a progress message
     if let Some(stdout) = child.stdout.take() {
         let reader = BufReader::new(stdout);
         for line in reader.lines().map_while(Result::ok) {
@@ -104,13 +129,19 @@ fn stream_command_output(
         }
     }
 
+    // Wait for the stderr thread to finish before returning
     if let Some(handle) = stderr_handle {
         let _ = handle.join();
     }
 }
 
-/// Configures environment variables for Wine execution.
-/// Sets up performance features, display settings, and overlays.
+/// Configures all environment variables for Wine execution.
+///
+/// Sets performance flags (ESync, FSync, DXVK Async), display settings
+/// (Wayland, HDR, FSR), overlay options (MangoHUD, DXVK HUD), and shader caches.
+/// Custom environment variables can override the built-in ones.
+///
+/// Returns the list of all set variables so they can be displayed in the log.
 fn configure_wine_env(
     cmd: &mut Command,
     install_path: &str,
@@ -119,57 +150,70 @@ fn configure_wine_env(
 ) -> Vec<(String, String)> {
     let mut vars: Vec<(String, String)> = Vec::new();
 
-    // Core Wine env
+    // Basic Wine environment variables
     vars.push(("WINEPREFIX".into(), install_path.into()));
+    // Disable winemenubuilder.exe and winedbg.exe — otherwise creates
+    // unwanted desktop entries and starts the debugger on errors
     vars.push(("WINEDLLOVERRIDES".into(), "winemenubuilder.exe=d;winedbg.exe=d".into()));
 
-    // WINEDEBUG: show more output in debug mode
+    // WINEDEBUG: In debug mode enable detailed Wine output,
+    // otherwise suppress all messages for better performance
     let winedebug = match log_level {
         "debug" => "+waylanddrv,+explorer,err+all",
         _ => "-all",
     };
     vars.push(("WINEDEBUG".into(), winedebug.into()));
 
-    // Performance flags
+    // Performance flags: ESync/FSync accelerate synchronization between
+    // Wine threads by using Linux kernel features instead of expensive NT emulation
     if perf.esync {
         vars.push(("WINEESYNC".into(), "1".into()));
     }
     if perf.fsync {
         vars.push(("WINEFSYNC".into(), "1".into()));
     }
+    // DXVK Async allows asynchronous shader compilation — prevents micro-stuttering
     if perf.dxvk_async {
         vars.push(("DXVK_ASYNC".into(), "1".into()));
     }
 
-    // Display — Wayland
+    // Display settings — Wayland support
     if perf.wayland {
-        vars.push(("PROTON_ENABLE_WAYLAND".into(), "1".into())); // Proton runners
-        // Plain Wine runners: fully remove DISPLAY so Wine's X11 driver
-        // initialization fails and the Wayland driver takes over.
-        // Setting DISPLAY="" is not enough — getenv("DISPLAY") still returns
-        // a non-NULL pointer and Wine attempts X11 anyway.
-        vars.push(("DISPLAY".into(), "(removed)".to_string())); // logged only
+        vars.push(("PROTON_ENABLE_WAYLAND".into(), "1".into())); // For Proton runners
+        // For pure Wine runners: remove DISPLAY entirely so the X11 driver initialization
+        // fails and the Wayland driver takes over.
+        // DISPLAY="" is not enough — getenv("DISPLAY") still returns a
+        // non-NULL pointer and Wine tries X11 anyway.
+        vars.push(("DISPLAY".into(), "(removed)".to_string())); // Only logged, not set
     }
+    // Enable HDR (High Dynamic Range) support for Proton and DXVK
     if perf.hdr {
         vars.push(("PROTON_ENABLE_HDR".into(), "1".into()));
         vars.push(("DXVK_HDR".into(), "1".into()));
     }
+    // AMD FidelityFX Super Resolution 4 — automatic upscaling for better performance
     if perf.fsr {
         vars.push(("PROTON_FSR4_UPGRADE".into(), "1".into()));
     }
+    // Set primary monitor for the Wine Wayland driver (e.g. "DP-1")
     if let Some(ref monitor) = perf.primary_monitor {
         vars.push(("WAYLANDDRV_PRIMARY_MONITOR".into(), monitor.clone()));
     }
 
-    // Overlays
+    // Overlay options for performance monitoring during gameplay
+    // MangoHUD displays FPS, CPU/GPU utilization and other metrics as an overlay
     if perf.mangohud {
         vars.push(("MANGOHUD".into(), "1".into()));
     }
+    // DXVK's own HUD — displays FPS and shader compilation status
     if perf.dxvk_hud {
         vars.push(("DXVK_HUD".into(), "fps,compiler".into()));
     }
 
-    // Shader caches
+    // Shader cache settings: Store compiled shaders on disk
+    // so they don't need to be recompiled on the next launch.
+    // Large cache size (10 GB) and no automatic cleanup because
+    // Star Citizen generates a very large number of shaders.
     vars.push(("__GL_SHADER_DISK_CACHE".into(), "1".into()));
     vars.push(("__GL_SHADER_DISK_CACHE_SIZE".into(), "10737418240".into()));
     vars.push(("__GL_SHADER_DISK_CACHE_PATH".into(), install_path.into()));
@@ -177,10 +221,25 @@ fn configure_wine_env(
     vars.push(("MESA_SHADER_CACHE_DIR".into(), install_path.into()));
     vars.push(("MESA_SHADER_CACHE_MAX_SIZE".into(), "10G".into()));
 
-    // Apply all env vars to the command
+    // Apply custom environment variables from the settings.
+    // These can override built-in variables (e.g. custom DXVK_HUD configuration).
+    // Disabled or empty variables are skipped.
+    for custom in &perf.custom_env_vars {
+        if !custom.enabled || custom.key.trim().is_empty() {
+            continue;
+        }
+        let key = custom.key.clone();
+        let value = custom.value.clone();
+        // Remove existing variable with the same key so that the
+        // custom version takes precedence
+        vars.retain(|(k, _)| k != &key);
+        vars.push((key, value));
+    }
+
+    // Apply all collected environment variables to the command
     for (key, val) in &vars {
         if key == "DISPLAY" {
-            // Remove DISPLAY entirely — don't set it to empty
+            // Remove DISPLAY entirely instead of setting it empty — needed for Wayland
             cmd.env_remove("DISPLAY");
         } else {
             cmd.env(key, val);
@@ -190,16 +249,23 @@ fn configure_wine_env(
     vars
 }
 
+/// Checks the current installation status of Star Citizen.
+///
+/// Verifies whether a Wine runner is present and whether the RSI Launcher .exe
+/// exists in the Wine prefix. Returns a detailed status that the frontend
+/// uses for display and the "install vs. launch" decision.
 #[tauri::command]
 pub fn check_installation(config: AppConfig) -> InstallationStatus {
     let install_path = expand_tilde(&config.install_path);
 
+    // Check whether the selected runner actually exists as a wine binary
     let runner_name = config.selected_runner.clone();
     let has_runner = runner_name.as_ref().is_some_and(|name| {
         let wine = Path::new(&install_path).join("runners").join(name).join("bin").join("wine");
         wine.exists()
     });
 
+    // Check whether the RSI Launcher .exe exists at the expected path within the Wine prefix
     let launcher_exe = Path::new(&install_path)
         .join("drive_c")
         .join("Program Files")
@@ -208,6 +274,7 @@ pub fn check_installation(config: AppConfig) -> InstallationStatus {
         .join("RSI Launcher.exe");
     let launcher_exe_exists = launcher_exe.exists();
 
+    // Build status message based on the installation state
     let message = if runner_name.is_none() {
         "No runner selected".to_string()
     } else if !has_runner {
@@ -218,6 +285,7 @@ pub fn check_installation(config: AppConfig) -> InstallationStatus {
         "Ready to launch".to_string()
     };
 
+    // Only considered "installed" when both runner and launcher are present
     let installed = has_runner && launcher_exe_exists;
 
     InstallationStatus {
@@ -230,6 +298,17 @@ pub fn check_installation(config: AppConfig) -> InstallationStatus {
     }
 }
 
+/// Launches Star Citizen via the RSI Launcher with Wine.
+///
+/// This function:
+/// 1. Determines Wine binary and wineserver from the selected runner
+/// 2. Kills any still-running wineserver processes
+/// 3. Configures all environment variables (performance, display, overlays)
+/// 4. Starts the RSI Launcher as a child process
+/// 5. Monitors the process in the background and reports termination to the frontend
+///
+/// All important information (runner, paths, variables) is sent as
+/// "launch-log" events to the frontend for the live console.
 #[tauri::command]
 pub async fn launch_game(app: AppHandle, config: AppConfig) -> Result<(), String> {
     let install_path = expand_tilde(&config.install_path);
@@ -237,6 +316,7 @@ pub async fn launch_game(app: AppHandle, config: AppConfig) -> Result<(), String
     let log_level = config.log_level.as_str();
     let is_debug = log_level == "debug";
 
+    // Build paths to Wine binary and wineserver in the runner directory
     let runner_bin = Path::new(&install_path).join("runners").join(runner_name).join("bin");
     let wine = runner_bin.join("wine");
     let wineserver = runner_bin.join("wineserver");
@@ -256,17 +336,17 @@ pub async fn launch_game(app: AppHandle, config: AppConfig) -> Result<(), String
         return Err("RSI Launcher not found — please run installation first".to_string());
     }
 
-    // --- Log: Header ---
+    // --- Log: Header for the launch console in the frontend ---
     let _ = app.emit("launch-log", "────────────────────────────────────────");
     let _ = app.emit("launch-log", "  Star Control — Launch");
     let _ = app.emit("launch-log", "────────────────────────────────────────");
 
-    // --- Log: Runner & paths ---
+    // --- Log: Output runner and paths for diagnostics ---
     let _ = app.emit("launch-log", &format!("Runner:     {}", runner_name));
     let _ = app.emit("launch-log", &format!("Wine:       {}", wine.to_string_lossy()));
     let _ = app.emit("launch-log", &format!("Prefix:     {}", install_path));
 
-    // --- Log: Wine version ---
+    // --- Log: Determine and output Wine version ---
     if
         let Ok(out) = Command::new(wine.to_string_lossy().as_ref())
             .arg("--version")
@@ -281,20 +361,21 @@ pub async fn launch_game(app: AppHandle, config: AppConfig) -> Result<(), String
 
     let _ = app.emit("launch-log", "");
 
-    // --- Kill lingering wineserver ---
+    // --- Kill old wineserver processes left over from previous sessions ---
     let _ = app.emit("launch-log", "> Killing old wineserver processes...");
     let _ = Command::new(wineserver.to_string_lossy().as_ref())
         .arg("-k")
         .env("WINEPREFIX", &install_path)
         .output();
 
-    // --- Build command ---
+    // --- Build Wine command ---
     let mut cmd = Command::new(wine.to_string_lossy().as_ref());
+    // Use Windows path since Wine resolves it internally
     cmd.arg("C:\\Program Files\\Roberts Space Industries\\RSI Launcher\\RSI Launcher.exe");
 
     let env_log = configure_wine_env(&mut cmd, &install_path, &config.performance, log_level);
 
-    // --- Log: Environment variables ---
+    // --- Log: List set environment variables ---
     let _ = app.emit("launch-log", "");
     let _ = app.emit("launch-log", "> Environment variables:");
     for (key, val) in &env_log {
@@ -308,7 +389,7 @@ pub async fn launch_game(app: AppHandle, config: AppConfig) -> Result<(), String
         }
     }
 
-    // --- Log: Performance settings summary ---
+    // --- Log: Summary of performance settings ---
     let perf = &config.performance;
     let _ = app.emit("launch-log", "");
     let _ = app.emit("launch-log", "> Performance settings:");
@@ -328,7 +409,19 @@ pub async fn launch_game(app: AppHandle, config: AppConfig) -> Result<(), String
         let _ = app.emit("launch-log", &format!("  Primary Monitor={}", monitor));
     }
 
-    // --- Log: Full command (debug only) ---
+    // --- Log: Custom environment variables (if present) ---
+    let active_custom: Vec<_> = perf.custom_env_vars.iter()
+        .filter(|v| v.enabled && !v.key.trim().is_empty())
+        .collect();
+    if !active_custom.is_empty() {
+        let _ = app.emit("launch-log", "");
+        let _ = app.emit("launch-log", "> Custom environment variables:");
+        for v in &active_custom {
+            let _ = app.emit("launch-log", &format!("  {}={}", v.key, v.value));
+        }
+    }
+
+    // --- Log: Output full command only in debug mode ---
     if is_debug {
         let _ = app.emit("launch-log", "");
         let _ = app.emit(
@@ -340,8 +433,9 @@ pub async fn launch_game(app: AppHandle, config: AppConfig) -> Result<(), String
         );
     }
 
-    // RSI Launcher is an Electron app — file redirection keeps child handles
-    // open and prevents exit detection. Use null handles instead.
+    // The RSI Launcher is an Electron app — piping keeps
+    // the child handles open and prevents detection of process termination.
+    // Therefore redirect stdout/stderr to /dev/null.
     cmd.stdout(Stdio::null()).stderr(Stdio::null());
 
     let _ = app.emit("launch-log", "");
@@ -353,17 +447,18 @@ pub async fn launch_game(app: AppHandle, config: AppConfig) -> Result<(), String
     let _ = app.emit("launch-log", &format!("> RSI Launcher started (PID: {})", pid));
     let _ = app.emit("launch-started", "RSI Launcher process started");
 
-    // Store PID + install path for stop_game
+    // Store PID and installation path so stop_game can terminate the process
     if let Ok(mut guard) = GAME_PID.lock() {
         *guard = Some((pid, install_path.clone()));
     }
 
-    // Monitor child process in background
+    // Monitor child process in the background — when the launcher exits,
+    // the thread sends a "launch-exited" event to the frontend
     std::thread::spawn(move || {
         let status = child.wait();
         let code = status.ok().and_then(|s| s.code());
 
-        // Clear stored PID
+        // Clear stored PID since the process is no longer running
         if let Ok(mut guard) = GAME_PID.lock() {
             *guard = None;
         }
@@ -376,8 +471,16 @@ pub async fn launch_game(app: AppHandle, config: AppConfig) -> Result<(), String
     Ok(())
 }
 
+/// Stops the running game process and cleans up all Wine processes.
+///
+/// Procedure:
+/// 1. First send SIGTERM (graceful shutdown)
+/// 2. After 2 seconds send SIGKILL (forced termination)
+/// 3. Kill all wineservers in the runner directory to clean up orphaned Wine processes
+/// 4. Clear stored PID and notify the frontend
 #[tauri::command]
 pub async fn stop_game(app: AppHandle) -> Result<(), String> {
+    // Retrieve PID and installation path from global storage
     let (pid, install_path) = {
         let guard = GAME_PID.lock().map_err(|e| format!("Lock error: {}", e))?;
         guard.clone().ok_or("No game process is running")?
@@ -386,14 +489,15 @@ pub async fn stop_game(app: AppHandle) -> Result<(), String> {
     let _ = app.emit("launch-log", "");
     let _ = app.emit("launch-log", &format!("> Stopping game process (PID: {})...", pid));
 
-    // Kill the process tree
+    // Send SIGTERM — gives the process a chance to shut down cleanly
     let _ = Command::new("kill").arg("-TERM").arg(pid.to_string()).output();
 
-    // Give it a moment, then force-kill if still alive
+    // Wait 2 seconds, then SIGKILL if the process is still alive
     std::thread::sleep(std::time::Duration::from_secs(2));
     let _ = Command::new("kill").arg("-9").arg(pid.to_string()).output();
 
-    // Kill wineserver to clean up all Wine processes
+    // Kill all wineservers in all runner directories
+    // to clean up orphaned Wine processes (e.g. winedevice.exe)
     let runner_dirs = std::fs::read_dir(Path::new(&install_path).join("runners")).ok();
     if let Some(dirs) = runner_dirs {
         for entry in dirs.flatten() {
@@ -408,22 +512,37 @@ pub async fn stop_game(app: AppHandle) -> Result<(), String> {
         }
     }
 
-    // Clear stored PID
+    // Clear stored PID — the game is no longer running
     if let Ok(mut guard) = GAME_PID.lock() {
         *guard = None;
     }
 
     let _ = app.emit("launch-log", "> Game stopped.");
+    // Exit code -1 signals to the frontend that the game was stopped manually
     let _ = app.emit("launch-exited", -1);
 
     Ok(())
 }
 
+/// Performs the full installation of Star Citizen.
+///
+/// The installation process consists of six phases:
+/// - Phase 1 (0-5%):   Prepare environment, download Winetricks
+/// - Phase 2 (5-45%):  Run Winetricks verbs (win11, fonts, PowerShell)
+/// - Phase 3 (45-60%): Download and install DXVK from GitHub
+/// - Phase 4 (60-65%): Configure Windows registry
+/// - Phase 5 (65-95%): Download and install RSI Launcher (skipped in quick mode)
+/// - Phase 6 (95-100%): Launch RSI Launcher
+///
+/// Can be cancelled at any time via `cancel_installation()`.
+/// In "quick" mode only phases 1-4 + 6 are executed (launcher download is skipped).
 #[tauri::command]
 pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), String> {
+    // Reset cancellation flag for a new installation
     INSTALL_CANCEL.store(false, Ordering::SeqCst);
 
-    // Frontend may not pass github_token or install_mode — load from saved config if missing
+    // The frontend may not pass all fields (e.g. github_token or install_mode).
+    // In that case, load the missing values from the saved configuration file.
     let config = if config.github_token.is_none() || config.install_mode.is_empty() {
         if let Ok(Some(saved)) = crate::config::load_config().await {
             AppConfig {
@@ -447,9 +566,10 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
     };
 
     let install_path = expand_tilde(&config.install_path);
+    // In quick mode the RSI Launcher download is skipped (phases 4/5)
     let skip_launcher = config.install_mode == "quick";
 
-    // In quick mode, verify that RSI Launcher actually exists
+    // In quick mode, verify that the RSI Launcher already exists
     if skip_launcher {
         let launcher_exe = Path::new(&install_path)
             .join("drive_c")
@@ -474,10 +594,12 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
         return Err(format!("Wine binary not found: {}", wine.to_string_lossy()));
     }
 
-    // ── Phase 1: Prepare (0–5%) ──
-    // Note: In quick mode, we run Phases 1-3 but skip Phases 4-5 (RSI Launcher)
+    // ── Phase 1: Prepare environment (0–5%) ──
+    // Note: In quick mode phases 1-4 + 6 are executed, phases 4/5 (RSI Launcher) are skipped
 
+    // Temporary directory for downloads and intermediate files
     let tmp_dir = Path::new(&install_path).join(".tmp");
+    // HTTP client with custom User-Agent for GitHub API requests
     let client = reqwest::Client
         ::builder()
         .user_agent("star-control/0.1.5")
@@ -486,6 +608,7 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
 
     emit_progress(&app, "prepare", "Preparing environment...", 0.0, "Starting installation...");
 
+    // Create Wine prefix directory structure
     let live_dir = Path::new(&install_path).join("drive_c");
 
     std::fs
@@ -498,11 +621,11 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
         ::create_dir_all(&tmp_dir)
         .map_err(|e| format!("Failed to create .tmp directory: {}", e))?;
 
-    // Create no_win64_warnings early so winetricks skips the 64-bit warning
+    // Create marker file early so Winetricks skips the 64-bit warning
     let marker = Path::new(&install_path).join("no_win64_warnings");
     let _ = std::fs::write(&marker, "");
 
-    // Kill any lingering wineserver from previous attempts
+    // Kill remaining wineservers from previous installation attempts
     emit_progress(
         &app,
         "prepare",
@@ -517,6 +640,7 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
 
     emit_progress(&app, "prepare", "Downloading winetricks...", 2.0, "Downloading winetricks...");
 
+    // Download Winetricks script directly from GitHub (always latest version)
     let winetricks_path = tmp_dir.join("winetricks");
 
     let wt_bytes = client
@@ -530,6 +654,7 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
         ::write(&winetricks_path, &wt_bytes)
         .map_err(|e| format!("Failed to write winetricks: {}", e))?;
 
+    // Mark Winetricks script as executable (only needed on Unix systems)
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -544,9 +669,12 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
         return Err("Installation cancelled".into());
     }
 
-    // ── Phase 2: Winetricks (5–45%) ──
-    // DXVK is NOT installed via winetricks (ships outdated versions).
-    // It is installed separately in Phase 3 using our own DXVK module.
+    // ── Phase 2: Run Winetricks verbs (5–45%) ──
+    // DXVK is NOT installed via Winetricks (provides outdated versions).
+    // Instead, DXVK is downloaded directly from GitHub in phase 3.
+    // win11: Set Windows 11 compatibility mode
+    // arial/tahoma: Fonts needed for display in the RSI Launcher
+    // powershell: Required by the RSI Launcher for certain operations
     let verbs = ["win11", "arial", "tahoma", "powershell"];
     let verb_count = verbs.len() as f64;
 
@@ -558,7 +686,7 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
         let step_label = format!("Installing {}...", verb);
         let base_percent = 5.0 + ((i as f64) / verb_count) * 40.0;
 
-        // Kill wineserver before each verb to prevent hangs from lingering processes
+        // Kill wineserver before each verb to avoid hangs from lingering processes
         let _ = Command::new(wineserver.to_string_lossy().as_ref())
             .arg("-k")
             .env("WINEPREFIX", &install_path)
@@ -615,7 +743,9 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
         return Err("Installation cancelled".into());
     }
 
-    // ── Phase 3: DXVK (45–60%) ──
+    // ── Phase 3: Install DXVK (45–60%) ──
+    // DXVK translates Direct3D 9/10/11 calls to Vulkan — essential for
+    // graphics performance on Linux since Vulkan communicates directly with the GPU.
     emit_progress(
         &app,
         "dxvk",
@@ -624,17 +754,17 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
         "Fetching latest DXVK release from GitHub..."
     );
 
-    // Kill wineserver before DXVK install
+    // Kill wineserver before DXVK installation
     let _ = Command::new(wineserver.to_string_lossy().as_ref())
         .arg("-k")
         .env("WINEPREFIX", &install_path)
         .output();
 
-    // Fetch latest DXVK release
+    // Fetch latest DXVK version from the GitHub API
     let dxvk_url = "https://api.github.com/repos/doitsujin/dxvk/releases/latest";
     let mut dxvk_request = client.get(dxvk_url);
 
-    // Use GitHub token if available
+    // Use GitHub token if available (increases API rate limit from 60 to 5000/hour)
     if let Some(ref token) = config.github_token {
         dxvk_request = dxvk_request.header("Authorization", format!("Bearer {}", token));
     }
@@ -647,6 +777,7 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
         return Err(format!("GitHub API returned {} for DXVK", dxvk_resp.status()));
     }
 
+    // Helper structs for deserializing the GitHub release API response
     #[derive(Deserialize)]
     struct GhRelease {
         tag_name: String,
@@ -662,6 +793,7 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
         .json().await
         .map_err(|e| format!("Failed to parse DXVK release: {}", e))?;
 
+    // Find the .tar.gz archive from the release assets (contains the DXVK DLLs)
     let dxvk_asset = release.assets
         .iter()
         .find(|a| a.name.ends_with(".tar.gz"))
@@ -694,7 +826,7 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
 
     emit_progress(&app, "dxvk", "Extracting DXVK...", 52.0, "Extracting DXVK archive...");
 
-    // Extract
+    // Extract archive (tar.gz -> directory with x32/ and x64/ subdirectories)
     let extract_dir = tmp_dir.join("dxvk-extract");
     std::fs
         ::create_dir_all(&extract_dir)
@@ -711,7 +843,7 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
 
     emit_progress(&app, "dxvk", "Installing DXVK DLLs...", 55.0, "Copying DLLs to Wine prefix...");
 
-    // Find extracted dir (usually dxvk-X.Y.Z/)
+    // Find extracted directory (typically dxvk-X.Y.Z/ within the archive)
     let dxvk_inner = std::fs
         ::read_dir(&extract_dir)
         .map_err(|e| format!("Failed to read extract dir: {}", e))?
@@ -720,9 +852,10 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
         .map(|e| e.path())
         .unwrap_or(extract_dir.clone());
 
+    // The four DXVK DLLs that replace Direct3D with Vulkan
     let dll_names = ["d3d9.dll", "d3d10core.dll", "d3d11.dll", "dxgi.dll"];
 
-    // Copy x64 DLLs to system32
+    // Copy 64-bit DLLs to system32 (Wine uses system32 for 64-bit libraries)
     let sys32 = Path::new(&install_path).join("drive_c").join("windows").join("system32");
     std::fs::create_dir_all(&sys32).ok();
     let x64_dir = dxvk_inner.join("x64");
@@ -735,7 +868,7 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
         }
     }
 
-    // Copy x32 DLLs to syswow64
+    // Copy 32-bit DLLs to syswow64 (Wine uses syswow64 for 32-bit libraries in a 64-bit prefix)
     let syswow64 = Path::new(&install_path).join("drive_c").join("windows").join("syswow64");
     std::fs::create_dir_all(&syswow64).ok();
     let x32_dir = dxvk_inner.join("x32");
@@ -748,7 +881,8 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
         }
     }
 
-    // Register DLL overrides in Wine registry so Wine uses native DXVK DLLs
+    // Register DLL overrides in the Wine registry so Wine uses the native
+    // DXVK DLLs instead of the built-in Wine implementations
     emit_progress(
         &app,
         "dxvk",
@@ -776,11 +910,12 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
             .status();
     }
 
-    // Write version marker
+    // Write version marker so future installations can detect
+    // which DXVK version is currently installed
     let dxvk_marker = Path::new(&install_path).join(".dxvk_version");
     let _ = std::fs::write(&dxvk_marker, &dxvk_version);
 
-    // Cleanup DXVK temp files
+    // Clean up temporary DXVK files
     let _ = std::fs::remove_file(&dxvk_archive_path);
     let _ = std::fs::remove_dir_all(&extract_dir);
 
@@ -796,7 +931,9 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
         return Err("Installation cancelled".into());
     }
 
-    // ── Phase 4: Registry (60–65%) ──
+    // ── Phase 4: Configure registry (60–65%) ──
+    // Disable file associations so Wine doesn't create .desktop files
+    // and MIME type associations on the Linux host
     emit_progress(&app, "registry", "Configuring registry...", 60.0, "Setting registry keys...");
 
     let mut reg_child = Command::new(wine.to_string_lossy().as_ref())
@@ -834,8 +971,9 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
 
     emit_progress(&app, "registry", "Registry configured", 64.0, "Registry configuration complete");
 
-    // Kill wineserver after registry to prevent lingering Wine processes
-    // from holding pipe handles open during the async download phase
+    // Kill wineserver after registry configuration so no
+    // remaining Wine processes keep pipe handles open and
+    // block the subsequent asynchronous download phase
     let _ = Command::new(wineserver.to_string_lossy().as_ref())
         .arg("-k")
         .env("WINEPREFIX", &install_path)
@@ -848,8 +986,8 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
         return Err("Installation cancelled".into());
     }
 
-    // ── Phase 4 & 5: RSI Launcher Download & Install (65–95%) ──
-    // Skip if install_mode is "quick" (RSI Launcher already exists)
+    // ── Phase 4 & 5: Download & install RSI Launcher (65–95%) ──
+    // Skip in quick mode (RSI Launcher already exists)
     if skip_launcher {
         emit_progress(
             &app,
@@ -868,6 +1006,7 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
             "Downloading latest.yml..."
         );
 
+        // Download latest.yml from RSI — contains the filename of the current installer version
         let latest_yml = client
             .get("https://install.robertsspaceindustries.com/rel/2/latest.yml")
             .send().await
@@ -875,16 +1014,16 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
             .text().await
             .map_err(|e| format!("Failed to read latest.yml: {}", e))?;
 
-        // Extract filename from "path:" line (top-level field in latest.yml)
+        // Extract installer filename from the "path:" line in latest.yml
         let installer_filename = latest_yml
             .lines()
             .find_map(|line| {
                 let trimmed = line.trim();
-                // Try top-level "path: filename.exe" first
+                // First look for "path: filename.exe" at the top level
                 if let Some(val) = trimmed.strip_prefix("path:") {
                     return Some(val.trim().to_string());
                 }
-                // Fallback: nested "- url: filename.exe"
+                // Fallback: nested format "- url: filename.exe"
                 let stripped = trimmed
                     .strip_prefix('-')
                     .map(|s| s.trim())
@@ -908,11 +1047,14 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
             &format!("Downloading {}", installer_filename)
         );
 
+        // Download RSI Launcher installer (typically ~100 MB)
         let response = client
             .get(&download_url)
             .send().await
             .map_err(|e| format!("Failed to download RSI Launcher: {}", e))?;
 
+        // Streaming download with progress display — the file is downloaded
+        // and written in chunks instead of loading everything into memory
         let total_bytes = response.content_length().unwrap_or(0);
         let mut downloaded: u64 = 0;
         let installer_path = tmp_dir.join(&installer_filename);
@@ -940,7 +1082,8 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
                         .map_err(|e| format!("Failed to write installer chunk: {}", e))?;
                     downloaded += chunk.len() as u64;
 
-                    // Throttle progress events to max once per 500ms to avoid flooding the UI
+                    // Limit progress messages to at most one per 500ms
+                    // to avoid flooding the frontend with events
                     let is_complete = total_bytes > 0 && downloaded >= total_bytes;
                     if is_complete || last_emit.elapsed() >= std::time::Duration::from_millis(500) {
                         let dl_percent = if total_bytes > 0 {
@@ -997,10 +1140,11 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
             &format!("Running: wine {} /S", installer_filename)
         );
 
-        // The NSIS installer with /S auto-launches RSI Launcher as a child process.
-        // Use Stdio::null() to prevent pipe-handle inheritance.
-        // Use try_wait() with timeout because the NSIS process may not exit until
-        // the RSI Launcher it spawned exits (Wine keeps parent alive).
+        // The NSIS installer with /S (Silent Mode) automatically launches the RSI Launcher
+        // as a child process. Stdio::null() prevents pipe handles from being inherited.
+        // try_wait() with timeout is used because the NSIS process may not
+        // exit until the RSI Launcher it spawned exits
+        // (Wine keeps the parent process alive).
         let mut install_child = Command::new(wine.to_string_lossy().as_ref())
             .arg(installer_path.to_string_lossy().as_ref())
             .arg("/S")
@@ -1020,7 +1164,8 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
             "Waiting for installer to finish..."
         );
 
-        // Poll with timeout - the NSIS installer may block if it waits for its child (RSI Launcher)
+        // Monitor installer with timeout — the NSIS installer may block
+        // because it waits for its child process (RSI Launcher)
         let install_timeout = std::time::Duration::from_secs(120);
         let install_start = std::time::Instant::now();
         let mut timed_out = false;
@@ -1043,7 +1188,8 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
                     break;
                 }
                 Ok(None) => {
-                    // Check if RSI Launcher exe was installed (installer is done, just hasn't exited)
+                    // Check whether the RSI Launcher .exe has already been installed
+                    // (installer is done but hasn't exited the process yet)
                     let launcher_exe = Path::new(&install_path).join(
                         "drive_c/Program Files/Roberts Space Industries/RSI Launcher/RSI Launcher.exe"
                     );
@@ -1119,13 +1265,13 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
             );
         }
 
-        // Kill wineserver to stop any processes the installer auto-launched
+        // Kill wineserver to stop all processes automatically started by the installer
         let _ = Command::new(wineserver.to_string_lossy().as_ref())
             .arg("-k")
             .env("WINEPREFIX", &install_path)
             .output();
 
-        // Give wineserver a moment to shut everything down
+        // Give wineserver a moment to shut down all processes
         std::thread::sleep(std::time::Duration::from_secs(2));
 
         emit_progress(
@@ -1135,9 +1281,10 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
             95.0,
             "RSI Launcher installed successfully"
         );
-    } // End of else (non-quick mode for Phase 4/5)
+    } // End of non-quick mode (phases 4/5)
 
-    // Cleanup tmp_dir if it was created (in non-quick mode)
+    // Clean up temporary directory (only relevant in non-quick mode
+    // where installer and other temporary files were created)
     if !skip_launcher {
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }
@@ -1146,7 +1293,9 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
         return Err("Installation cancelled".into());
     }
 
-    // ── Phase 6: Launch (95–100%) ──
+    // ── Phase 6: Launch game (95–100%) ──
+    // After successful installation the RSI Launcher is started directly
+    // so the user doesn't have to manually switch to the launch page
     emit_progress(
         &app,
         "launch",
@@ -1166,7 +1315,7 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
 
     let pid = child.id();
 
-    // Store PID so the Launch page and stop_game know the process is running
+    // Store PID so the launch page and stop_game know a process is running
     if let Ok(mut guard) = GAME_PID.lock() {
         *guard = Some((pid, install_path.clone()));
     }
@@ -1176,7 +1325,7 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
 
     emit_progress(&app, "complete", "RSI Launcher started", 100.0, "RSI Launcher is now running");
 
-    // Monitor child process in background — emit exit event when done
+    // Monitor child process in the background — send exit event when terminated
     let bg_app = app.clone();
     std::thread::spawn(move || {
         let status = child.wait();
@@ -1193,12 +1342,17 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
     Ok(())
 }
 
+/// Cancels the running installation.
+/// Sets the global cancellation flag that is checked at multiple points in the
+/// installation process. The installation will terminate cleanly at the next checkpoint.
 #[tauri::command]
 pub fn cancel_installation() -> bool {
     INSTALL_CANCEL.store(true, Ordering::SeqCst);
     true
 }
 
+/// Checks whether a game process is currently running.
+/// Used by the frontend to control the state of the start/stop buttons.
 #[tauri::command]
 pub fn is_game_running() -> bool {
     GAME_PID.lock()

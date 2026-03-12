@@ -1,10 +1,13 @@
 /**
  * Star Control - Installation Page
  *
- * This module handles the installation wizard which includes:
- * - Step 1: System compatibility checks (memory, AVX, mapcount, etc.)
+ * This module implements the installation wizard with three steps:
+ * - Step 1: System compatibility check (RAM, AVX, mapcount, Vulkan, etc.)
  * - Step 2: Configuration (install path, runner selection, performance options)
  * - Step 3: Actual installation (Wine prefix, DXVK, RSI Launcher)
+ *
+ * Progress events are received via Tauri events from the Rust backend
+ * and displayed in real-time in the UI.
  *
  * @module pages/installation
  */
@@ -16,7 +19,10 @@ import { confirm } from '../utils/dialogs.js';
 import { router } from '../router.js';
 import { escapeHtml } from '../utils.js';
 
-/** @constant {Array} System check items */
+/**
+ * System check items: Each entry defines a test performed in Step 1.
+ * @constant {Array<{id: string, name: string, icon: string, tooltip: string}>}
+ */
 const CHECK_ITEMS = [
   { id: 'memory', name: 'Memory', icon: '', tooltip: 'Star Citizen requires at least 16 GB RAM' },
   { id: 'avx', name: 'AVX Support', icon: '', tooltip: 'Advanced Vector Extensions — required by CryEngine' },
@@ -26,13 +32,18 @@ const CHECK_ITEMS = [
   { id: 'diskspace', name: 'Disk Space', icon: '', tooltip: 'At least 100 GB free space recommended' },
 ];
 
-// --- Wizard State ---
+// --- Wizard state ---
 
+/** @type {number} Current wizard step (1-3) */
 let currentStep = 1;
+/** @type {boolean} Whether the system check passed */
 let systemCheckPassed = false;
+/** @type {boolean} Whether the system check has run at least once */
 let hasRun = false;
+/** @type {Object|null} Result of the last system check (for restoration on back-navigation) */
 let lastCheckResult = null;
 
+/** Configuration state for Step 2 (path, runner, performance options) */
 let configState = {
   installPath: '',
   selectedRunner: null,
@@ -52,31 +63,50 @@ let configState = {
   installMode: 'full',
 };
 
+/** @type {Array} List of detected monitors for Wayland monitor selection */
 let detectedMonitors = [];
+/** @type {boolean} Whether fractional scaling was detected (blocks Wayland option) */
 let fractionalScaling = false;
 
-// --- Runner Download State ---
+// --- Runner download state ---
 
+/** @type {Array} Runners available from GitHub */
 let availableRunners = [];
+/** @type {Array} Errors from fetching the runner list */
 let fetchErrors = [];
+/** @type {boolean} Locks during a runner installation */
 let isInstallingRunner = false;
+/** @type {string} Currently selected runner source */
 let selectedSource = 'LUG';
-let availableSources = ['LUG']; // Will be populated from config
+/** @type {string[]} Available source tabs (populated from config) */
+let availableSources = ['LUG'];
+/** @type {boolean} Whether the runner list is currently loading */
 let isLoadingRunners = true;
+/** @type {Function|null} Unlisten function for download progress */
 let unlistenProgress = null;
 
-// Loading spinner
+// Loading spinner HTML snippet
 const spinnerHtml = '<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>Loading...</span></div>';
 
-// --- Installation State ---
+// --- Installation state ---
 
-let installPhase = null;   // null | "running" | "complete" | "error"
+/** @type {string|null} Current installation phase: null | "running" | "complete" | "error" */
+let installPhase = null;
+/** @type {Array} Collected log lines of the installation */
 let installLog = [];
+/** @type {Function|null} Unlisten function for installation progress */
 let unlistenInstall = null;
+/** @type {string|null} Error message on installation failure */
 let installError = null;
+/** @type {Array} Buffered log lines to be written to the DOM in the next frame */
 let pendingLogLines = [];
+/** @type {boolean} Whether a requestAnimationFrame for log output is already pending */
 let logRafPending = false;
 
+/**
+ * Installation phase definitions: Each phase has an ID and a label.
+ * These are displayed as a progress list in Step 3.
+ */
 const INSTALL_PHASES = [
   { id: 'prepare', label: 'Prepare environment' },
   { id: 'winetricks', label: 'Install Wine components' },
@@ -87,17 +117,24 @@ const INSTALL_PHASES = [
   { id: 'launch', label: 'Launch RSI Launcher' },
 ];
 
-// --- Main Render ---
+// --- Main rendering ---
 
+/**
+ * Entry point: Renders the installation page.
+ * First imports the latest LUG Helper sources, then loads the
+ * saved configuration and renders the current wizard step.
+ *
+ * @param {HTMLElement} container - The container element to render into
+ */
 export async function renderInstallation(container) {
-  // First, ensure we have the latest runner sources from LUG-Helper
+  // Import LUG Helper sources (for current runner URLs)
   try {
     await invoke('import_lug_helper_sources');
   } catch (e) {
-    // Ignore errors - we'll use cached/default sources
+    // Ignore errors — we use cached/default sources
   }
 
-  // Load saved config on first render (must complete before rendering)
+  // Load saved configuration (must complete before rendering)
   try {
     const config = await invoke('load_config');
     if (config) {
@@ -106,7 +143,7 @@ export async function renderInstallation(container) {
       configState.performance = config.performance;
       configState.installMode = config.install_mode || 'full';
 
-      // Populate available sources from config
+      // Populate available sources from the configuration
       if (config.runner_sources && config.runner_sources.length > 0) {
         availableSources = config.runner_sources
           .filter(s => s.enabled)
@@ -122,7 +159,7 @@ export async function renderInstallation(container) {
 
   renderCurrentStep(container);
 
-  // Load default path if none set
+  // If no install path is set, load the default from the backend
   if (!configState.installPath) {
     invoke('get_default_install_path').then(path => {
       configState.installPath = path;
@@ -130,6 +167,13 @@ export async function renderInstallation(container) {
   }
 }
 
+/**
+ * Renders the current wizard step (1, 2, or 3).
+ * Creates the page layout with wizard step indicator and delegates
+ * to the corresponding step render function.
+ *
+ * @param {HTMLElement} container - The container element
+ */
 function renderCurrentStep(container) {
   container.innerHTML = `
     <div class="page-header">
@@ -153,6 +197,12 @@ function renderCurrentStep(container) {
   }
 }
 
+/**
+ * Renders the wizard step indicator (progress bar at the top).
+ * Each step shows a number or a checkmark, depending on progress.
+ *
+ * @returns {string} HTML string of the step indicator
+ */
 function renderWizardSteps() {
   const steps = [
     { num: 1, label: 'System Check', tooltip: 'Verify hardware and kernel requirements' },
@@ -167,6 +217,7 @@ function renderWizardSteps() {
         if (s.num === currentStep) cls = 'active';
         else if (s.num < currentStep || (s.num === 1 && systemCheckPassed)) cls = 'completed';
 
+        // Completed steps show a checkmark instead of the number
         const icon = cls === 'completed'
           ? '<span class="step-number completed">\u2713</span>'
           : `<span class="step-number">${s.num}</span>`;
@@ -183,8 +234,16 @@ function renderWizardSteps() {
   `;
 }
 
-// --- Step 1: System Check ---
+// --- Step 1: System check ---
 
+/**
+ * Renders the system check page (Step 1).
+ * Shows a list of all check items with pending status and buttons
+ * for starting the check and proceeding.
+ * On revisit, previous results are restored.
+ *
+ * @param {HTMLElement} body - The wizard body element
+ */
 function renderStep1(body) {
   body.innerHTML = `
     <h3>System Compatibility Check</h3>
@@ -198,7 +257,9 @@ function renderStep1(body) {
     </div>
   `;
 
+  // Start system check
   document.getElementById('btn-run-check').addEventListener('click', () => runChecks(body));
+  // Navigate to the next step (only possible when check passed)
   document.getElementById('btn-next-step').addEventListener('click', () => {
     if (systemCheckPassed) {
       currentStep = 2;
@@ -206,13 +267,22 @@ function renderStep1(body) {
     }
   });
 
-  // Restore previous results if going back
+  // Restore previous results when the user navigates back
   if (hasRun && lastCheckResult) {
     lastCheckResult.checks.forEach(check => updateCheckItem(check));
     showSummary(lastCheckResult);
   }
 }
 
+/**
+ * Renders a single check item with icon, name, and status text.
+ * Restores the previous status if the check has already run.
+ *
+ * @param {string} id - Unique ID of the check item
+ * @param {string} name - Display name of the check item
+ * @param {string} tooltip - Tooltip text with explanation
+ * @returns {string} HTML string of the check item
+ */
 function renderCheckItem(id, name, tooltip) {
   const status = hasRun && lastCheckResult
     ? lastCheckResult.checks.find(c => c.id === id)?.status || 'pending'
@@ -231,6 +301,13 @@ function renderCheckItem(id, name, tooltip) {
   `;
 }
 
+/**
+ * Runs all system checks via the Rust backend.
+ * Results are sequentially revealed with a small delay (150ms)
+ * animation, to give the user visual feedback.
+ *
+ * @param {HTMLElement} body - The wizard body element
+ */
 async function runChecks(body) {
   const btn = document.getElementById('btn-run-check');
   const nextBtn = document.getElementById('btn-next-step');
@@ -238,6 +315,7 @@ async function runChecks(body) {
   btn.textContent = 'Checking...';
   nextBtn.disabled = true;
 
+  // Reset all check items to "running"
   CHECK_ITEMS.forEach(item => {
     const el = document.getElementById(`check-${item.id}`);
     if (el) {
@@ -247,21 +325,26 @@ async function runChecks(body) {
       icon.className = 'check-icon running';
       icon.innerHTML = '';
       el.querySelector('.check-detail').textContent = 'Checking...';
+      // Remove previous fix buttons
       const existingFix = el.querySelector('.btn-fix');
       if (existingFix) existingFix.remove();
     }
   });
 
+  // Remove previous summary
   document.getElementById('summary-bar').innerHTML = '';
 
   try {
+    // Backend runs all checks at once and returns results
     const result = await invoke('run_system_check', { installPath: configState.installPath });
 
+    // Reveal results sequentially with animation
     for (let i = 0; i < result.checks.length; i++) {
       await delay(150);
       updateCheckItem(result.checks[i]);
     }
 
+    // Show summary after a short delay
     await delay(200);
     showSummary(result);
     lastCheckResult = result;
@@ -280,25 +363,34 @@ async function runChecks(body) {
   btn.textContent = 'Re-run Check';
 }
 
+/**
+ * Updates a single check item in the DOM with the result.
+ * Sets icon (checkmark/warning/cross), status text, and adds a
+ * "Fix" button for fixable failures.
+ *
+ * @param {Object} check - Check result with id, status, detail, and fixable fields
+ */
 function updateCheckItem(check) {
   const el = document.getElementById(`check-${check.id}`);
   if (!el) return;
 
   el.dataset.status = check.status;
 
+  // Set icon based on status
   const icon = el.querySelector('.check-icon');
   icon.className = `check-icon ${check.status}`;
 
   if (check.status === 'pass') {
-    icon.innerHTML = '\u2713';
+    icon.innerHTML = '\u2713';  // Checkmark
   } else if (check.status === 'warn') {
-    icon.innerHTML = '\u26A0';
+    icon.innerHTML = '\u26A0';  // Warning triangle
   } else {
-    icon.innerHTML = '\u2717';
+    icon.innerHTML = '\u2717';  // Cross
   }
 
   el.querySelector('.check-detail').textContent = check.detail;
 
+  // Add a fix button for fixable failures
   if (check.fixable && check.status === 'fail') {
     const existing = el.querySelector('.btn-fix');
     if (!existing) {
@@ -310,10 +402,20 @@ function updateCheckItem(check) {
     }
   }
 
+  // Trigger CSS animation for reveal
   el.classList.add('revealed');
 }
 
+/**
+ * Applies a system fix (e.g. vm.max_map_count or file descriptor limit).
+ * Requires root privileges via pkexec. Shows a confirmation dialog
+ * and automatically re-runs the checks on success.
+ *
+ * @param {string} checkId - ID of the check item to fix
+ * @param {HTMLElement} btn - The fix button (for status updates)
+ */
 async function applyFix(checkId, btn) {
+  // Mapping from check IDs to Rust backend commands
   const commandMap = {
     mapcount: 'fix_mapcount',
     filelimit: 'fix_filelimit',
@@ -322,6 +424,7 @@ async function applyFix(checkId, btn) {
   const command = commandMap[checkId];
   if (!command) return;
 
+  // Descriptions for the confirmation dialog
   const descriptions = {
     mapcount: 'This will set vm.max_map_count=16777216 system-wide (requires root via pkexec).',
     filelimit: 'This will increase the system file descriptor limit (requires root via pkexec).',
@@ -341,6 +444,7 @@ async function applyFix(checkId, btn) {
     if (result.success) {
       btn.textContent = 'Fixed!';
       btn.classList.add('fixed');
+      // After a short delay, automatically re-run all checks
       await delay(500);
       const body = document.getElementById('wizard-body');
       if (body) runChecks(body);
@@ -351,6 +455,7 @@ async function applyFix(checkId, btn) {
       if (el) {
         el.querySelector('.check-detail').textContent = result.message;
       }
+      // Re-enable button after 2 seconds
       setTimeout(() => {
         btn.disabled = false;
         btn.textContent = 'Retry Fix';
@@ -363,6 +468,12 @@ async function applyFix(checkId, btn) {
   }
 }
 
+/**
+ * Shows the summary bar below the check results.
+ * Three possible states: All passed, passed with warnings, failed.
+ *
+ * @param {Object} result - Overall result with all_passed, has_warnings, and checks
+ */
 function showSummary(result) {
   const bar = document.getElementById('summary-bar');
   if (!bar) return;
@@ -385,10 +496,20 @@ function showSummary(result) {
 
 // --- Step 2: Configuration ---
 
+/**
+ * Renders the configuration page (Step 2).
+ * Contains three sections:
+ * - Installation path with validation
+ * - Runner selection (locally installed + download option)
+ * - Performance options (ESync, FSync, DXVK Async, Wayland, HDR, FSR, Overlays)
+ *
+ * @param {HTMLElement} body - The wizard body element
+ */
 function renderStep2(body) {
   body.innerHTML = `
     <h3>Configuration</h3>
 
+    <!-- Installation path with browse dialog and validation -->
     <div class="config-section">
       <h4 class="config-section-title">Install Directory</h4>
       <div class="path-input-row">
@@ -401,6 +522,7 @@ function renderStep2(body) {
       <div id="path-validation" class="path-validation-msg"></div>
     </div>
 
+    <!-- Runner selection: Dropdown for local runners + download panel -->
     <div class="config-section">
       <h4 class="config-section-title">Wine Runner</h4>
       <div id="runner-section">
@@ -408,6 +530,7 @@ function renderStep2(body) {
       </div>
     </div>
 
+    <!-- Performance options: Grouped into Performance, Display, and Overlays -->
     <div class="config-section config-section-last">
       <h4 class="config-section-title">Performance Options</h4>
       <div class="perf-options">
@@ -417,11 +540,13 @@ function renderStep2(body) {
           renderToggle('dxvk_async', 'DXVK Async', 'Asynchronous shader compilation — reduces stutter', configState.performance.dxvk_async),
         ])}
         ${renderPerfGroup('Display', [
+          // Wayland is blocked when fractional scaling is detected
           fractionalScaling
             ? renderBlockedToggle('wayland', 'Wayland', 'Fractional scaling detected — Wayland mode is not compatible. Set all monitors to 100% scale to use this option.')
             : renderToggle('wayland', 'Wayland', 'Enable Wayland protocol support in Wine', configState.performance.wayland),
           renderToggle('hdr', 'HDR', 'High Dynamic Range rendering (PROTON_ENABLE_HDR + DXVK_HDR)', configState.performance.hdr),
           renderToggle('fsr', 'FSR', 'AMD FidelityFX Super Resolution 4 upscaling', configState.performance.fsr),
+          // Only show monitor dropdown when no fractional scaling is present
           fractionalScaling ? '' : renderMonitorDropdown(),
         ])}
         ${renderPerfGroup('Overlays', [
@@ -437,13 +562,16 @@ function renderStep2(body) {
     </div>
   `;
 
-  // Event listeners
+  // --- Event listeners for Step 2 ---
+
+  // Path validation on blur or Enter
   const pathInput = document.getElementById('install-path-input');
   pathInput.addEventListener('blur', () => validatePath(pathInput.value));
   pathInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') validatePath(pathInput.value);
   });
 
+  // Directory browser dialog
   document.getElementById('btn-browse').addEventListener('click', async () => {
     try {
       const selected = await open({ directory: true, title: 'Select Install Directory' });
@@ -457,18 +585,20 @@ function renderStep2(body) {
     }
   });
 
+  // Back to Step 1
   document.getElementById('btn-back').addEventListener('click', () => {
     currentStep = 1;
     renderCurrentStep(body.closest('#content') || body.parentElement.parentElement);
   });
 
+  // Continue to Step 3 (config is saved beforehand)
   document.getElementById('btn-next-step2').addEventListener('click', async () => {
     await saveCurrentConfig();
     currentStep = 3;
     renderCurrentStep(body.closest('#content') || body.parentElement.parentElement);
   });
 
-  // Toggle listeners
+  // Performance toggle checkboxes: Update value in state
   document.querySelectorAll('.perf-toggle input[type="checkbox"]').forEach(cb => {
     if (!cb.dataset.key) return;
     cb.addEventListener('change', () => {
@@ -481,20 +611,20 @@ function renderStep2(body) {
     });
   });
 
-  // Monitor enabled checkbox
+  // Monitor enabled checkbox: Enables/disables the monitor selection
   const monitorEnabledCb = document.getElementById('monitor-enabled');
   if (monitorEnabledCb) {
     monitorEnabledCb.addEventListener('change', () => {
       const container = document.getElementById('monitor-select-container');
       if (monitorEnabledCb.checked) {
-        // Enable: pick first detected monitor or leave for manual input
+        // Enable: Set first detected monitor as default
         const select = document.getElementById('monitor-select');
         const input = document.getElementById('monitor-input');
         if (container) container.classList.remove('disabled');
         if (select) { select.disabled = false; configState.performance.primary_monitor = select.value || (detectedMonitors[0]?.name ?? null); select.value = configState.performance.primary_monitor || ''; }
         if (input) { input.disabled = false; configState.performance.primary_monitor = input.value.trim() || null; }
       } else {
-        // Disable: clear value
+        // Disable: Reset value
         configState.performance.primary_monitor = null;
         if (container) container.classList.add('disabled');
         const select = document.getElementById('monitor-select');
@@ -509,14 +639,16 @@ function renderStep2(body) {
   invoke('detect_monitors').then(monitors => {
     detectedMonitors = monitors;
     const wasFractional = fractionalScaling;
+    // Fractional scaling: When a monitor has scaling other than 100%
     fractionalScaling = monitors.some(m => m.scale != null && Math.abs(m.scale - 1.0) > 0.01);
 
+    // With fractional scaling: Automatically disable Wayland (not compatible)
     if (fractionalScaling && configState.performance.wayland) {
       configState.performance.wayland = false;
     }
 
     if (fractionalScaling !== wasFractional) {
-      // Re-render step 2 to reflect the blocked Wayland toggle
+      // Fully re-render Step 2 to show the blocked Wayland toggle
       renderCurrentStep(body.closest('#content') || body.parentElement.parentElement);
     } else {
       updateMonitorDropdown();
@@ -527,7 +659,7 @@ function renderStep2(body) {
     updateMonitorDropdown();
   });
 
-  // Initial validation + runner scan
+  // Start initial path validation and runner scan
   if (configState.installPath) {
     validatePath(configState.installPath);
   } else {
@@ -535,6 +667,15 @@ function renderStep2(body) {
   }
 }
 
+/**
+ * Renders a single performance toggle checkbox with label and hint text.
+ *
+ * @param {string} key - Key in the performance state (e.g. 'esync')
+ * @param {string} label - Display name (e.g. 'ESync')
+ * @param {string} hint - Explanation text
+ * @param {boolean} checked - Whether the checkbox is checked
+ * @returns {string} HTML string
+ */
 function renderToggle(key, label, hint, checked) {
   return `
     <label class="perf-toggle">
@@ -545,6 +686,15 @@ function renderToggle(key, label, hint, checked) {
   `;
 }
 
+/**
+ * Renders a blocked toggle checkbox (disabled, with tooltip explanation).
+ * Used when an option is unavailable (e.g. Wayland with fractional scaling).
+ *
+ * @param {string} key - Key in the performance state
+ * @param {string} label - Display name
+ * @param {string} hint - Explanation of why the option is blocked
+ * @returns {string} HTML string
+ */
 function renderBlockedToggle(key, label, hint) {
   return `
     <label class="perf-toggle toggle-blocked" data-tooltip="${hint}" data-tooltip-pos="right">
@@ -555,6 +705,13 @@ function renderBlockedToggle(key, label, hint) {
   `;
 }
 
+/**
+ * Renders a group of performance toggles with a group title.
+ *
+ * @param {string} title - Title of the group (e.g. 'Performance', 'Display', 'Overlays')
+ * @param {string[]} toggles - Array of toggle HTML strings
+ * @returns {string} HTML string of the group
+ */
 function renderPerfGroup(title, toggles) {
   return `
     <div class="perf-group">
@@ -564,6 +721,13 @@ function renderPerfGroup(title, toggles) {
   `;
 }
 
+/**
+ * Renders the Wayland monitor dropdown.
+ * Only shown when Wayland is enabled.
+ * Contains a checkbox to enable and a select/input for the monitor name.
+ *
+ * @returns {string} HTML string of the dropdown
+ */
 function renderMonitorDropdown() {
   const hidden = !configState.performance.wayland ? 'style="display:none"' : '';
   const enabled = !!configState.performance.primary_monitor;
@@ -584,6 +748,11 @@ function renderMonitorDropdown() {
   `;
 }
 
+/**
+ * Updates the monitor dropdown with the detected monitors.
+ * If no monitors were detected, a text field is shown instead,
+ * where the user can manually enter the monitor name (e.g. "DP-1").
+ */
 function updateMonitorDropdown() {
   const container = document.getElementById('monitor-select-container');
   if (!container) return;
@@ -592,6 +761,7 @@ function updateMonitorDropdown() {
   const currentValue = configState.performance.primary_monitor || '';
 
   if (detectedMonitors.length > 0) {
+    // Monitors detected: Show dropdown with all monitors
     const options = detectedMonitors.map(m => {
       const label = `${m.name}${m.resolution ? ' (' + m.resolution : ''}${m.primary ? ', primary)' : m.resolution ? ')' : ''}`;
       const selected = currentValue === m.name ? 'selected' : '';
@@ -604,6 +774,7 @@ function updateMonitorDropdown() {
       </select>
     `;
   } else {
+    // No monitors detected: Free-text input field as fallback
     container.innerHTML = `
       <input type="text" class="input monitor-select-input" id="monitor-input"
              value="${escapeHtml(currentValue)}"
@@ -619,6 +790,10 @@ function updateMonitorDropdown() {
   bindMonitorInputListeners();
 }
 
+/**
+ * Binds event listeners for the monitor select/input element.
+ * Updates the configState on changes.
+ */
 function bindMonitorInputListeners() {
   const select = document.getElementById('monitor-select');
   if (select) {
@@ -634,6 +809,10 @@ function bindMonitorInputListeners() {
   }
 }
 
+/**
+ * Updates the state of the "Next Step" button.
+ * The button is only active when both the path is valid and a runner is selected.
+ */
 function updateNextButton() {
   const nextBtn = document.getElementById('btn-next-step2');
   if (!nextBtn) return;
@@ -642,6 +821,13 @@ function updateNextButton() {
   nextBtn.disabled = !(pathValid && hasRunner);
 }
 
+/**
+ * Validates the installation path via the Rust backend.
+ * Updates the validation display and the Next button.
+ * On success, also triggers a runner scan and auto-save.
+ *
+ * @param {string} path - The path to validate
+ */
 async function validatePath(path) {
   configState.installPath = path;
   const msgEl = document.getElementById('path-validation');
@@ -671,7 +857,7 @@ async function validatePath(path) {
 
     updateNextButton();
 
-    // Re-scan runners when path changes and auto-save if valid
+    // On path change: Re-scan runners and auto-save on valid path
     renderRunnerSection();
     if (result.valid) saveCurrentConfig();
   } catch (err) {
@@ -682,6 +868,11 @@ async function validatePath(path) {
   }
 }
 
+/**
+ * Renders the runner selection section in Step 2.
+ * Shows a dropdown with locally installed runners and a collapsible
+ * download panel for downloading new runners from GitHub sources.
+ */
 async function renderRunnerSection() {
   const section = document.getElementById('runner-section');
   if (!section) return;
@@ -693,20 +884,19 @@ async function renderRunnerSection() {
 
   section.innerHTML = '<div class="runner-loading">Scanning for runners...</div>';
 
-  // Scan local runners
+  // Scan local runners in the installation directory
   let localRunners = [];
   try {
     const result = await invoke('scan_runners', { basePath: configState.installPath });
     configState.runners = result.runners;
     localRunners = result.runners;
   } catch (err) {
-    // ignore scan errors
+    // Ignore scan errors
   }
 
-  // Build section HTML
   let html = '';
 
-  // Local runner dropdown (if any exist)
+  // Dropdown for local runners (only when some are available)
   if (localRunners.length > 0) {
     const options = localRunners.map(r => {
       const selected = configState.selectedRunner === r.name ? 'selected' : '';
@@ -721,7 +911,8 @@ async function renderRunnerSection() {
     `;
   }
 
-  // Download panel
+  // Download panel: Collapsed when local runners exist,
+  // otherwise directly visible (so the user can download one)
   html += `
     <div class="runner-download-panel ${localRunners.length > 0 ? 'has-local' : ''}">
       ${localRunners.length > 0 ? '<div class="runner-download-toggle" id="toggle-download-panel">Download more runners...</div>' : ''}
@@ -736,6 +927,7 @@ async function renderRunnerSection() {
       </div>
     </div>
 
+    <!-- Progress overlay for runner download/installation -->
     <div class="runner-install-overlay" id="runner-install-overlay" style="display:none">
       <div class="runner-install-name" id="install-runner-name"></div>
       <div class="progress-bar-track">
@@ -748,7 +940,7 @@ async function renderRunnerSection() {
 
   section.innerHTML = html;
 
-  // Event: local runner select
+  // Event: Local runner selected from dropdown
   const selectEl = document.getElementById('runner-select');
   if (selectEl) {
     selectEl.addEventListener('change', (e) => {
@@ -757,7 +949,7 @@ async function renderRunnerSection() {
     });
   }
 
-  // Event: toggle download panel
+  // Event: Toggle download panel
   const toggleEl = document.getElementById('toggle-download-panel');
   if (toggleEl) {
     toggleEl.addEventListener('click', () => {
@@ -770,7 +962,7 @@ async function renderRunnerSection() {
     });
   }
 
-  // Event: source tabs
+  // Event: Source tab switch
   document.querySelectorAll('#source-tabs .source-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       selectedSource = tab.dataset.source;
@@ -780,7 +972,7 @@ async function renderRunnerSection() {
     });
   });
 
-  // Event: cancel install
+  // Event: Cancel running installation
   const cancelBtn = document.getElementById('btn-cancel-install');
   if (cancelBtn) {
     cancelBtn.addEventListener('click', async () => {
@@ -788,14 +980,17 @@ async function renderRunnerSection() {
     });
   }
 
-  // Fetch online runners
+  // Fetch online runner list
   fetchAvailableRunners();
 }
 
+/**
+ * Fetches the list of available runners from GitHub.
+ * Shows a spinner during loading and then updates the list.
+ */
 async function fetchAvailableRunners() {
   isLoadingRunners = true;
 
-  // Show loading state in the available list
   const list = document.getElementById('runner-available-list');
   if (list) list.innerHTML = spinnerHtml;
 
@@ -813,6 +1008,9 @@ async function fetchAvailableRunners() {
   renderFetchErrors();
 }
 
+/**
+ * Renders error messages from the runner fetch.
+ */
 function renderFetchErrors() {
   const el = document.getElementById('fetch-errors');
   if (!el || fetchErrors.length === 0) return;
@@ -821,6 +1019,11 @@ function renderFetchErrors() {
   ).join('');
 }
 
+/**
+ * Renders the list of runners available for download.
+ * Filters by the currently selected source and shows install buttons
+ * for non-installed runners.
+ */
 function renderAvailableRunnersList() {
   const list = document.getElementById('runner-available-list');
   if (!list) return;
@@ -848,7 +1051,7 @@ function renderAvailableRunnersList() {
     </div>
   `).join('');
 
-  // Install button listeners
+  // Bind install button listeners for each runner
   list.querySelectorAll('.btn-install').forEach(btn => {
     btn.addEventListener('click', () => {
       installRunner(btn.dataset.url, btn.dataset.file, btn.dataset.name);
@@ -856,10 +1059,20 @@ function renderAvailableRunnersList() {
   });
 }
 
+/**
+ * Installs a runner in the installation page context (Step 2).
+ * Similar to runners.js, but with automatic selection of the
+ * newly installed runner if none is selected yet.
+ *
+ * @param {string} downloadUrl - Download URL of the runner archive
+ * @param {string} fileName - File name of the archive
+ * @param {string} displayName - Display name of the runner
+ */
 async function installRunner(downloadUrl, fileName, displayName) {
   if (isInstallingRunner) return;
   isInstallingRunner = true;
 
+  // Show progress overlay
   const overlay = document.getElementById('runner-install-overlay');
   const nameEl = document.getElementById('install-runner-name');
   const fillEl = document.getElementById('install-progress-fill');
@@ -870,10 +1083,11 @@ async function installRunner(downloadUrl, fileName, displayName) {
   if (fillEl) { fillEl.style.width = '0%'; fillEl.classList.remove('extracting'); }
   if (statusEl) statusEl.textContent = 'Starting download...';
 
-  // Listen for progress events
+  // Clean up previous progress listener
   if (unlistenProgress) { unlistenProgress(); unlistenProgress = null; }
 
   try {
+    // Receive progress events from the Rust backend
     unlistenProgress = await listen('runner-download-progress', (event) => {
       const p = event.payload;
       const fill = document.getElementById('install-progress-fill');
@@ -911,29 +1125,36 @@ async function installRunner(downloadUrl, fileName, displayName) {
     if (statusEl) statusEl.textContent = `Error: ${err}`;
   }
 
-  // Cleanup
+  // Clean up
   if (unlistenProgress) { unlistenProgress(); unlistenProgress = null; }
   isInstallingRunner = false;
 
-  // Auto-hide overlay after short delay, refresh runner list
+  // Hide overlay after a short delay
   await delay(1200);
   if (overlay) overlay.style.display = 'none';
 
-  // Auto-select the newly installed runner if none selected yet
+  // Automatically select the newly installed runner if none is selected yet
   if (!configState.selectedRunner) {
     try {
       const result = await invoke('scan_runners', { basePath: configState.installPath });
       if (result.runners.length > 0) {
+        // Select the most recently installed runner
         configState.selectedRunner = result.runners[result.runners.length - 1].name;
       }
     } catch (_) {}
   }
 
-  // Refresh both local and online runner lists
+  // Update runner section and Next button
   renderRunnerSection();
   updateNextButton();
 }
 
+/**
+ * Formats a file size in bytes into a human-readable representation.
+ *
+ * @param {number} bytes - Size in bytes
+ * @returns {string} Formatted size (e.g. "42.5 MB")
+ */
 function formatSize(bytes) {
   if (bytes === 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB'];
@@ -942,6 +1163,10 @@ function formatSize(bytes) {
   return `${val.toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
 }
 
+/**
+ * Saves the current configuration state via the Rust backend.
+ * Called on path changes and before switching to Step 3.
+ */
 async function saveCurrentConfig() {
   const config = {
     install_path: configState.installPath,
@@ -958,11 +1183,24 @@ async function saveCurrentConfig() {
 
 // --- Step 3: Installation ---
 
+/** @type {string|null} ID of the currently running installation phase */
 let currentPhaseId = null;
+/** @type {number} Current progress in percent */
 let currentPercent = 0;
+/** @type {Set<string>} IDs of already completed phases */
 let completedPhases = new Set();
 
+/**
+ * Renders Step 3: Installation summary or process view.
+ * If no installation is running yet, a configuration summary
+ * with a "Start Installation" button is displayed.
+ * If the installation is already running/complete/errored,
+ * the process view with phase list and log is shown.
+ *
+ * @param {HTMLElement} body - The wizard body element
+ */
 function renderStep3(body) {
+  // Cannot install without a selected runner
   if (!configState.selectedRunner) {
     body.innerHTML = `
       <h3>Installation</h3>
@@ -980,13 +1218,13 @@ function renderStep3(body) {
     return;
   }
 
-  // If installation is already in progress or finished, show the process view
+  // If installation is already running or finished, show process view
   if (installPhase === 'running' || installPhase === 'complete' || installPhase === 'error') {
     renderStep3Process(body);
     return;
   }
 
-  // Otherwise show the summary
+  // Configuration summary before installation
   const perf = configState.performance;
   const enabledOptions = [];
   if (perf.esync) enabledOptions.push('ESync');
@@ -1001,6 +1239,7 @@ function renderStep3(body) {
   body.innerHTML = `
     <h3>Installation</h3>
 
+    <!-- Summary of selected settings -->
     <div class="install-summary">
       <div class="install-summary-row">
         <span class="install-summary-label">Install Path</span>
@@ -1037,21 +1276,31 @@ function renderStep3(body) {
     </div>
   `;
 
+  // Back to Step 2
   document.getElementById('btn-back3').addEventListener('click', () => {
     currentStep = 2;
     renderCurrentStep(body.closest('#content') || body.parentElement.parentElement);
   });
 
+  // Start installation
   document.getElementById('btn-start-install').addEventListener('click', () => {
     renderStep3Process(body);
     startInstallation();
   });
 }
 
+/**
+ * Renders the installation process view with phase list, log window,
+ * and progress bar. Used both at the start and when revisiting
+ * the page during a running installation.
+ *
+ * @param {HTMLElement} body - The wizard body element
+ */
 function renderStep3Process(body) {
   body.innerHTML = `
     <h3>Installation</h3>
 
+    <!-- Phase list: Shows progress through the installation steps -->
     <div class="install-phases" id="install-phases">
       ${INSTALL_PHASES.map(p => `
         <div class="install-phase" id="phase-${p.id}" data-phase="${p.id}">
@@ -1061,12 +1310,15 @@ function renderStep3Process(body) {
       `).join('')}
     </div>
 
+    <!-- Scrollable log window for installation output -->
     <div class="install-log-container" id="install-log-container">
       <div class="install-log" id="install-log"></div>
     </div>
 
+    <!-- Error message (initially hidden) -->
     <div id="install-error-msg" class="install-error-msg" style="display:none"></div>
 
+    <!-- Action bar: Back, Progress, Cancel, Retry -->
     <div class="wizard-actions">
       <button class="btn btn-secondary" id="btn-back3" disabled>Back</button>
       <div class="install-progress-wrapper" id="install-progress-wrapper">
@@ -1080,16 +1332,19 @@ function renderStep3Process(body) {
     </div>
   `;
 
+  // Back button (only active when installation is not running)
   document.getElementById('btn-back3').addEventListener('click', () => {
     if (installPhase === 'running') return;
     currentStep = 2;
     renderCurrentStep(body.closest('#content') || body.parentElement.parentElement);
   });
 
+  // Cancel installation
   document.getElementById('btn-cancel-install').addEventListener('click', async () => {
     try { await invoke('cancel_installation'); } catch (e) { /* ignore */ }
   });
 
+  // Retry: Resets the installation state and shows the summary
   document.getElementById('btn-retry-install').addEventListener('click', () => {
     installPhase = null;
     installLog = [];
@@ -1100,12 +1355,17 @@ function renderStep3Process(body) {
     renderStep3(body);
   });
 
-  // Restore state if resuming
+  // Restore UI state if the page is revisited
   if (installPhase === 'running' || installPhase === 'complete' || installPhase === 'error') {
     restoreInstallUI();
   }
 }
 
+/**
+ * Starts the actual installation process.
+ * Resets all state variables, binds the event listener for
+ * progress events, and invokes the Rust backend.
+ */
 async function startInstallation() {
   installPhase = 'running';
   installLog = [];
@@ -1116,7 +1376,7 @@ async function startInstallation() {
   currentPercent = 0;
   completedPhases.clear();
 
-  // Update UI
+  // Adjust UI elements for running installation
   const startBtn = document.getElementById('btn-start-install');
   const cancelBtn = document.getElementById('btn-cancel-install');
   const backBtn = document.getElementById('btn-back3');
@@ -1129,7 +1389,7 @@ async function startInstallation() {
   if (progressWrapper) progressWrapper.style.display = '';
   if (logContainer) logContainer.style.display = '';
 
-  // Listen for progress events
+  // Receive progress events from the Rust backend
   if (unlistenInstall) { unlistenInstall(); unlistenInstall = null; }
 
   try {
@@ -1141,6 +1401,7 @@ async function startInstallation() {
   }
 
   try {
+    // Start installation via the Rust backend
     await invoke('run_installation', {
       config: {
         install_path: configState.installPath,
@@ -1154,13 +1415,21 @@ async function startInstallation() {
     onInstallError(String(err));
   }
 
+  // Clean up listener
   if (unlistenInstall) { unlistenInstall(); unlistenInstall = null; }
 }
 
+/**
+ * Processes a single installation progress event.
+ * Tracks phase transitions, updates the progress bar, and
+ * buffers log lines for efficient DOM updates.
+ *
+ * @param {Object} payload - The event payload with phase, step, percent, and log_line
+ */
 function handleInstallProgress(payload) {
   const { phase, step, percent, log_line } = payload;
 
-  // Track phase transitions
+  // Track phase transitions: Mark previous phase as completed
   if (phase !== 'error' && phase !== 'complete' && phase !== currentPhaseId) {
     if (currentPhaseId) {
       completedPhases.add(currentPhaseId);
@@ -1168,7 +1437,7 @@ function handleInstallProgress(payload) {
     currentPhaseId = phase;
   }
 
-  // Store launch logs in global state for the Launch page
+  // Store launch logs globally so the launch page can access them
   if ((phase === 'launch' || phase === 'complete') && log_line) {
     if (!window._starControlLaunchLogs) {
       window._starControlLaunchLogs = [];
@@ -1178,7 +1447,7 @@ function handleInstallProgress(payload) {
 
   currentPercent = percent;
 
-  // Update phase list UI
+  // Update phase list in the DOM (active, completed, pending)
   updatePhaseList();
 
   // Update progress bar
@@ -1187,7 +1456,8 @@ function handleInstallProgress(payload) {
   if (fill) fill.style.width = `${percent.toFixed(1)}%`;
   if (percentLabel) percentLabel.textContent = `${Math.round(percent)}%`;
 
-  // Batch log line DOM updates via requestAnimationFrame to prevent UI flooding
+  // Bundle log lines via requestAnimationFrame to avoid UI flooding
+  // (Installation can produce many log lines in a short time)
   if (log_line) {
     installLog.push(log_line);
     pendingLogLines.push(log_line);
@@ -1198,11 +1468,17 @@ function handleInstallProgress(payload) {
   }
 }
 
+/**
+ * Writes all buffered log lines to the DOM at once.
+ * Uses a DocumentFragment for efficient batch insert.
+ * Called via requestAnimationFrame to avoid impacting the frame rate.
+ */
 function flushPendingLogLines() {
   logRafPending = false;
   const logEl = document.getElementById('install-log');
   if (!logEl || pendingLogLines.length === 0) return;
 
+  // DocumentFragment for efficient batch DOM update
   const fragment = document.createDocumentFragment();
   for (const text of pendingLogLines) {
     const line = document.createElement('div');
@@ -1212,9 +1488,15 @@ function flushPendingLogLines() {
   }
   pendingLogLines = [];
   logEl.appendChild(fragment);
+  // Auto-scroll to bottom
   logEl.scrollTop = logEl.scrollHeight;
 }
 
+/**
+ * Updates the phase list in the DOM.
+ * Each phase has one of three states: completed (checkmark),
+ * active (spinner), or pending (empty circle).
+ */
 function updatePhaseList() {
   INSTALL_PHASES.forEach(p => {
     const el = document.getElementById(`phase-${p.id}`);
@@ -1224,32 +1506,49 @@ function updatePhaseList() {
     el.className = 'install-phase';
 
     if (completedPhases.has(p.id)) {
+      // Completed: Checkmark icon
       el.classList.add('done');
       if (icon) { icon.className = 'install-phase-icon'; icon.textContent = '\u2713'; }
     } else if (p.id === currentPhaseId) {
+      // Active: Spinning spinner
       el.classList.add('active');
       if (icon) { icon.textContent = ''; icon.className = 'install-phase-icon spinning'; }
     } else {
+      // Pending: Empty circle
       if (icon) { icon.textContent = '\u25CB'; icon.className = 'install-phase-icon'; }
     }
   });
 }
 
+/**
+ * Called when the installation completes successfully.
+ * Marks all phases as completed, updates the sidebar,
+ * and automatically navigates to the launch page.
+ */
 function onInstallComplete() {
   installPhase = 'complete';
   if (currentPhaseId) completedPhases.add(currentPhaseId);
+  // Mark all phases as completed
   INSTALL_PHASES.forEach(p => completedPhases.add(p.id));
   currentPhaseId = null;
 
-  // Installation done — update sidebar to show full navigation and go to Launch
+  // Update sidebar (now shows full navigation)
+  // and navigate to the launch page
   router.updateSidebar(true);
   router.navigate('launch');
 }
 
+/**
+ * Called when the installation fails with an error.
+ * Displays the error message and enables retry or back navigation.
+ *
+ * @param {string} error - The error message
+ */
 function onInstallError(error) {
   installPhase = 'error';
   installError = error;
 
+  // Toggle buttons: Hide Cancel, show Retry, enable Back
   const cancelBtn = document.getElementById('btn-cancel-install');
   const retryBtn = document.getElementById('btn-retry-install');
   const backBtn = document.getElementById('btn-back3');
@@ -1268,6 +1567,12 @@ function onInstallError(error) {
   appendLog(`ERROR: ${error}`);
 }
 
+/**
+ * Appends a single log line to the installation log.
+ * Used for manual log entries (e.g., error messages).
+ *
+ * @param {string} text - The log line
+ */
 function appendLog(text) {
   installLog.push(text);
   const logEl = document.getElementById('install-log');
@@ -1280,6 +1585,12 @@ function appendLog(text) {
   }
 }
 
+/**
+ * Restores the installation UI state.
+ * Called when the user returns to the installation page during
+ * a running or completed installation.
+ * Restores log, progress, phase list, and button states.
+ */
 function restoreInstallUI() {
   const logContainer = document.getElementById('install-log-container');
   const progressWrapper = document.getElementById('install-progress-wrapper');
@@ -1289,21 +1600,23 @@ function restoreInstallUI() {
   if (progressWrapper) progressWrapper.style.display = '';
   if (startBtn) startBtn.style.display = 'none';
 
-  // Restore log
+  // Restore accumulated log
   const logEl = document.getElementById('install-log');
   if (logEl) {
     logEl.innerHTML = installLog.map(l => `<div class="install-log-line">> ${escapeHtml(l)}</div>`).join('');
     logEl.scrollTop = logEl.scrollHeight;
   }
 
-  // Restore progress
+  // Restore progress bar
   const fill = document.getElementById('install-progress-fill');
   const percentLabel = document.getElementById('install-percent');
   if (fill) fill.style.width = `${currentPercent.toFixed(1)}%`;
   if (percentLabel) percentLabel.textContent = `${Math.round(currentPercent)}%`;
 
+  // Restore phase list
   updatePhaseList();
 
+  // Restore button states based on the installation phase
   if (installPhase === 'complete') {
     onInstallComplete();
   } else if (installPhase === 'error') {
@@ -1326,9 +1639,14 @@ function restoreInstallUI() {
   }
 }
 
-// --- Helpers ---
+// --- Helper functions ---
 
+/**
+ * Creates a Promise that resolves after the specified time.
+ *
+ * @param {number} ms - Delay in milliseconds
+ * @returns {Promise<void>}
+ */
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
-

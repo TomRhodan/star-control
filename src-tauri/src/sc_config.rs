@@ -2,21 +2,22 @@
 //!
 //! This module handles reading and writing Star Citizen configuration files,
 //! including user profiles, action maps (key bindings), attributes, and
-//! localization data. It also provides P4K (ZIP64) archive access for
-//! reading default bindings and localization from the game's data files.
+//! localization data. It also provides access to P4K archives (ZIP64 format)
+//! to read default bindings and localization from game data.
 //!
-//! Key functionality:
-//! - Detecting installed SC versions (LIVE, PTU, EPTU, HOTFIX)
-//! - Parsing and writing `actionmaps.xml` (user key bindings)
+//! Core features:
+//! - Detection of installed SC versions (LIVE, PTU, EPTU, HOTFIX)
+//! - Parsing and writing `actionmaps.xml` (custom key bindings)
 //! - Reading CryXmlB binary XML from P4K archives (master bindings)
-//! - Localization label extraction from `global.ini`
-//! - Profile backup and restore
+//! - Extraction of localization labels from `global.ini`
+//! - Profile backup and restoration
 
 use std::collections::{ HashMap, HashSet };
 use std::time::UNIX_EPOCH;
 use std::fs::{ self, File };
 use std::io::{ Cursor, Read as IoRead, Seek, SeekFrom };
 use sha2::{ Sha256, Digest };
+use similar::{ ChangeTag, TextDiff };
 use std::path::{ Path, PathBuf };
 use chrono::Local;
 use serde::{ Deserialize, Serialize };
@@ -35,92 +36,153 @@ use crate::action_definitions::{
     DeviceMapping,
 };
 
+/// Device options for an input device (e.g. joystick axis settings).
+/// Contains the device name and a list of options per axis/input.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct ScDeviceOptions {
     pub name: String,
     pub options: Vec<ScDeviceOption>,
 }
+
+/// A single option for a device input (e.g. deadzone or saturation of an axis).
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ScDeviceOption {
+    /// Input identifier (e.g. "x" for X-axis)
     pub input: String,
+    /// Deadzone — range around the center position where no input is registered
     pub deadzone: Option<f64>,
+    /// Saturation — maximum deflection of the axis
     pub saturation: Option<f64>,
 }
+
+/// Represents a connected input device from the actionmaps.xml.
+/// The combination of device_type + instance uniquely identifies a device in SC.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ScDevice {
+    /// Device type: "joystick", "keyboard", "mouse" or "gamepad"
     pub device_type: String,
+    /// SC instance number — determines the prefix in bindings (e.g. js1_, js2_)
     pub instance: u32,
+    /// Product name of the device (e.g. "VPC Constellation ALPHA-R")
     pub product: String,
+    /// Optional GUID for device identification
     pub guid: Option<String>,
 }
+
+/// A single key binding: links an action to an input string.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ScBinding {
+    /// Name of the action (e.g. "v_attack1")
     pub action_name: String,
+    /// Input string in SC format (e.g. "js1_button5", "kb1_f")
     pub input: String,
 }
+
+/// An action within an action map with an optional localization label.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ScAction {
     pub name: String,
+    /// Reference to a localization key (e.g. "@ui_CIFirePrimaryWeapon")
     pub label: Option<String>,
 }
+
+/// An action map groups related actions and bindings into a category
+/// (e.g. "spaceship_movement", "vehicle_turret").
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ScActionMap {
     pub name: String,
     pub bindings: Vec<ScBinding>,
     pub actions: Vec<ScAction>,
 }
+
+/// An action profile contains all devices, device options, and action maps.
+/// Corresponds to the `<ActionProfiles>` element in actionmaps.xml.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ScActionProfile {
+    /// Profile name — usually "default"
     pub profile_name: String,
     pub version: String,
     pub options_version: String,
     pub rebind_version: String,
+    /// List of input devices registered in the profile
     pub devices: Vec<ScDevice>,
+    /// Device-specific options (deadzones, saturations)
     pub device_options: Vec<ScDeviceOptions>,
+    /// All action maps with their bindings
     pub action_maps: Vec<ScActionMap>,
 }
+
+/// Parsed representation of a complete actionmaps.xml file.
+/// Contains a version number and one or more profiles.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct ParsedActionMaps {
     pub version: String,
     pub profiles: Vec<ScActionProfile>,
 }
+/// Information about an installed SC version (e.g. LIVE, PTU).
+/// Used to show the frontend which files/folders are present.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ScVersionInfo {
+    /// Version name (e.g. "LIVE", "PTU", "EPTU")
     pub version: String,
+    /// Absolute path to the version folder
     pub path: String,
+    /// Whether a USER.cfg exists
     pub has_usercfg: bool,
+    /// Whether an attributes.xml exists in the default profile
     pub has_attributes: bool,
+    /// Whether an actionmaps.xml exists in the default profile
     pub has_actionmaps: bool,
+    /// Whether exported controller layouts are present
     pub has_exported_layouts: bool,
+    /// Whether custom characters (.chf files) are present
     pub has_custom_characters: bool,
+    /// Whether the Data.p4k archive file exists
     pub has_data_p4k: bool,
 }
+/// A single attribute from the attributes.xml (name-value pair).
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct ScAttribute {
     pub name: String,
     pub value: String,
 }
+
+/// Parsed attributes.xml — contains game settings like graphics options and control parameters.
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct ScAttributes {
     pub version: String,
     pub attrs: Vec<ScAttribute>,
 }
+/// Metadata for a profile backup.
+/// Stored as backup_meta.json in the backup folder.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct BackupInfo {
+    /// Unique ID (timestamp format: "2025-03-12T14-30-00")
     pub id: String,
+    /// Human-readable creation timestamp
     pub created_at: String,
+    /// Unix timestamp of creation
     pub timestamp: u64,
+    /// SC version this backup belongs to
     pub version: String,
+    /// Type of backup: "manual", "pre-import", "imported"
     pub backup_type: String,
+    /// List of backed-up files (relative paths)
     pub files: Vec<String>,
+    /// User-defined label for the backup
     pub label: String,
+    /// SHA256 hashes of backed-up files for change detection
     #[serde(default)]
     pub file_hashes: HashMap<String, String>,
+    /// Device mapping from actionmaps.xml (product -> instance)
     #[serde(default)]
     pub device_map: Vec<DeviceMapping>,
+    /// Whether the profile has been edited since it was last applied to SC
     #[serde(default)]
     pub dirty: bool,
 }
+/// Information about an SC version from which data can be imported.
+/// The score weights available data (profiles > controls > characters).
 #[derive(Serialize, Deserialize, Clone)]
 pub struct VersionImportInfo {
     pub version: String,
@@ -130,9 +192,11 @@ pub struct VersionImportInfo {
     pub profile_file_count: u32,
     pub controls_file_count: u32,
     pub character_file_count: u32,
+    /// Weighted score: profiles x 3 + controls x 2 + characters x 1
     pub score: u32,
 }
 
+/// Result of a version import — counts the copied files per category.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ImportResult {
     pub profiles_copied: u32,
@@ -140,29 +204,44 @@ pub struct ImportResult {
     pub characters_copied: u32,
 }
 
+/// An exported controller layout from the controls/mappings folder.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ExportedLayout {
     pub filename: String,
+    /// Display name (filename without .xml, underscores replaced by spaces)
     pub label: String,
+    /// Last modification time as Unix timestamp
     pub modified: u64,
 }
+
+/// Entry for reordering device instance numbers.
+/// Sent from the frontend when the user rearranges devices.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct DeviceReorderEntry {
     #[serde(rename = "deviceType")] pub device_type: String,
     #[serde(rename = "oldInstance")] pub old_instance: u32,
     #[serde(rename = "newInstance")] pub new_instance: u32,
 }
+
+/// An SC user profile (folder under user/client/0/Profiles/).
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ScProfile {
     pub name: String,
+    /// Last played timestamp from the attributes.xml
     pub last_played: u64,
 }
+
+/// Cached localization data from the P4K archive.
+/// The cache is invalidated based on file size and modification time of the P4K.
 #[derive(Serialize, Deserialize)]
 struct CachedLocalization {
     p4k_size: u64,
     p4k_modified: u64,
     labels: HashMap<String, String>,
 }
+
+/// Cached master bindings (default key bindings) from the P4K archive.
+/// Same cache invalidation strategy as CachedLocalization.
 #[derive(Serialize, Deserialize)]
 struct CachedMasterBindings {
     p4k_size: u64,
@@ -170,9 +249,12 @@ struct CachedMasterBindings {
     data: ParsedActionMaps,
 }
 
+// Async mutexes prevent concurrent requests from overwriting the same cache file
+// or reading the P4K archive twice.
 static LOCALIZATION_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 static MASTER_BINDINGS_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
+/// Replaces `~` at the beginning of a path with the actual home directory.
 pub(crate) fn expand_tilde(p: &str) -> String {
     if p.starts_with('~') {
         if let Some(h) = dirs::home_dir() {
@@ -181,9 +263,14 @@ pub(crate) fn expand_tilde(p: &str) -> String {
     }
     p.to_string()
 }
+
+/// Constructs the base path to an SC version folder within the Wine prefix.
+/// Example: /path/to/prefix/drive_c/Program Files/Roberts Space Industries/StarCitizen/LIVE
 pub fn sc_base_dir(gp: &str, v: &str) -> PathBuf {
     Path::new(gp).join("drive_c/Program Files/Roberts Space Industries/StarCitizen").join(v)
 }
+
+/// Returns the path to the Data.p4k archive file, if it exists.
 fn sc_p4k_path(gp: &str, v: &str) -> Result<PathBuf, String> {
     let p = sc_base_dir(gp, v).join("Data.p4k");
     if p.exists() {
@@ -192,6 +279,8 @@ fn sc_p4k_path(gp: &str, v: &str) -> Result<PathBuf, String> {
         Err("No P4K".into())
     }
 }
+/// Path to the cache file for master bindings of an SC version.
+/// Located at ~/.config/star-control/cache/master_bindings_{version}.json
 fn master_bindings_cache_path(v: &str) -> Result<PathBuf, String> {
     Ok(
         dirs
@@ -201,6 +290,8 @@ fn master_bindings_cache_path(v: &str) -> Result<PathBuf, String> {
             .join(format!("master_bindings_{}.json", v))
     )
 }
+
+/// Path to the cache file for localization data of an SC version.
 fn localization_cache_path(v: &str) -> Result<PathBuf, String> {
     Ok(
         dirs
@@ -210,10 +301,14 @@ fn localization_cache_path(v: &str) -> Result<PathBuf, String> {
             .join(format!("localization_{}.json", v))
     )
 }
+
+/// Path to the backup folder for a specific SC version.
+/// All profile backups for this version are stored here as subfolders.
 fn backup_version_dir(v: &str) -> Result<PathBuf, String> {
     Ok(dirs::config_dir().ok_or("No config dir")?.join("star-control/backups").join(v))
 }
 /// Validates a backup ID to prevent path traversal attacks.
+/// Blocks empty IDs as well as characters like `/`, `\` and `..`.
 fn validate_backup_id(bid: &str) -> Result<(), String> {
     if bid.is_empty()
         || bid.contains('/')
@@ -226,7 +321,7 @@ fn validate_backup_id(bid: &str) -> Result<(), String> {
 }
 
 /// Finds a subdirectory matching one of the given path variants.
-/// Tries each variant joined to base, returns the first that exists.
+/// Needed because folder case can vary depending on the system.
 fn find_dir_case_insensitive(base: &Path, variants: &[&str]) -> Option<PathBuf> {
     for v in variants {
         let p = base.join(v);
@@ -237,6 +332,7 @@ fn find_dir_case_insensitive(base: &Path, variants: &[&str]) -> Option<PathBuf> 
     None
 }
 
+/// Reads the value of an XML attribute by its name from an XML start tag.
 fn get_attr(e: &BytesStart, n: &[u8]) -> Option<String> {
     for a in e.attributes().flatten() {
         if a.key.as_ref() == n {
@@ -245,6 +341,9 @@ fn get_attr(e: &BytesStart, n: &[u8]) -> Option<String> {
     }
     None
 }
+/// Parses a global.ini localization file into a HashMap.
+/// Format: Each line contains `key=value`. Lines starting with `;` are comments.
+/// A leading `@` in the key is removed (SC convention for label references).
 fn parse_global_ini(c: &str) -> HashMap<String, String> {
     let mut m = HashMap::new();
     for l in c.lines() {
@@ -263,11 +362,19 @@ fn parse_global_ini(c: &str) -> HashMap<String, String> {
     m
 }
 
+/// Parses an actionmaps.xml file (user key bindings) into a structured representation.
+///
+/// The XML structure is hierarchical:
+/// `<ActionMaps>` -> `<ActionProfiles>` -> `<options>` (devices), `<deviceoptions>`,
+/// `<actionmap>` -> `<action>` -> `<rebind>`.
+///
+/// Variables: cp = current profile, cm = current action map, ca = current action.
 fn parse_actionmaps_xml(c: &str) -> Result<ParsedActionMaps, String> {
     let mut r = Reader::from_str(c.trim().trim_matches('\0'));
     r.config_mut().trim_text(true);
     let mut res = ParsedActionMaps::default();
     let mut current_device_options: Option<ScDeviceOptions> = None;
+    // cp = current profile, cm = current map, ca = current action name
     let (mut cp, mut cm, mut ca) = (None, None, None);
     let mut buf = Vec::new();
     loop {
@@ -295,8 +402,11 @@ fn parse_actionmaps_xml(c: &str) -> Result<ParsedActionMaps, String> {
                         });
                     }
                     "options" => {
+                        // <options> tags define input devices with type, instance, and product name.
+                        // The GUID is embedded in the Product attribute: "DeviceName {GUID}"
                         if let Some(ref mut p) = cp {
                             let mut product = get_attr(e, b"Product").unwrap_or_default();
+                            // Extract GUID from product name (format: "Name {GUID}")
                             let guid = if product.contains('{') {
                                 product
                                     .split('{')
@@ -411,6 +521,9 @@ fn parse_actionmaps_xml(c: &str) -> Result<ParsedActionMaps, String> {
     Ok(res)
 }
 
+/// Writes a ParsedActionMaps structure back as an XML file.
+/// Produces valid XML in SC actionmaps format with proper indentation.
+/// The GUID is inserted back into the Product attribute (format: "Name {GUID}").
 fn write_actionmaps_xml(p: &Path, parsed: &ParsedActionMaps) -> Result<(), String> {
     let mut w = Writer::new_with_indent(Cursor::new(vec![]), b' ', 1);
     w.write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), None))).ok();
@@ -496,21 +609,17 @@ fn write_actionmaps_xml(p: &Path, parsed: &ParsedActionMaps) -> Result<(), Strin
     ).map_err(|e| e.to_string())
 }
 
-/// Finds the ZIP64 central directory in a P4K archive file.
+/// Finds the ZIP64 Central Directory in a P4K archive file.
 ///
-/// Searches backwards from the end of the file for the ZIP64
-/// end-of-central-directory locator (PK\x06\x07), then reads
-/// the central directory offset and size from the EOCD64 record.
+/// Searches backwards from the end of the file for the ZIP64 End-of-Central-Directory locator
+/// (signature `PK\x06\x07`), then reads the offset to the EOCD64 record and extracts
+/// the position and size of the Central Directory from it.
 ///
-/// # Arguments
-/// * `file` - Open file handle to the P4K archive
-/// * `file_length` - Total file size in bytes
+/// The Central Directory is the table of contents of the ZIP archive and contains
+/// the metadata of all contained files.
 ///
 /// # Returns
 /// Tuple of `(central_directory_offset, central_directory_size)`.
-///
-/// # Errors
-/// Returns an error if the ZIP64 signature is not found or file I/O fails.
 fn find_central_directory(file: &mut File, file_length: u64) -> Result<(u64, u64), String> {
     let search_size = (65536u64).min(file_length) as usize;
     file
@@ -555,23 +664,18 @@ fn find_central_directory(file: &mut File, file_length: u64) -> Result<(u64, u64
     Err("No ZIP64 end-of-central-directory locator found in P4K".into())
 }
 
-/// Reads and decompresses a single file from a Star Citizen P4K (ZIP64) archive.
+/// Reads and decompresses a single file from a Star Citizen P4K archive (ZIP64).
 ///
-/// P4K files use ZIP64 format with zstd-compressed entries. This function
-/// locates the file in the central directory, reads the compressed data,
-/// and decompresses it if necessary (methods 93/100 = zstd).
+/// P4K files use the ZIP64 format with zstd-compressed entries.
+/// This function searches for the file in the Central Directory, reads the compressed
+/// data, and decompresses it as needed (methods 93/100 = zstd).
 ///
-/// # Arguments
-/// * `game_path` - Wine prefix / game base path
-/// * `version` - SC version folder (e.g. "LIVE", "PTU")
-/// * `file_path` - Path inside the archive (forward slashes converted to backslashes)
-///
-/// # Returns
-/// The decompressed file contents as a byte vector.
-///
-/// # Errors
-/// Returns an error if the P4K file is missing, the entry is not found,
-/// or decompression fails.
+/// The process:
+/// 1. Find the Central Directory (contains all file entries)
+/// 2. Search for the target filename in the Central Directory (case-insensitive)
+/// 3. Handle ZIP64 extra fields for large files
+/// 4. Read the Local File Header to determine the actual data offset
+/// 5. Read compressed data and decompress with zstd
 pub fn read_p4k_file(game_path: &str, version: &str, file_path: &str) -> Result<Vec<u8>, String> {
     let p4k_path = sc_p4k_path(game_path, version)?;
     let mut file = File::open(&p4k_path).map_err(|e| e.to_string())?;
@@ -700,7 +804,8 @@ pub fn read_p4k_file(game_path: &str, version: &str, file_path: &str) -> Result<
     Err("File not found in P4K archive".into())
 }
 
-/// Reads a null-terminated C string from a byte buffer at the given offset.
+/// Reads a null-terminated C string from a byte buffer starting at the given offset.
+/// Used to read strings from the CryXmlB string table.
 fn read_c_string(string_table: &[u8], offset: usize) -> String {
     if offset >= string_table.len() {
         return String::new();
@@ -712,20 +817,15 @@ fn read_c_string(string_table: &[u8], offset: usize) -> String {
     String::from_utf8_lossy(&string_table[offset..offset + length]).into_owned()
 }
 
-/// Recursively traverses a CryXmlB binary XML node tree and extracts action maps.
+/// Recursively traverses the CryXmlB binary XML node tree and extracts action maps.
 ///
-/// Processes nodes to find `actionmap`, `action`, and `rebind` elements
-/// that define Star Citizen's default key bindings.
+/// Searches for `actionmap`, `action`, and `rebind` elements that define Star Citizen's
+/// default key bindings. Xbox/Gamepad nodes are skipped since only PC bindings are relevant.
 ///
-/// # Arguments
-/// * `data` - Complete CryXmlB file data
-/// * `node_table_offset` - Byte offset to the node table
-/// * `attr_table_offset` - Byte offset to the attribute table
-/// * `string_table` - Slice containing all null-terminated strings
-/// * `child_table` - Slice containing child node indices (4 bytes each)
-/// * `node_index` - Index of the current node to process
-/// * `profile` - Action profile being built
-/// * `current_map_index` - Index of the current action map, if inside one
+/// Each node has:
+/// - A tag name (offset into the string table)
+/// - Attributes (key-value pairs, also via string table offsets)
+/// - Child nodes (indices into the child table)
 #[allow(clippy::too_many_arguments)]
 fn traverse_xml_node(
     data: &[u8],
@@ -746,6 +846,7 @@ fn traverse_xml_node(
     let tag_offset = u32::from_le_bytes(node_data[0..4].try_into().unwrap_or_default()) as usize;
     let tag = read_c_string(string_table, tag_offset).to_lowercase();
 
+    // Skip Xbox/Gamepad nodes — only PC bindings are relevant
     if tag == "xboxone" || tag == "gamepad" {
         return;
     }
@@ -829,19 +930,15 @@ fn traverse_xml_node(
 
 /// Parses a CryXmlB binary XML file containing Star Citizen's default action maps.
 ///
-/// CryXmlB is Star Citizen's binary XML format. The file header contains offsets
-/// to node, attribute, child, and string tables which are traversed recursively
-/// to extract all default key bindings.
+/// CryXmlB is Star Citizen's proprietary binary XML format. The header starting at byte 12
+/// contains offsets to four tables:
+/// - Node table: tree structure of XML nodes (28 bytes each)
+/// - Attribute table: key-value pairs (8 bytes each, offsets into string table)
+/// - Child table: indices of child nodes (4 bytes each)
+/// - String table: null-terminated strings for all tag/attribute names and values
 ///
-/// # Arguments
-/// * `data` - Raw CryXmlB file bytes (must start with `CryXmlB` magic)
-///
-/// # Returns
-/// Parsed action maps containing all default bindings under a "master" profile.
-///
-/// # Errors
-/// Returns an error if the magic bytes don't match, the header is too short,
-/// or table offsets extend beyond the file boundary.
+/// The file must start with the magic bytes `CryXmlB`.
+/// Returns a ParsedActionMaps with a "master" profile.
 fn parse_cryxmlb_full(data: &[u8]) -> Result<ParsedActionMaps, String> {
     if !data.starts_with(b"CryXmlB") {
         return Err("Not a CryXmlB file".into());
@@ -907,6 +1004,7 @@ fn parse_cryxmlb_full(data: &[u8]) -> Result<ParsedActionMaps, String> {
 }
 
 /// Reads the USER.cfg file for the given game path and version.
+/// Returns an empty string if the file does not exist.
 #[tauri::command]
 pub async fn read_user_cfg(gp: String, v: String) -> Result<String, String> {
     let p = sc_base_dir(&expand_tilde(&gp), &v).join("USER.cfg");
@@ -915,16 +1013,26 @@ pub async fn read_user_cfg(gp: String, v: String) -> Result<String, String> {
     }
     fs::read_to_string(p).map_err(|e| e.to_string())
 }
-/// Writes content to the USER.cfg file for the given game path and version.
+/// Writes content to the USER.cfg file.
+/// Uses atomic writing (temporary file + rename) to prevent corruption
+/// during crashes while writing.
 #[tauri::command]
 pub async fn write_user_cfg(gp: String, v: String, c: String) -> Result<(), String> {
     let p = sc_base_dir(&expand_tilde(&gp), &v).join("USER.cfg");
     if let Some(parent) = p.parent() {
         fs::create_dir_all(parent).ok();
     }
-    fs::write(p, c).map_err(|e| e.to_string())
+    let tmp = p.with_extension("cfg.tmp");
+    fs::write(&tmp, &c).map_err(|e| format!("Failed to write temp file: {}", e))?;
+    fs::rename(&tmp, &p).map_err(|e| {
+        // Clean up temp file on rename failure
+        let _ = fs::remove_file(&tmp);
+        format!("Failed to rename temp file: {}", e)
+    })
 }
 /// Detects installed Star Citizen versions (LIVE, PTU, EPTU, HOTFIX) at the given path.
+/// Tries multiple possible paths (Wine prefix, direct installation, direct path),
+/// as the folder structure can vary depending on the installation method.
 #[tauri::command]
 pub async fn detect_sc_versions(gp: String) -> Result<Vec<ScVersionInfo>, String> {
     log::debug!("[detect_sc_versions] ========== START ==========");
@@ -982,6 +1090,9 @@ pub async fn detect_sc_versions(gp: String) -> Result<Vec<ScVersionInfo>, String
     Err(format!("StarCitizen directory not found. Game path: '{}'", gp))
 }
 
+/// Reads version folders from a confirmed SC base directory
+/// and checks for each one which files (USER.cfg, actionmaps.xml, etc.) are present.
+/// Results are sorted by priority: LIVE > PTU > HOTFIX > other.
 fn detect_sc_versions_from_path(base: &Path) -> Result<Vec<ScVersionInfo>, String> {
     let mut res = vec![];
     log::debug!("[detect_sc_versions] Reading directory: {}", base.display());
@@ -1045,7 +1156,9 @@ fn detect_sc_versions_from_path(base: &Path) -> Result<Vec<ScVersionInfo>, Strin
     log::debug!("[detect_sc_versions] Returning {} versions", res.len());
     Ok(res)
 }
-/// Lists available user profiles for the given version.
+/// Lists available user profiles for an SC version.
+/// Reads the "lastPlayed" timestamp from the respective attributes.xml.
+/// The "frontend" profile is skipped as it is an SC-internal profile.
 #[tauri::command]
 pub async fn list_profiles(gp: String, v: String) -> Result<Vec<ScProfile>, String> {
     let p = sc_base_dir(&expand_tilde(&gp), &v).join("user/client/0/Profiles");
@@ -1074,7 +1187,7 @@ pub async fn list_profiles(gp: String, v: String) -> Result<Vec<ScProfile>, Stri
     res.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(res)
 }
-/// Exports the default profile (actionmaps, attributes, profile) to a destination directory.
+/// Exports the default profile (actionmaps, attributes, profile) to a target directory.
 #[tauri::command]
 pub async fn export_profile(gp: String, v: String, dp: String) -> Result<(), String> {
     let src = sc_base_dir(&expand_tilde(&gp), &v).join("user/client/0/Profiles/default");
@@ -1100,7 +1213,9 @@ pub async fn import_profile(gp: String, v: String, sp: String) -> Result<(), Str
     }
     Ok(())
 }
-/// Reads and parses the attributes.xml file from the default profile.
+/// Reads and parses the attributes.xml from the default profile.
+/// Uses simple string parsing instead of an XML parser,
+/// since the file structure is very simple and predictable.
 #[tauri::command]
 pub async fn read_attributes(gp: String, v: String) -> Result<ScAttributes, String> {
     let p = sc_base_dir(&expand_tilde(&gp), &v).join(
@@ -1139,7 +1254,7 @@ pub async fn read_attributes(gp: String, v: String) -> Result<ScAttributes, Stri
     }
     Ok(attrs)
 }
-/// Writes attributes back to attributes.xml in the default profile.
+/// Writes attributes back to the attributes.xml of the default profile.
 #[tauri::command]
 pub async fn write_attributes(gp: String, v: String, attrs: ScAttributes) -> Result<(), String> {
     let p = sc_base_dir(&expand_tilde(&gp), &v).join(
@@ -1155,7 +1270,8 @@ pub async fn write_attributes(gp: String, v: String, attrs: ScAttributes) -> Res
     xml.push_str("</Attributes>\n");
     fs::write(p, xml).map_err(|e| e.to_string())
 }
-/// Parses actionmaps.xml from the default profile, or from an exported layout file if `source` is given.
+/// Parses the actionmaps.xml of the default profile, or an exported layout file
+/// if `source` is specified.
 #[tauri::command]
 pub async fn parse_actionmaps(
     gp: String,
@@ -1177,6 +1293,13 @@ pub async fn parse_actionmaps(
 pub fn get_action_definitions() -> ActionDefinitions {
     ActionDefinitions::new()
 }
+/// Reads the master bindings (default key bindings) from the P4K archive.
+///
+/// Uses a filesystem-based cache: if the P4K file has not changed since the last
+/// call (same size + modification time), the cache is used.
+/// Otherwise, the defaultProfile.xml is extracted from the P4K and parsed as CryXmlB.
+///
+/// A mutex prevents multiple concurrent requests from overwriting the cache.
 pub async fn get_master_bindings(gp: String, v: String) -> Result<ParsedActionMaps, String> {
     let pp = sc_p4k_path(&gp, &v)?;
     let cp = master_bindings_cache_path(&v)?;
@@ -1280,16 +1403,13 @@ pub async fn get_master_bindings(gp: String, v: String) -> Result<ParsedActionMa
 }
 /// Extracts localization labels from the P4K archive for UI display.
 ///
-/// Labels are cached to avoid re-reading the P4K on subsequent calls.
-/// The cache is invalidated when the P4K file size or modification time changes.
+/// Labels are cached to avoid re-reading the P4K on every call.
+/// The cache is invalidated when the size or modification time of the P4K changes.
 ///
-/// # Arguments
-/// * `game_path` - Wine prefix / game base path
-/// * `version` - SC version folder (e.g. "LIVE")
-/// * `language` - Language name (defaults to "english")
+/// The global.ini may be UTF-16LE encoded (with BOM 0xFF 0xFE) — in that case
+/// it is converted before parsing. Without BOM, UTF-8 is assumed.
 ///
-/// # Returns
-/// Map of localization keys to translated strings.
+/// Returns a map of localization keys to translated strings.
 #[tauri::command]
 pub async fn get_localization_labels(
     game_path: String,
@@ -1358,7 +1478,13 @@ pub async fn get_localization_labels(
         .map_err(|e| format!("Task failed: {}", e))?;
     res
 }
-/// Returns all bindings merged from master defaults and user customizations, with localized labels.
+/// Returns all bindings merged from master defaults and user customizations.
+///
+/// The merge works as follows:
+/// 1. All master bindings (defaults) are loaded as the base
+/// 2. User bindings override/supplement the master bindings
+/// 3. Localized display names are resolved via the label map
+/// 4. Results are sorted alphabetically by category and display name
 #[tauri::command]
 pub async fn get_complete_binding_list(
     gp: String,
@@ -1380,8 +1506,10 @@ pub async fn get_complete_binding_list(
         .and_then(|up|
             up.profiles.iter().find(|p| p.profile_name == "default" || p.profile_name.is_empty())
         );
+    // MergedActions: action_name -> (input_list, label, is_custom)
     type MergedActions = HashMap<String, (Vec<String>, Option<String>, bool)>;
     let mut merged: HashMap<String, MergedActions> = HashMap::new();
+    // First, insert all master bindings as the base
     for am in &master_profile.action_maps {
         let map = merged.entry(am.name.clone()).or_default();
         for a in &am.actions {
@@ -1394,6 +1522,7 @@ pub async fn get_complete_binding_list(
             }
         }
     }
+    // Then overlay user bindings and mark them as "custom"
     if let Some(up) = user_profile {
         for am in &up.action_maps {
             let map = merged.entry(am.name.clone()).or_default();
@@ -1404,13 +1533,16 @@ pub async fn get_complete_binding_list(
                 if !entry.0.contains(&b.input) {
                     entry.0.push(b.input.clone());
                 }
+                // Mark as custom
                 entry.2 = true;
             }
         }
     }
+    // Convert merged data into the final list with localized names
     let mut results = vec![];
     let mut stats = BindingStats { total: 0, custom: 0 };
     for (cat_name, actions) in merged {
+        // Category label: try "ui_Control{name}" first, then the raw name
         let cat_label = labels
             .get(&format!("ui_Control{}", cat_name))
             .or(labels.get(&cat_name))
@@ -1464,7 +1596,8 @@ pub async fn get_complete_binding_list(
     Ok(BindingListResponse { bindings: results, stats })
 }
 
-/// Derives a device_map from the <options> tags in a parsed actionmaps.xml.
+/// Derives a device mapping from the `<options>` tags of a parsed actionmaps.xml.
+/// Used to populate the device_map in backup_meta.json.
 fn derive_device_map(parsed: &ParsedActionMaps) -> Vec<DeviceMapping> {
     let mut map = vec![];
     for profile in &parsed.profiles {
@@ -1482,13 +1615,15 @@ fn derive_device_map(parsed: &ParsedActionMaps) -> Vec<DeviceMapping> {
     map
 }
 
-/// Reads and saves backup metadata, returning the updated BackupInfo.
+/// Saves the backup metadata as JSON to the backup folder.
 fn save_backup_meta(bdir: &Path, info: &BackupInfo) -> Result<(), String> {
     let json = serde_json::to_string_pretty(info).map_err(|e| e.to_string())?;
     fs::write(bdir.join("backup_meta.json"), json).map_err(|e| e.to_string())
 }
 
-/// Returns all bindings from a profile's actionmaps.xml merged with master defaults.
+/// Returns all bindings of a saved profile, merged with master defaults.
+/// Similar to get_complete_binding_list, but operates on a backup instead of live SC files.
+/// If the device_map is missing from the backup metadata, it is automatically derived and saved.
 #[tauri::command]
 pub async fn get_profile_bindings(
     gp: String,
@@ -1609,16 +1744,21 @@ pub async fn get_profile_bindings(
     Ok(BindingListResponse { bindings: results, stats })
 }
 
+/// Arguments for assigning a key binding.
 #[derive(Deserialize)]
 pub struct AssignBindingArgs {
     pub game_path: String,
     pub version: String,
     pub action_name: String,
     pub category: String,
+    /// New input string (e.g. "js1_button5")
     pub input: String,
+    /// If set, only the binding with this input is replaced (instead of adding a new one)
     pub old_input: Option<String>,
 }
-/// Assigns an input binding to an action in the user's actionmaps.xml.
+/// Assigns a new input binding to an action in the user's actionmaps.xml.
+/// If the file does not exist, a new one with default values is created.
+/// If old_input is specified, the existing binding is replaced; otherwise a new one is added.
 #[tauri::command]
 pub async fn assign_binding(args: AssignBindingArgs) -> Result<(), String> {
     let p = sc_base_dir(&expand_tilde(&args.game_path), &args.version).join(
@@ -1685,6 +1825,7 @@ pub async fn assign_binding(args: AssignBindingArgs) -> Result<(), String> {
     }
     write_actionmaps_xml(&p, &parsed)
 }
+/// Arguments for removing a key binding.
 #[derive(Deserialize)]
 pub struct RemoveBindingArgs {
     pub game_path: String,
@@ -1693,7 +1834,7 @@ pub struct RemoveBindingArgs {
     pub input: String,
     #[allow(dead_code)] pub category: String,
 }
-/// Removes a specific input binding from an action in the user's actionmaps.xml.
+/// Removes a specific input binding of an action from the user's actionmaps.xml.
 #[tauri::command]
 pub async fn remove_binding(args: RemoveBindingArgs) -> Result<(), String> {
     let p = sc_base_dir(&expand_tilde(&args.game_path), &args.version).join(
@@ -1713,7 +1854,9 @@ pub async fn remove_binding(args: RemoveBindingArgs) -> Result<(), String> {
     write_actionmaps_xml(&p, &parsed)
 }
 
-/// Helper: sets dirty flag and recalculates hash for actionmaps.xml in a backup.
+/// Helper function: sets the dirty flag and recalculates the hash of actionmaps.xml.
+/// Called after every change to a profile backup so the frontend can detect
+/// that the profile has not yet been applied to SC.
 fn mark_backup_dirty(bdir: &Path) -> Result<(), String> {
     let meta_path = bdir.join("backup_meta.json");
     let meta_json = fs::read_to_string(&meta_path).map_err(|e| e.to_string())?;
@@ -1726,7 +1869,9 @@ fn mark_backup_dirty(bdir: &Path) -> Result<(), String> {
     save_backup_meta(bdir, &meta)
 }
 
-/// Assigns an input binding to an action in a profile's actionmaps.xml.
+/// Assigns a binding to an action in the actionmaps.xml of a saved profile.
+/// Operates on the backup folder, not on live SC files.
+/// Marks the profile as "dirty" afterwards.
 #[tauri::command]
 pub async fn assign_profile_binding(
     v: String,
@@ -1784,7 +1929,9 @@ pub async fn assign_profile_binding(
     mark_backup_dirty(&bdir)
 }
 
-/// Removes a binding from a profile's actionmaps.xml.
+/// Removes a binding from the actionmaps.xml of a saved profile.
+/// If `input` is specified, only the specific binding is removed;
+/// otherwise all bindings of the action in the action map are removed.
 #[tauri::command]
 pub async fn remove_profile_binding(
     v: String,
@@ -1824,7 +1971,9 @@ pub async fn remove_profile_binding(
     mark_backup_dirty(&bdir)
 }
 
-/// Applies a profile's files to the live SC directory and clears dirty flag.
+/// Applies the files of a saved profile to the live SC directory.
+/// Copies profile files via restore_profile and then resets the dirty flag.
+/// Also saves the active profile assignment in active_profiles.json.
 #[tauri::command]
 pub async fn apply_profile_to_sc(
     gp: String,
@@ -1848,7 +1997,8 @@ pub async fn apply_profile_to_sc(
     save_active_profile(v, profile_id).await
 }
 
-/// Sets a user-defined alias for a device in a profile's device_map.
+/// Sets a custom alias for a device in the device_map of a profile.
+/// Allows the user to give devices descriptive names (e.g. "Left Stick").
 #[tauri::command]
 pub async fn set_profile_device_alias(
     v: String,
@@ -1875,8 +2025,9 @@ pub async fn set_profile_device_alias(
     save_backup_meta(&bdir, &meta)
 }
 
-/// Migrates old binding_database.json by renaming it to .bak.
-/// Returns true if migration was performed, false if no old file found.
+/// Migrates the old binding_database.json by renaming it to .bak.
+/// Called at app startup since the old format is no longer used.
+/// Returns true if a migration was performed.
 #[tauri::command]
 pub async fn migrate_binding_database() -> Result<bool, String> {
     let config_dir = dirs::config_dir().ok_or("No config dir")?;
@@ -1891,7 +2042,7 @@ pub async fn migrate_binding_database() -> Result<bool, String> {
     }
 }
 
-/// Reads a text file from the Data.p4k archive and returns its contents as a string.
+/// Reads a text file from the Data.p4k archive and returns the content as a string.
 #[tauri::command]
 pub async fn read_p4k(
     game_path: String,
@@ -1901,6 +2052,8 @@ pub async fn read_p4k(
     Ok(String::from_utf8_lossy(&read_p4k_file(&game_path, &version, &file_path)?).into_owned())
 }
 /// Lists files in the P4K archive, optionally filtered by a pattern.
+/// Searches the Central Directory and returns all filenames
+/// that contain the filter pattern (case-insensitive).
 #[tauri::command]
 pub async fn list_p4k(
     game_path: String,
@@ -1974,7 +2127,8 @@ pub async fn get_localization_ini(
     )?;
     Ok(String::from_utf8_lossy(&b).into_owned())
 }
-/// Lists available localization languages by scanning the P4K archive.
+/// Lists available localization languages by searching the P4K archive.
+/// Looks for folders under "Data\Localization\" and extracts the language names.
 #[tauri::command]
 pub async fn list_localization_languages(gp: String, v: String) -> Result<Vec<String>, String> {
     let p4k = sc_base_dir(&gp, &v).join("Data.p4k");
@@ -2046,8 +2200,8 @@ pub async fn list_localization_languages(gp: String, v: String) -> Result<Vec<St
     result.sort();
     Ok(result)
 }
-/// Returns the SC input prefix for a device type (e.g., "joystick" → "js", "keyboard" → "kb").
-/// These prefixes are used in `<rebind input="js1_button5"/>` style references.
+/// Returns the SC input prefix for a device type (e.g. "joystick" -> "js").
+/// These prefixes are used in `<rebind input="js1_button5"/>` references.
 fn device_type_to_input_prefix(device_type: &str) -> &str {
     match device_type {
         "joystick" => "js",
@@ -2058,20 +2212,20 @@ fn device_type_to_input_prefix(device_type: &str) -> &str {
     }
 }
 
-/// Reorders device instances within a saved profile (backup).
+/// Reorders device instance numbers within a saved profile (backup).
 ///
-/// This operates on the backup's own `actionmaps.xml` snapshot, NOT on live SC files.
-/// After swapping instance numbers in the XML, it re-derives the `device_map` in
-/// `backup_meta.json` so the UI immediately reflects the change. Aliases are preserved
-/// by matching on `product_name`.
+/// Operates on the backup's own `actionmaps.xml` snapshot, NOT on live SC files.
+/// After swapping instance numbers in the XML, the `device_map` in
+/// `backup_meta.json` is re-derived so the UI immediately reflects the change.
+/// Device aliases are preserved via `product_name`.
 ///
-/// Device identity = (type, instance). A keyboard at instance 1 and a joystick at instance 1
-/// are different devices. The swap is scoped to the device type:
+/// Device identity = (type, instance). A keyboard with instance 1 and a joystick
+/// with instance 1 are different devices. The swap is scoped to the device type:
 ///   - `<options type="joystick" instance="2">` attributes
 ///   - `<rebind input="js2_button5"/>` input references (prefix is type-specific)
 ///
-/// The two-phase replacement (original → placeholder → final) avoids collisions when
-/// swapping instance numbers (e.g., swapping js2↔js3 without js2→js3→js3).
+/// The two-phase replacement (original -> placeholder -> final value) avoids collisions
+/// when swapping instance numbers (e.g. js2<->js3 without js2->js3->js3 happening).
 #[tauri::command]
 pub async fn reorder_profile_devices(
     v: String,
@@ -2174,18 +2328,22 @@ pub async fn reorder_profile_devices(
 
     Ok(())
 }
+/// Computes the SHA256 hash of a file. Used for change detection in backups.
 fn hash_file(path: &Path) -> Option<String> {
     let data = fs::read(path).ok()?;
     let hash = Sha256::digest(&data);
     Some(format!("{:x}", hash))
 }
 
-/// Creates a manual backup of the default profile with a user-provided label.
+/// Creates a manual backup of the default profile with a user-defined label.
 #[tauri::command]
 pub async fn backup_profile_manual(gp: String, v: String, l: String) -> Result<BackupInfo, String> {
     backup_profile(gp, v, Some("manual".into()), Some(l)).await
 }
-/// Creates a timestamped backup of the default profile with optional type and label.
+/// Creates a backup of the default profile with a timestamp.
+/// Backs up profile files (actionmaps, attributes, profile), controls/mappings, and
+/// custom characters into a backup folder with a unique ID.
+/// Computes SHA256 hashes of all files for later change detection.
 #[tauri::command]
 pub async fn backup_profile(
     gp: String,
@@ -2288,6 +2446,8 @@ pub async fn backup_profile(
     Ok(info)
 }
 /// Restores a profile from a previously created backup.
+/// Copies all profile files, controls/mappings, and custom characters
+/// from the backup folder back into the SC directory.
 #[tauri::command]
 pub async fn restore_profile(gp: String, v: String, bid: String) -> Result<(), String> {
     validate_backup_id(&bid)?;
@@ -2341,9 +2501,10 @@ pub async fn restore_profile(gp: String, v: String, bid: String) -> Result<(), S
     Ok(())
 }
 
-/// Imports settings from another version as a new saved profile in the target version.
-/// If `bid` is provided, copies from that saved profile; otherwise copies from the source version's live SC files.
-/// Does NOT overwrite any SC files — only creates a new profile that the user can then load.
+/// Imports settings from another SC version as a new saved profile.
+/// If `bid` is specified, copies from the saved profile;
+/// otherwise from the live SC files of the source version.
+/// Does NOT overwrite SC files — only creates a new profile that the user can then load.
 #[tauri::command]
 pub async fn import_version_as_profile(
     gp: String,
@@ -2489,7 +2650,7 @@ pub async fn import_version_as_profile(
     Ok(info)
 }
 
-/// Lists all profile backups for a given version, sorted newest first.
+/// Lists all profile backups for an SC version, sorted by creation time (newest first).
 #[tauri::command]
 pub async fn list_backups(v: String) -> Result<Vec<BackupInfo>, String> {
     let d = backup_version_dir(&v)?;
@@ -2519,20 +2680,24 @@ pub async fn delete_backup(v: String, bid: String) -> Result<(), String> {
     }
     Ok(())
 }
-/// Compares current SC files against a backup's stored hashes.
+/// Status of a single file comparing backup and current SC state.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct FileStatus {
     pub file: String,
+    /// Status: "unchanged", "modified", "deleted" or "new"
     pub status: String,
 }
 
+/// Result of the profile status comparison.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ProfileStatus {
+    /// true if all files match the backup
     pub matched: bool,
+    /// Detailed status of each file
     pub files: Vec<FileStatus>,
 }
 
-/// Collects all current SC profile-related files with their hashes.
+/// Collects SHA256 hashes of all current SC profile files for comparison with a backup.
 fn collect_current_sc_hashes(user_base: &Path) -> HashMap<String, String> {
     let mut current = HashMap::new();
     let pdir = user_base.join("Profiles/default");
@@ -2571,6 +2736,8 @@ fn collect_current_sc_hashes(user_base: &Path) -> HashMap<String, String> {
     current
 }
 
+/// Compares current SC files with the stored hashes of a backup.
+/// Detects modified, deleted, and new files since the backup.
 #[tauri::command]
 pub async fn check_profile_status(gp: String, v: String, bid: String) -> Result<ProfileStatus, String> {
     validate_backup_id(&bid)?;
@@ -2614,10 +2781,85 @@ pub async fn check_profile_status(gp: String, v: String, bid: String) -> Result<
     Ok(ProfileStatus { matched: all_match, files })
 }
 
+/// A single line in a file diff.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct DiffLine {
+    /// "context" (unchanged), "add" (added) or "remove" (removed)
+    pub line_type: String,
+    /// Line number in the old file (backup)
+    pub old_line_no: Option<usize>,
+    /// Line number in the new file (current SC file)
+    pub new_line_no: Option<usize>,
+    pub content: String,
+}
+
+/// Computes a line-by-line diff between a backup file and the current SC file.
+/// Uses the `similar` library for comparison.
+#[tauri::command]
+pub async fn get_file_diff(file: String, gp: String, v: String, bid: String) -> Result<Vec<DiffLine>, String> {
+    validate_backup_id(&bid)?;
+
+    // Read backup file
+    let bdir = backup_version_dir(&v)?.join(&bid);
+    let backup_path = bdir.join(&file);
+    let backup_content = fs::read_to_string(&backup_path)
+        .map_err(|e| format!("Cannot read backup file: {}", e))?;
+
+    // Read current SC file
+    let expanded = expand_tilde(&gp);
+    let user_base = get_sc_base_path(&expanded)?.join(&v).join("user/client/0");
+    let current_path = if file.starts_with("controls_mappings/") {
+        let controls_dir = find_dir_case_insensitive(
+            &user_base,
+            &["Controls/Mappings", "controls/mappings", "controls/Mappings"],
+        ).ok_or("Controls/Mappings directory not found")?;
+        controls_dir.join(file.strip_prefix("controls_mappings/").unwrap())
+    } else {
+        user_base.join("Profiles/default").join(&file)
+    };
+    let current_content = fs::read_to_string(&current_path)
+        .map_err(|e| format!("Cannot read current file: {}", e))?;
+
+    // Compute diff
+    let diff = TextDiff::from_lines(&backup_content, &current_content);
+    let mut lines = Vec::new();
+    let mut old_no: usize = 0;
+    let mut new_no: usize = 0;
+
+    for change in diff.iter_all_changes() {
+        let (line_type, old_line_no, new_line_no) = match change.tag() {
+            ChangeTag::Equal => {
+                old_no += 1;
+                new_no += 1;
+                ("context", Some(old_no), Some(new_no))
+            }
+            ChangeTag::Delete => {
+                old_no += 1;
+                ("remove", Some(old_no), None)
+            }
+            ChangeTag::Insert => {
+                new_no += 1;
+                ("add", None, Some(new_no))
+            }
+        };
+
+        lines.push(DiffLine {
+            line_type: line_type.into(),
+            old_line_no,
+            new_line_no,
+            content: change.to_string_lossy().trim_end_matches('\n').to_string(),
+        });
+    }
+
+    Ok(lines)
+}
+
+/// Path to active_profiles.json — stores which profile is active per SC version.
 fn active_profiles_path() -> Result<std::path::PathBuf, String> {
     Ok(dirs::config_dir().ok_or("No config dir")?.join("star-control/active_profiles.json"))
 }
 
+/// Loads the mapping of active profiles (version -> backup ID).
 #[tauri::command]
 pub async fn load_active_profiles() -> Result<HashMap<String, String>, String> {
     let path = active_profiles_path()?;
@@ -2626,6 +2868,8 @@ pub async fn load_active_profiles() -> Result<HashMap<String, String>, String> {
     serde_json::from_str(&data).map_err(|e| e.to_string())
 }
 
+/// Saves or removes the active profile assignment for an SC version.
+/// An empty bid removes the assignment.
 #[tauri::command]
 pub async fn save_active_profile(v: String, bid: String) -> Result<(), String> {
     let path = active_profiles_path()?;
@@ -2657,7 +2901,8 @@ pub async fn update_backup_label(v: String, bid: String, l: String) -> Result<()
     )
 }
 
-/// Lists other SC version folders that have importable profile/control/character data.
+/// Lists other SC version folders that contain importable profile/control/character data.
+/// Scores each version to suggest the best import source.
 #[tauri::command]
 pub async fn list_importable_versions(gp: String, target_version: String) -> Result<Vec<VersionImportInfo>, String> {
     let base = Path::new(&expand_tilde(&gp)).join("drive_c/Program Files/Roberts Space Industries/StarCitizen");
@@ -2712,6 +2957,7 @@ pub async fn list_importable_versions(gp: String, target_version: String) -> Res
 }
 
 /// Imports profile, controls, and character data from one SC version to another.
+/// Automatically creates a "pre-import" backup of the target version before overwriting.
 #[tauri::command]
 pub async fn import_from_version(gp: String, source_version: String, target_version: String) -> Result<ImportResult, String> {
     let expanded = expand_tilde(&gp);
@@ -2779,7 +3025,8 @@ pub async fn import_from_version(gp: String, source_version: String, target_vers
     Ok(ImportResult { profiles_copied, controls_copied, characters_copied })
 }
 
-/// Lists exported control layout XML files from the controls/mappings directory.
+/// Lists exported controller layout XML files from the controls/mappings directory.
+/// Sorted by modification date (newest first).
 #[tauri::command]
 pub async fn list_exported_layouts(
     game_path: String,
@@ -2816,7 +3063,8 @@ pub async fn list_exported_layouts(
     Ok(res)
 }
 
-/// Gets the file size of Data.p4k for a given version
+/// Returns the file size of Data.p4k for an SC version.
+/// Tries multiple possible base paths.
 #[tauri::command]
 pub async fn get_data_p4k_size(gp: String, version: String) -> Result<u64, String> {
     let exp = expand_tilde(&gp);
@@ -2848,7 +3096,9 @@ pub async fn get_data_p4k_size(gp: String, version: String) -> Result<u64, Strin
     Ok(metadata.len())
 }
 
-/// Copies Data.p4k from source version to target version with progress reporting
+/// Copies Data.p4k from a source version to a target version with progress reporting.
+/// Sends "data-p4k-progress" events to the frontend (percent, copied bytes, speed).
+/// At the end, a "data-p4k-copy-complete" event is sent.
 #[tauri::command]
 pub async fn copy_data_p4k(
     gp: String,
@@ -2932,7 +3182,8 @@ pub async fn copy_data_p4k(
     Ok(())
 }
 
-/// Copy file with progress tracking (synchronous for use in spawn_blocking)
+/// Copies a file with progress tracking (synchronous, for spawn_blocking).
+/// Reads in 8MB chunks and reports progress every 10MB via the callback.
 fn copy_with_progress<F>(from: &Path, to: &Path, total_size: u64, mut progress_callback: F) -> Result<u64, String>
 where
     F: FnMut(u64, u64) + Send,
@@ -2975,7 +3226,7 @@ where
     Ok(written)
 }
 
-/// Aborts a running copy by removing partial file
+/// Aborts an ongoing copy by deleting the incomplete file.
 #[tauri::command]
 pub async fn abort_copy_data_p4k(gp: String, version: String) -> Result<(), String> {
     let exp = expand_tilde(&gp);
@@ -3005,7 +3256,9 @@ pub async fn abort_copy_data_p4k(gp: String, version: String) -> Result<(), Stri
     Ok(())
 }
 
-/// Deletes an entire Star Citizen version folder
+/// Deletes an entire Star Citizen version folder.
+/// For security reasons, only known version names are accepted
+/// (LIVE, PTU, EPTU, TECH-PREVIEW, HOTFIX).
 #[tauri::command]
 pub async fn delete_sc_version(gp: String, version: String) -> Result<(), String> {
     let exp = expand_tilde(&gp);
@@ -3047,7 +3300,8 @@ pub async fn delete_sc_version(gp: String, version: String) -> Result<(), String
     Ok(())
 }
 
-/// Helper to get the base SC directory from a general path string
+/// Helper function: determines the SC base directory from a general path string.
+/// Tries Wine prefix, direct directory, and the path itself.
 fn get_sc_base_path(gp: &str) -> Result<PathBuf, String> {
     let exp = expand_tilde(gp);
     let base_paths: Vec<PathBuf> = vec![
@@ -3064,7 +3318,8 @@ fn get_sc_base_path(gp: &str) -> Result<PathBuf, String> {
     Err("StarCitizen directory not found".to_string())
 }
 
-/// Creates a new empty Star Citizen version folder
+/// Creates a new, empty Star Citizen version folder.
+/// Only accepts valid standard version names.
 #[tauri::command]
 pub async fn create_sc_version(gp: String, version: String) -> Result<(), String> {
     let base = get_sc_base_path(&gp)?;
@@ -3087,7 +3342,9 @@ pub async fn create_sc_version(gp: String, version: String) -> Result<(), String
     Ok(())
 }
 
-/// Symlinks Data.p4k from one version to another
+/// Creates a symlink for Data.p4k from one version to another.
+/// Saves disk space when multiple versions use the same P4K file.
+/// Only supported on Unix/Linux.
 #[tauri::command]
 pub async fn link_data_p4k(gp: String, src_version: String, dst_version: String) -> Result<(), String> {
     let base = get_sc_base_path(&gp)?;
@@ -3120,7 +3377,9 @@ pub async fn link_data_p4k(gp: String, src_version: String, dst_version: String)
     }
 }
 
-/// Overwrites an existing backup with current Star Citizen files
+/// Overwrites an existing backup with the current Star Citizen files.
+/// Updates all files, hashes, the device_map, and the timestamp.
+/// Resets the dirty flag since the backup now matches the current state.
 #[tauri::command]
 pub async fn update_backup_from_sc(
     gp: String,

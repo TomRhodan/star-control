@@ -1,14 +1,17 @@
 /**
  * Star Control - Router Module
  *
- * This module handles client-side routing for the application.
- * It manages page navigation, sidebar visibility based on installation state,
- * and the initial setup flow for first-time users.
+ * This module handles client-side navigation of the application.
+ * It manages page transitions, sidebar visibility based on installation
+ * state, and the first-time setup wizard for new users.
  *
  * @module router
  */
 
+// Tauri invoke API for calls to the Rust backend
 import { invoke } from '@tauri-apps/api/core';
+
+// Import all page render functions
 import { renderDashboard } from './pages/dashboard.js';
 import { renderInstallation } from './pages/installation.js';
 import { renderRunners } from './pages/runners.js';
@@ -19,7 +22,8 @@ import { renderAbout } from './pages/about.js';
 import { renderSetup } from './pages/setup.js';
 
 /**
- * Route mapping from page name to render function.
+ * Route mapping: Maps page names to their corresponding render functions.
+ * Each render function receives the content element and populates it with the page view.
  * @constant {Object<string, function>}
  */
 const routes = {
@@ -32,57 +36,71 @@ const routes = {
   about: renderAbout,
 };
 
-// Pages visible when NO instance is installed
+// Pages visible when NO Star Citizen instance is installed
 const PRE_INSTALL_PAGES = ['dashboard', 'installation', 'settings'];
 
 // Pages visible when an instance IS installed
 const POST_INSTALL_PAGES = ['dashboard', 'launch', 'runners', 'environments', 'settings'];
 
+// State variables: Is the setup wizard active? Is SC installed?
 let setupActive = false;
 let installed = false;
 
 /**
  * Navigates to a specific page.
- * @param {string} page - The page name to navigate to.
+ * Blocks navigation while the setup wizard is active.
+ * Clears the content area and calls the appropriate render function.
+ * Also updates the active state of the sidebar links.
+ *
+ * @param {string} page - The name of the target page (e.g. 'dashboard', 'launch').
  */
 async function navigate(page) {
+  // Navigation is not allowed while the setup wizard is active
   if (setupActive) return;
 
   const content = document.getElementById('content');
   const renderFn = routes[page];
   if (!renderFn) return;
 
+  // Remove old page content and render the new page
   content.innerHTML = '';
   renderFn(content);
 
+  // Highlight the active sidebar link (toggle CSS class 'active')
   document.querySelectorAll('.nav-link').forEach((link) => {
     link.classList.toggle('active', link.dataset.page === page);
   });
 }
 
 /**
- * Updates the sidebar visibility based on installation state.
+ * Updates the visibility of sidebar entries based on the installation state.
+ * Before installation, only Dashboard, Installation, and Settings are shown.
+ * After installation, Launch, Runners, and Environments are added,
+ * while Installation is hidden.
+ *
  * @param {boolean} isInstalled - Whether Star Citizen is installed.
  */
 function updateSidebar(isInstalled) {
   installed = isInstalled;
   const visiblePages = isInstalled ? POST_INSTALL_PAGES : PRE_INSTALL_PAGES;
 
-  // Nav links in main list
+  // Show/hide navigation links in the main list
   document.querySelectorAll('.nav-links .nav-link').forEach((link) => {
     const page = link.dataset.page;
     if (!page) return;
     link.closest('li').style.display = visiblePages.includes(page) ? '' : 'none';
   });
 
-  // Footer links (about) — always visible
+  // Footer links (e.g. "About") are always visible, regardless of installation state
   document.querySelectorAll('.sidebar-footer .nav-link').forEach((link) => {
     link.style.display = '';
   });
 }
 
 /**
- * Checks if Star Citizen is installed by loading config and checking installation status.
+ * Checks whether Star Citizen is installed by loading the configuration
+ * and querying the installation status via the Rust backend.
+ *
  * @returns {Promise<boolean>} True if installed, false otherwise.
  */
 async function checkInstallationState() {
@@ -93,14 +111,18 @@ async function checkInstallationState() {
       return status.installed;
     }
   } catch (e) {
-    // no config or check failed
+    // Configuration not found or check failed
   }
   return false;
 }
 
 /**
- * Shows the initial setup wizard.
- * @param {string} defaultPath - Default installation path suggestion.
+ * Displays the first-time setup wizard.
+ * Hides the sidebar and shows the setup page in the content area.
+ * After setup completion, normal navigation is restored
+ * and the user is navigated to the installation page.
+ *
+ * @param {string} defaultPath - Suggested default installation path.
  */
 function showSetup(defaultPath) {
   setupActive = true;
@@ -108,16 +130,19 @@ function showSetup(defaultPath) {
   const sidebar = document.getElementById('sidebar');
   const content = document.getElementById('content');
 
+  // Hide sidebar and adjust content for the setup view
   sidebar.classList.add('sidebar-hidden');
   content.classList.add('content-setup');
   content.innerHTML = '';
 
   renderSetup(content, {
     defaultPath,
+    // Callback after setup wizard completion
     onComplete: () => {
       setupActive = false;
       sidebar.classList.remove('sidebar-hidden');
       content.classList.remove('content-setup');
+      // Set sidebar to "not installed" state and switch to the installation page
       updateSidebar(false);
       navigate('installation');
     },
@@ -125,10 +150,13 @@ function showSetup(defaultPath) {
 }
 
 /**
- * Initializes the router and application state.
- * Sets up navigation handlers, checks for setup requirements, and loads the initial page.
+ * Initializes the router and the application state.
+ * Sets up click handlers for all navigation links, checks whether a
+ * first-time setup is needed (setup wizard), and then loads
+ * the dashboard page as the start page.
  */
 async function init() {
+  // Register click handlers for all navigation links in the sidebar
   document.querySelectorAll('.nav-link').forEach((link) => {
     link.addEventListener('click', (e) => {
       e.preventDefault();
@@ -136,7 +164,7 @@ async function init() {
     });
   });
 
-  // Check if first-time setup is needed
+  // Check if first-time setup is needed (e.g. no config.json exists yet)
   try {
     const check = await invoke('check_needs_setup');
     if (check.needs_setup) {
@@ -147,11 +175,14 @@ async function init() {
     console.error('Setup check failed:', err);
   }
 
-  // Determine installation state and update sidebar
+  // Determine installation state and update sidebar accordingly
   const isInstalled = await checkInstallationState();
   updateSidebar(isInstalled);
 
+  // Load dashboard as the start page
   navigate('dashboard');
 }
 
+// Public router API: init to start, navigate for page transitions,
+// updateSidebar to update the sidebar after installation changes
 export const router = { init, navigate, updateSidebar };

@@ -1,12 +1,12 @@
 /**
  * Star Control - Dashboard Page
  *
- * This module renders the main dashboard page which displays:
+ * This module renders the main overview (Command Center) with:
  * - Star Citizen installation status
  * - Wine runner status
- * - RSI News feed
- * - Server status
- * - Community stats (funds, fleet, fans)
+ * - RSI news feed
+ * - Server status (instances, platform)
+ * - Community statistics (funding, players, vehicles)
  *
  * @module pages/dashboard
  */
@@ -17,13 +17,31 @@ import { router } from '../router.js';
 import { requestAutoLaunch } from './launch.js';
 import { escapeHtml } from '../utils.js';
 
-/** @type {Object|null} */
+// ── Module-wide State ──────────────────────────────
+
+/** @type {Object|null} Loaded app configuration (install path, runner, etc.) */
 let dashConfig = null;
+/** @type {Object|null} Installation check result: { installed, has_runner, ... } */
 let dashInstallStatus = null;
+/** @type {Object|null} Localization status (installed language, commit SHA, etc.) */
 let dashLocStatus = null;
+/** @type {Object|null} Check result whether a localization update is available */
 let dashLocUpdate = null;
+/** @type {string|null} Detected SC version (e.g., "LIVE", "PTU") */
 let dashScVersion = null;
 
+/** @type {Array|null} Full community statistics history from backend (up to 30 days) */
+let statsHistoryData = null;
+/** @type {number} Currently selected time period for sparkline charts (in days) */
+let statsCurrentPeriod = 7;
+/** @type {Object|null} Current community statistics values for display */
+let statsCurrent = null;
+
+/**
+ * Renders the entire dashboard page into the provided container.
+ * Shows skeleton placeholders first, then loads all data in parallel.
+ * @param {HTMLElement} container - The DOM element to render the page into
+ */
 export function renderDashboard(container) {
   container.innerHTML = `
     <div class="page-header">
@@ -51,9 +69,11 @@ export function renderDashboard(container) {
     </div>
   `;
 
+  // Load all data sources in parallel
   loadAll();
 }
 
+/** Creates the skeleton placeholder for the status cards (SC, Runner, Launch) */
 function renderStatusSkeleton() {
   return `
     <div class="dash-card dash-card--neutral">
@@ -70,6 +90,7 @@ function renderStatusSkeleton() {
   `;
 }
 
+/** Creates the skeleton placeholder for the news list (4 entries) */
 function renderNewsSkeleton() {
   let html = '<div class="dash-news-list">';
   for (let i = 0; i < 4; i++) {
@@ -83,6 +104,7 @@ function renderNewsSkeleton() {
   return html;
 }
 
+/** Creates the skeleton placeholder for the server status display */
 function renderServerSkeleton() {
   let html = '<div class="dash-server-list">';
   for (let i = 0; i < 3; i++) {
@@ -92,6 +114,7 @@ function renderServerSkeleton() {
   return html;
 }
 
+/** Creates the skeleton placeholder for the community statistics */
 function renderStatsSkeleton() {
   let html = '<div class="dash-stats-grid">';
   for (let i = 0; i < 3; i++) {
@@ -101,8 +124,12 @@ function renderStatsSkeleton() {
   return html;
 }
 
+/**
+ * Loads all dashboard data in parallel.
+ * Uses Promise.allSettled so that an error in one source
+ * does not block the others.
+ */
 async function loadAll() {
-  // Load all data sources in parallel
   const localPromise = loadLocalStatus();
   const newsPromise = loadNews();
   const serverPromise = loadServerStatus();
@@ -113,6 +140,14 @@ async function loadAll() {
 
 // ── Local Status Cards ──────────────────────────────
 
+/**
+ * Loads the local installation status:
+ * 1. Load configuration
+ * 2. Check installation status (SC + Runner present?)
+ * 3. Detect SC versions and retrieve localization status
+ * 4. Check whether an update for the installed translation is available
+ * At the end, the status cards are re-rendered.
+ */
 async function loadLocalStatus() {
   try {
     dashConfig = await invoke('load_config');
@@ -131,11 +166,13 @@ async function loadLocalStatus() {
       try {
         const versions = await invoke('detect_sc_versions', { gamePath: dashConfig.install_path });
         if (versions.length > 0) {
+          // Use first detected version for localization status
           dashScVersion = versions[0].version;
           dashLocStatus = await invoke('get_localization_status', {
             gamePath: dashConfig.install_path,
             version: dashScVersion,
           });
+          // Only check for updates if a localization is installed
           if (dashLocStatus?.installed) {
             try {
               dashLocUpdate = await invoke('check_localization_update', {
@@ -156,6 +193,10 @@ async function loadLocalStatus() {
   renderStatusCards();
 }
 
+/**
+ * Renders the three status cards (SC, Runner, Launch) into the status row
+ * and binds their event listeners.
+ */
 function renderStatusCards() {
   const grid = document.getElementById('dash-status-row');
   if (!grid) return;
@@ -175,12 +216,14 @@ function renderStatusCards() {
 
 /**
  * Renders the Star Citizen installation status card.
+ * Shows install path, localization language, and optionally an update button.
  * @param {Object} data
- * @param {boolean} data.installed
- * @param {string|null} data.installPath
- * @returns {string}
+ * @param {boolean} data.installed - Whether SC is fully installed
+ * @param {string|null} data.installPath - Path to the SC installation directory
+ * @returns {string} HTML string of the card
  */
 function renderScCard({ installed, installPath }) {
+  // Determine badge status: not configured / installed / incomplete
   let scBadge;
   if (!dashConfig) {
     scBadge = '<span class="badge badge-neutral">Not configured</span>';
@@ -190,6 +233,7 @@ function renderScCard({ installed, installPath }) {
     scBadge = '<span class="badge badge-warn">Incomplete</span>';
   }
 
+  // Determine CSS class for card color
   let statusClass;
   if (!dashConfig) {
     statusClass = 'neutral';
@@ -199,6 +243,7 @@ function renderScCard({ installed, installPath }) {
     statusClass = 'warn';
   }
 
+  // Localization display: language name and update indicator (green/yellow)
   const locLang = dashLocStatus?.language_name || dashLocStatus?.language_code || null;
   const locDot = dashLocUpdate?.update_available
     ? '<span class="dash-card-dot dot-warn"></span>'
@@ -229,11 +274,12 @@ function renderScCard({ installed, installPath }) {
 }
 
 /**
- * Renders the Wine Runner status card.
+ * Renders the Wine runner status card.
+ * Shows whether a runner is configured and present.
  * @param {Object} data
- * @param {boolean} data.hasRunner
- * @param {string|null} data.runnerName
- * @returns {string}
+ * @param {boolean} data.hasRunner - Whether the configured runner exists on disk
+ * @param {string|null} data.runnerName - Name of the selected runner (e.g., "GE-Proton9-20")
+ * @returns {string} HTML string of the card
  */
 function renderRunnerCard({ hasRunner, runnerName }) {
   let runnerBadge;
@@ -280,10 +326,11 @@ function renderRunnerCard({ hasRunner, runnerName }) {
 }
 
 /**
- * Renders the launch action card.
+ * Renders the launch card with the large start button.
+ * The button is disabled when SC is not fully installed.
  * @param {Object} data
- * @param {boolean} data.installed
- * @returns {string}
+ * @param {boolean} data.installed - Whether SC is ready to launch
+ * @returns {string} HTML string of the card
  */
 function renderLaunchCard({ installed }) {
   const launchText = installed ? 'Ready to launch' : 'Complete installation first';
@@ -299,12 +346,17 @@ function renderLaunchCard({ installed }) {
 }
 
 /**
- * Binds event listeners for the status card buttons.
+ * Binds event listeners for all interactive elements of the status cards:
+ * - Launch button: Navigates to the launch page and triggers auto-launch
+ * - Open folder button: Opens the SC install path in the file manager
+ * - Manage runners button: Navigates to runner management
+ * - Update localization button: Updates the installed translation
  * @param {Object} data
- * @param {boolean} data.installed
- * @param {string|null} data.installPath
+ * @param {boolean} data.installed - Whether SC is ready to launch
+ * @param {string|null} data.installPath - Path to the SC directory
  */
 function bindStatusCardEvents({ installed, installPath }) {
+  // Launch button: Sets the auto-launch flag and switches to the launch page
   const launchBtn = document.getElementById('dash-launch-btn');
   if (launchBtn && installed) {
     launchBtn.addEventListener('click', () => {
@@ -313,22 +365,26 @@ function bindStatusCardEvents({ installed, installPath }) {
     });
   }
 
+  // Open folder in file manager
   const folderBtn = document.getElementById('dash-open-folder');
   if (folderBtn && installPath) {
     folderBtn.addEventListener('click', () => openPath(installPath));
   }
 
+  // Navigate to runner management page
   const runnersBtn = document.getElementById('dash-manage-runners');
   if (runnersBtn) {
     runnersBtn.addEventListener('click', () => router.navigate('runners'));
   }
 
+  // Perform localization update directly from the dashboard
   const updateBtn = document.getElementById('dash-loc-update');
   if (updateBtn && dashLocStatus && dashScVersion) {
     updateBtn.addEventListener('click', async () => {
       updateBtn.disabled = true;
       updateBtn.textContent = 'Updating...';
       try {
+        // Fetch available languages and find the matching source
         const languages = await invoke('get_available_languages');
         const source = languages.find(l => l.language_code === dashLocStatus.language_code);
         if (source) {
@@ -340,6 +396,7 @@ function bindStatusCardEvents({ installed, installPath }) {
             languageName: source.language_name,
             sourceLabel: source.source_label,
           });
+          // Reset update status and reload status cards
           dashLocUpdate = null;
           await loadLocalStatus();
         }
@@ -353,6 +410,10 @@ function bindStatusCardEvents({ installed, installPath }) {
 
 // ── RSI News ──────────────────────────────────────
 
+/**
+ * Loads the RSI news from the backend and renders them into the news panel.
+ * On error, a retry button is displayed.
+ */
 async function loadNews() {
   const el = document.getElementById('dash-news-content');
   if (!el) return;
@@ -369,6 +430,12 @@ async function loadNews() {
   }
 }
 
+/**
+ * Renders the news list and binds click events
+ * that open the respective article in the browser.
+ * @param {HTMLElement} el - Container element for the news
+ * @param {Array} items - Array of news entries from the backend
+ */
 function renderNewsItems(el, items) {
   if (items.length === 0) {
     el.innerHTML = '<div class="dash-error"><span class="dash-error-msg">No news available</span></div>';
@@ -402,6 +469,10 @@ function renderNewsItems(el, items) {
 
 // ── Server Status ──────────────────────────────────
 
+/**
+ * Loads the server status (SC instances, platform) from the backend
+ * and displays the components with their respective status.
+ */
 async function loadServerStatus() {
   const el = document.getElementById('dash-server-content');
   if (!el) return;
@@ -418,12 +489,19 @@ async function loadServerStatus() {
   }
 }
 
+/**
+ * Renders the server components with colored status dots.
+ * Each component shows its name and current state.
+ * @param {HTMLElement} el - Container element
+ * @param {Array} components - Server components from the backend
+ */
 function renderServerComponents(el, components) {
   if (components.length === 0) {
     el.innerHTML = '<div class="dash-error"><span class="dash-error-msg">No status data</span></div>';
     return;
   }
 
+  // Mapping of backend status keys to readable labels
   const statusLabels = {
     operational: 'Operational',
     degraded: 'Degraded',
@@ -447,8 +525,13 @@ function renderServerComponents(el, components) {
   el.innerHTML = html;
 }
 
-// ── Community Stats ──────────────────────────────────
+// ── Community Statistics ──────────────────────────────────
 
+/**
+ * Loads the current community statistics (funding, player count, vehicles).
+ * After the initial render, statistics history is loaded asynchronously
+ * to display sparkline charts with trends.
+ */
 async function loadCommunityStats() {
   const el = document.getElementById('dash-stats-content');
   if (!el) return;
@@ -459,12 +542,33 @@ async function loadCommunityStats() {
       el.innerHTML = renderError('Could not load community stats', () => loadCommunityStats());
       return;
     }
+    statsCurrent = result.stats;
     renderStats(el, result.stats);
+
+    // Load history asynchronously — don't block initial render
+    loadStatsHistory();
   } catch {
     el.innerHTML = renderError('Could not load community stats', () => loadCommunityStats());
   }
 }
 
+/**
+ * Loads the historical community data (up to 30 days) for the sparkline charts.
+ * Errors are silently ignored — in that case, stats are displayed without charts.
+ */
+async function loadStatsHistory() {
+  try {
+    const result = await invoke('fetch_community_stats_history', { days: 30 });
+    if (!result.error && result.data_points.length > 0) {
+      statsHistoryData = result.data_points;
+      renderStatsWithSparklines();
+    }
+  } catch {
+    // Silent failure — stats remain without sparklines
+  }
+}
+
+/** Renders the community statistics without sparklines (initial simple view) */
 function renderStats(el, stats) {
   el.innerHTML = `
     <div class="dash-stats-grid">
@@ -477,15 +581,164 @@ function renderStats(el, stats) {
         <div class="dash-stat-label">Star Citizens</div>
       </div>
       <div class="dash-stat-item">
-        <div class="dash-stat-value">${escapeHtml(stats.fleet)}</div>
-        <div class="dash-stat-label">Ships in Fleet</div>
+        <div class="dash-stat-value">${escapeHtml(stats.vehicles)}</div>
+        <div class="dash-stat-label">Vehicles in Game</div>
       </div>
     </div>
   `;
 }
 
-// ── Helpers ──────────────────────────────────────────
+/**
+ * Renders the community statistics with sparkline charts and delta display.
+ * Trims the history data to the selected time period and calculates
+ * the percentage change for each metric.
+ */
+function renderStatsWithSparklines() {
+  const el = document.getElementById('dash-stats-content');
+  if (!el || !statsCurrent || !statsHistoryData) return;
 
+  // Use only the data points from the selected time period
+  const periodData = statsHistoryData.slice(-statsCurrentPeriod);
+  if (periodData.length < 2) return;
+
+  // Metrics for which historical data and sparklines are available
+  const historyMetrics = [
+    { key: 'funds', label: 'Total Funding', value: statsCurrent.funds },
+    { key: 'fans', label: 'Star Citizens', value: statsCurrent.fans },
+  ];
+
+  let html = renderPeriodToggle();
+  html += '<div class="dash-stats-grid">';
+
+  for (const m of historyMetrics) {
+    const values = periodData.map(d => d[m.key]);
+    const sparkSvg = generateSparklineSVG(values, m.key);
+    // Delta calculation: difference between first and last data point
+    const first = values[0];
+    const last = values[values.length - 1];
+    const delta = last - first;
+    const pct = first !== 0 ? (delta / first) * 100 : 0;
+    const deltaStr = formatDelta(delta, m.key);
+    const pctStr = `(${delta >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
+    // CSS class for color: positive=green, negative=red, neutral=gray
+    const cls = delta > 0 ? 'positive' : delta < 0 ? 'negative' : 'neutral';
+
+    html += `
+      <div class="dash-stat-item">
+        ${sparkSvg}
+        <div class="dash-stat-value">${escapeHtml(m.value)}</div>
+        <div class="dash-stat-label">${escapeHtml(m.label)}</div>
+        <div class="dash-stat-delta ${cls}">${deltaStr} ${pctStr}</div>
+      </div>`;
+  }
+
+  // Vehicles — no history available, static display
+  html += `
+    <div class="dash-stat-item">
+      <div class="dash-stat-value">${escapeHtml(statsCurrent.vehicles)}</div>
+      <div class="dash-stat-label">Vehicles in Game</div>
+    </div>`;
+
+  html += '</div>';
+  el.innerHTML = html;
+  bindPeriodToggle();
+}
+
+/** Renders the time period toggle buttons (7 days / 30 days) for the sparklines */
+function renderPeriodToggle() {
+  return `<div class="dash-stats-period">
+    <button class="dash-stats-period-btn${statsCurrentPeriod === 7 ? ' active' : ''}" data-days="7">7d</button>
+    <button class="dash-stats-period-btn${statsCurrentPeriod === 30 ? ' active' : ''}" data-days="30">30d</button>
+  </div>`;
+}
+
+/** Binds click events to the time period buttons to switch between 7d and 30d */
+function bindPeriodToggle() {
+  document.querySelectorAll('.dash-stats-period-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      statsCurrentPeriod = parseInt(btn.dataset.days, 10);
+      renderStatsWithSparklines();
+    });
+  });
+}
+
+/**
+ * Generates an SVG sparkline chart for a series of values.
+ * The chart consists of a line and a semi-transparent fill area underneath.
+ * @param {number[]} values - Array of data values
+ * @param {string} metricId - Unique ID for the SVG gradient (e.g., "funds")
+ * @returns {string} SVG HTML string
+ */
+function generateSparklineSVG(values, metricId) {
+  const w = 200, h = 60;
+  const pad = h * 0.1; // Vertical padding top/bottom
+  let min = Math.min(...values);
+  let max = Math.max(...values);
+
+  // For constant values, create artificial distance to prevent division by zero
+  if (min === max) {
+    min -= 1;
+    max += 1;
+  }
+
+  // Distribute X coordinates evenly across width, normalize Y to value range
+  const xStep = w / (values.length - 1);
+  const points = values.map((v, i) => {
+    const x = i * xStep;
+    const y = h - pad - ((v - min) / (max - min)) * (h - 2 * pad);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+
+  const gradId = `sparkGrad-${metricId}`;
+  const polylineStr = points.join(' ');
+  // Polygon for the fill area: line points + bottom-right corner + bottom-left corner
+  const polygonStr = `${polylineStr} ${w},${h} 0,${h}`;
+
+  return `<svg class="dash-sparkline" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    <defs>
+      <linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.4"/>
+        <stop offset="100%" stop-color="var(--accent)" stop-opacity="0.05"/>
+      </linearGradient>
+    </defs>
+    <polygon points="${polygonStr}" fill="url(#${gradId})"/>
+    <polyline points="${polylineStr}" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+  </svg>`;
+}
+
+/**
+ * Formats a delta value for display with sign and appropriate unit.
+ * - Funding: short format with $, K, M (e.g., "+$1.5M")
+ * - Fans/Fleet: with thousands separators (e.g., "+12,345")
+ * @param {number} delta - The difference between start and end value
+ * @param {string} key - Metric key ("funds", "fans", etc.)
+ * @returns {string} Formatted delta string
+ */
+function formatDelta(delta, key) {
+  const sign = delta >= 0 ? '+' : '';
+  const abs = Math.abs(delta);
+
+  if (key === 'funds') {
+    if (abs >= 1_000_000) return `${sign}$${(delta / 1_000_000).toFixed(1)}M`;
+    if (abs >= 1_000) return `${sign}$${(delta / 1_000).toFixed(1)}K`;
+    return `${sign}$${delta.toFixed(0)}`;
+  }
+
+  // Fans/Fleet — format with thousands separators
+  const formatted = Math.round(abs).toLocaleString('en-US');
+  return `${sign}${delta < 0 ? '-' : ''}${formatted}`;
+}
+
+// ── Helper Functions ──────────────────────────────────────────
+
+/**
+ * Renders an error message with a retry button.
+ * The retry button is bound asynchronously via setTimeout,
+ * because innerHTML only creates the element after assignment.
+ * @param {string} message - Error message
+ * @param {Function} retryFn - Function called when retry is clicked
+ * @returns {string} HTML string of the error display
+ */
 function renderError(message, retryFn) {
   const id = 'retry-' + Math.random().toString(36).slice(2, 8);
   setTimeout(() => {
@@ -500,6 +753,7 @@ function renderError(message, retryFn) {
 }
 
 
+/** Escapes a string for safe use in HTML attributes (prevents XSS) */
 function escapeAttr(str) {
   if (!str) return '';
   return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

@@ -30,7 +30,7 @@ flate2 = "1"
 xz2 = "0.1"
 zstd = "0.13"
 futures-util = "0.3"
-tokio = { version = "1", features = ["fs", "sync"] }
+tokio = { version = "1", features = ["fs", "sync", "macros"] }
 quick-xml = "0.37"
 chrono = { version = "0.4", features = ["serde"] }
 zip = { version = "0.6", default-features = false, features = [] }
@@ -42,6 +42,7 @@ gilrs = "0.10"
 rdev = "0.5"
 uuid = { version = "1", features = ["v4"] }
 sha2 = "0.10"
+similar = "2"
 
 [features]
 devtools = ["tauri/devtools"]

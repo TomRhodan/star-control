@@ -1,19 +1,20 @@
-//! Wine prefix utility tools module.
+//! Module for Wine prefix tools.
 //!
-//! This module provides various Wine prefix management tools:
-//! - winecfg: Wine configuration dialog
-//! - Wine shell: Terminal with Wine environment
-//! - DPI settings: Get and set DPI in Wine prefix
-//! - PowerShell: Install PowerShell via winetricks
+//! This module provides various tools for managing Wine prefixes:
+//! - winecfg: Open the Wine configuration dialog
+//! - Wine shell: Launch a terminal with a preconfigured Wine environment
+//! - DPI settings: Read and set the DPI value in the Wine prefix
+//! - PowerShell: Install PowerShell via winetricks in the prefix
 //!
-//! These tools help configure the Wine prefix for optimal Star Citizen performance.
+//! These tools help with configuring the Wine prefix
+//! for optimal Star Citizen performance.
 
 use std::io::{ BufRead, BufReader };
 use std::path::Path;
 use std::process::{ Command, Stdio };
 use tauri::{ AppHandle, Emitter };
 
-/// Expands tilde (~) in a path to the user's home directory.
+/// Replaces the tilde (~) at the beginning of a path with the home directory.
 fn expand_tilde(path: &str) -> String {
     if path.starts_with('~') {
         if let Ok(home) = std::env::var("HOME") {
@@ -23,8 +24,10 @@ fn expand_tilde(path: &str) -> String {
     path.to_string()
 }
 
-/// Gets the paths for Wine binary, runner bin directory, and prefix.
-/// Returns (prefix_path, wine_binary, runner_bin_dir).
+/// Determines the paths for the Wine binary, runner bin directory, and prefix.
+///
+/// Returns a tuple: (prefix path, Wine binary path, runner bin directory).
+/// Fails if the Wine binary is not found in the specified runner.
 fn get_wine_paths(
     base_path: &str,
     runner_name: &str
@@ -41,6 +44,11 @@ fn get_wine_paths(
     Ok((prefix.to_path_buf(), wine, runner_bin))
 }
 
+/// Launches the Wine configuration dialog (winecfg).
+///
+/// Opens the graphical Wine configuration tool in the context of the specified prefix.
+/// The environment variables suppress the Wine menu builder and debugger,
+/// which are not needed for Star Citizen and can cause error messages.
 #[tauri::command]
 pub async fn run_winecfg(base_path: String, runner_name: String) -> Result<(), String> {
     let (prefix, wine, _) = get_wine_paths(&base_path, &runner_name)?;
@@ -48,7 +56,9 @@ pub async fn run_winecfg(base_path: String, runner_name: String) -> Result<(), S
     Command::new(wine.to_string_lossy().as_ref())
         .arg("winecfg")
         .env("WINEPREFIX", prefix.to_string_lossy().as_ref())
+        // Disable winemenubuilder and winedbg to avoid unwanted side effects
         .env("WINEDLLOVERRIDES", "winemenubuilder.exe=d;winedbg.exe=d")
+        // Suppress all debug output for clean execution
         .env("WINEDEBUG", "-all")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -58,6 +68,14 @@ pub async fn run_winecfg(base_path: String, runner_name: String) -> Result<(), S
     Ok(())
 }
 
+/// Opens a terminal with a preconfigured Wine environment.
+///
+/// Automatically searches for an available terminal emulator on the system
+/// (Konsole, GNOME Terminal, XFCE4 Terminal, or xterm) and launches
+/// a Wine command line (wine cmd) inside it.
+///
+/// The Wine environment variables (WINEPREFIX, PATH) are set safely via .env()
+/// instead of shell interpolation to avoid injection risks.
 #[tauri::command]
 pub async fn launch_wine_shell(base_path: String, runner_name: String) -> Result<(), String> {
     let (prefix, _wine, wine_bin_dir) = get_wine_paths(&base_path, &runner_name)?;
@@ -65,7 +83,7 @@ pub async fn launch_wine_shell(base_path: String, runner_name: String) -> Result
     let prefix_str = prefix.to_string_lossy().to_string();
     let wine_bin_str = wine_bin_dir.to_string_lossy().to_string();
 
-    // Try to find a terminal emulator
+    // Search for an available terminal emulator -- supports the most common Linux terminals
     let terminal = if
         Command::new("which")
             .arg("konsole")
@@ -104,9 +122,9 @@ pub async fn launch_wine_shell(base_path: String, runner_name: String) -> Result
         );
     };
 
-    // Build a helper script that sets up the Wine environment.
-    // Using a script file instead of shell string interpolation avoids
-    // command injection risks from paths with special characters.
+    // Create a helper script that sets up the Wine environment.
+    // A script is used instead of direct shell interpolation
+    // to avoid command injection risks with paths containing special characters.
     let script_dir = std::path::Path::new(&prefix_str).join(".tmp");
     std::fs::create_dir_all(&script_dir).map_err(|e| format!("Failed to create tmp dir: {}", e))?;
     let script_path = script_dir.join("wine_shell.sh");
@@ -114,6 +132,8 @@ pub async fn launch_wine_shell(base_path: String, runner_name: String) -> Result
     std::fs
         ::write(&script_path, script_content)
         .map_err(|e| format!("Failed to write shell script: {}", e))?;
+
+    // Make script executable (Unix systems only)
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -124,7 +144,8 @@ pub async fn launch_wine_shell(base_path: String, runner_name: String) -> Result
 
     let script_path_str = script_path.to_string_lossy().to_string();
 
-    // Build the terminal command with env vars passed safely via .env()
+    // Helper function to launch a terminal command with the required environment variables.
+    // The Wine bin path is prepended to PATH so the script can find "wine" directly.
     let build_cmd = |name: &str, args: &[&str]| -> Result<(), String> {
         Command::new(name)
             .args(args)
@@ -136,7 +157,7 @@ pub async fn launch_wine_shell(base_path: String, runner_name: String) -> Result
         Ok(())
     };
 
-    // Launch terminal with wineconsole
+    // Launch the terminal with the Wine shell script -- each terminal has different arguments
     match terminal {
         "konsole" => build_cmd("konsole", &["--hold", "-e", "bash", &script_path_str])?,
         "gnome-terminal" => build_cmd("gnome-terminal", &["--", "bash", &script_path_str])?,
@@ -151,12 +172,19 @@ pub async fn launch_wine_shell(base_path: String, runner_name: String) -> Result
     Ok(())
 }
 
+/// Reads the current DPI value from the Windows registry of the Wine prefix.
+///
+/// The DPI value is read from the registry key `HKCU\Control Panel\Desktop\LogPixels`.
+/// This value affects the UI scaling of Windows applications running through Wine.
+///
+/// Returns 96 as the default value if the value cannot be read.
 #[tauri::command]
 pub async fn get_dpi(base_path: String, runner_name: String) -> Result<u32, String> {
     let (prefix, wine, _) = get_wine_paths(&base_path, &runner_name)?;
 
     tokio::task
         ::spawn_blocking(move || {
+            // Query the Wine registry via "wine reg query"
             let output = Command::new(wine.to_string_lossy().as_ref())
                 .args(["reg", "query", "HKCU\\Control Panel\\Desktop", "/v", "LogPixels"])
                 .env("WINEPREFIX", prefix.to_string_lossy().as_ref())
@@ -168,16 +196,17 @@ pub async fn get_dpi(base_path: String, runner_name: String) -> Result<u32, Stri
             let stdout = String::from_utf8_lossy(&output.stdout);
 
             // Parse output: "    LogPixels    REG_DWORD    0x60"
+            // The hex value at the end of the line is the DPI value
             for line in stdout.lines() {
                 if line.contains("LogPixels") {
-                    // Find the hex value at the end
                     if let Some(hex_val) = line.split_whitespace().last() {
+                        // Try hex format first (0x...)
                         if let Some(stripped) = hex_val.strip_prefix("0x") {
                             if let Ok(val) = u32::from_str_radix(stripped, 16) {
                                 return Ok(val);
                             }
                         }
-                        // Try decimal
+                        // Alternatively try decimal format
                         if let Ok(val) = hex_val.parse::<u32>() {
                             return Ok(val);
                         }
@@ -185,14 +214,20 @@ pub async fn get_dpi(base_path: String, runner_name: String) -> Result<u32, Stri
                 }
             }
 
-            // Default DPI
+            // Return default DPI if nothing was found
             Ok(96)
         }).await
         .map_err(|e| format!("Task failed: {}", e))?
 }
 
+/// Sets the DPI value in the Windows registry of the Wine prefix.
+///
+/// Allows values between 96 (100% scaling) and 480 (500% scaling).
+/// The value is written to the registry via "wine reg add".
+/// A higher DPI value makes the UI elements in Star Citizen larger.
 #[tauri::command]
 pub async fn set_dpi(base_path: String, runner_name: String, dpi: u32) -> Result<(), String> {
+    // Input validation: only allow sensible DPI values
     if !(96..=480).contains(&dpi) {
         return Err(format!("DPI must be between 96 and 480, got {}", dpi));
     }
@@ -201,6 +236,8 @@ pub async fn set_dpi(base_path: String, runner_name: String, dpi: u32) -> Result
 
     tokio::task
         ::spawn_blocking(move || {
+            // Write DPI value to the registry via "wine reg add"
+            // /f forces overwriting without confirmation dialog
             let output = Command::new(wine.to_string_lossy().as_ref())
                 .args([
                     "reg",
@@ -230,6 +267,19 @@ pub async fn set_dpi(base_path: String, runner_name: String, dpi: u32) -> Result
         .map_err(|e| format!("Task failed: {}", e))?
 }
 
+/// Installs PowerShell in the Wine prefix via winetricks.
+///
+/// PowerShell is needed by some Star Citizen tools. The installation runs
+/// via winetricks, which is automatically downloaded from GitHub.
+///
+/// Workflow:
+/// 1. Download winetricks script from GitHub
+/// 2. Make script executable
+/// 3. Kill running wineserver instances (prevents conflicts)
+/// 4. Execute `winetricks -q powershell`
+/// 5. Stream stdout/stderr live to the frontend (via Tauri events)
+/// 6. Create marker file for later detection
+/// 7. Clean up temporary files
 #[tauri::command]
 pub async fn install_powershell(
     app: AppHandle,
@@ -238,13 +288,14 @@ pub async fn install_powershell(
 ) -> Result<(), String> {
     let (prefix, wine, wineserver) = get_wine_paths(&base_path, &runner_name)?;
 
+    // Closure for sending log lines to the frontend
     let emit_log = |line: &str| {
         let _ = app.emit("prefix-tool-log", line.to_string());
     };
 
     emit_log("Downloading winetricks...");
 
-    // Download winetricks
+    // Download winetricks from GitHub
     let tmp_dir = prefix.join(".tmp");
     std::fs::create_dir_all(&tmp_dir).map_err(|e| format!("Failed to create tmp dir: {}", e))?;
 
@@ -267,6 +318,7 @@ pub async fn install_powershell(
         ::write(&winetricks_path, &wt_bytes)
         .map_err(|e| format!("Failed to write winetricks: {}", e))?;
 
+    // Make winetricks script executable (Unix only)
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -277,16 +329,17 @@ pub async fn install_powershell(
 
     emit_log("Installing PowerShell via winetricks (this may take several minutes)...");
 
-    // Create no_win64_warnings marker
+    // Create marker to suppress Wine 64-bit warnings
     let marker = prefix.join("no_win64_warnings");
     let _ = std::fs::write(&marker, "");
 
-    // Kill any lingering wineserver
+    // Kill any running wineserver to avoid conflicts
     let _ = Command::new(wineserver.to_string_lossy().as_ref())
         .arg("-k")
         .env("WINEPREFIX", prefix.to_string_lossy().as_ref())
         .output();
 
+    // Run winetricks with PowerShell package (-q = quiet mode)
     let mut child = Command::new(winetricks_path.to_string_lossy().as_ref())
         .args(["-q", "powershell"])
         .env("WINEPREFIX", prefix.to_string_lossy().as_ref())
@@ -299,7 +352,8 @@ pub async fn install_powershell(
         .spawn()
         .map_err(|e| format!("Failed to run winetricks: {}", e))?;
 
-    // Stream stderr on a separate thread
+    // Read stderr in a separate thread and send to the frontend
+    // to avoid deadlocks (stdout and stderr could fill up simultaneously)
     let stderr_handle = child.stderr.take().map(|stderr| {
         let app_clone = app.clone();
         std::thread::spawn(move || {
@@ -310,6 +364,7 @@ pub async fn install_powershell(
         })
     });
 
+    // Read stdout line by line and send to the frontend
     if let Some(stdout) = child.stdout.take() {
         let reader = BufReader::new(stdout);
         for line in reader.lines().map_while(Result::ok) {
@@ -317,13 +372,15 @@ pub async fn install_powershell(
         }
     }
 
+    // Wait until the stderr thread is finished
     if let Some(handle) = stderr_handle {
         let _ = handle.join();
     }
 
+    // Wait for the winetricks process to finish
     let status = child.wait().map_err(|e| format!("Failed to wait for winetricks: {}", e))?;
 
-    // Cleanup
+    // Clean up temporary files
     let _ = std::fs::remove_dir_all(&tmp_dir);
 
     if !status.success() {
@@ -331,7 +388,7 @@ pub async fn install_powershell(
         return Err(format!("winetricks powershell failed with exit code {:?}", status.code()));
     }
 
-    // Create PowerShell marker file for detection
+    // Create marker file so detect_powershell() can recognize the installation
     let ps_marker = prefix.join(".powershell_installed");
     let _ = std::fs::write(&ps_marker, "1");
 
@@ -339,6 +396,11 @@ pub async fn install_powershell(
     Ok(())
 }
 
+/// Detects whether PowerShell is installed in the Wine prefix.
+///
+/// First checks the marker file `.powershell_installed` (created during installation),
+/// and as a fallback checks the actual installation paths of PowerShell
+/// (Windows PowerShell 5.x and PowerShell 7.x).
 #[tauri::command]
 pub async fn detect_powershell(base_path: String) -> Result<bool, String> {
     let result = tokio::task
@@ -346,13 +408,14 @@ pub async fn detect_powershell(base_path: String) -> Result<bool, String> {
             let expanded = expand_tilde(&base_path);
             let prefix = Path::new(&expanded);
 
-            // Check for marker file first (created after installation)
+            // Check marker file first (faster than filesystem search)
             let marker = prefix.join(".powershell_installed");
             if marker.exists() {
                 return Ok::<bool, String>(true);
             }
 
-            // Also check for actual PowerShell installation paths
+            // Fallback: Check actual PowerShell installation paths
+            // Path 1: Windows PowerShell 5.x (installed via winetricks)
             let ps_path1 = prefix
                 .join("drive_c")
                 .join("windows")
@@ -361,6 +424,7 @@ pub async fn detect_powershell(base_path: String) -> Result<bool, String> {
                 .join("v1.0")
                 .join("powershell.exe");
 
+            // Path 2: PowerShell 7.x (standalone installation)
             let ps_path2 = prefix
                 .join("drive_c")
                 .join("Program Files")

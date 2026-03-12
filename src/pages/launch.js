@@ -1,13 +1,14 @@
 /**
  * Star Control - Launch Page
  *
- * This module handles launching Star Citizen with configurable options:
- * - Launch/stop the RSI Launcher
- * - Configure performance options (ESync, FSync, DXVK Async)
- * - Configure display options (Wayland, HDR, FSR)
- * - Configure overlays (MangoHUD, DXVK HUD)
- * - Monitor selection for Wayland
- * - Real-time log output
+ * This module manages the launching of Star Citizen with configurable options:
+ * - Start/stop of the RSI Launcher via Wine/Proton
+ * - Performance options (ESync, FSync, DXVK Async)
+ * - Display options (Wayland, HDR, FSR)
+ * - Overlay options (MangoHUD, DXVK HUD)
+ * - Monitor selection for Wayland mode
+ * - Custom environment variables
+ * - Real-time log output of the launch process
  *
  * @module pages/launch
  */
@@ -16,16 +17,33 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { escapeHtml } from '../utils.js';
 
-/** @constant {string} Launch status states */
-let launchStatus = 'idle'; // 'idle' | 'checking' | 'ready' | 'launching' | 'running' | 'error' | 'not_installed'
+// ── Module-wide State ──────────────────────────────
+
+/**
+ * Current launch status of the launch page.
+ * Possible values: 'idle' | 'checking' | 'ready' | 'launching' | 'running' | 'error' | 'not_installed'
+ */
+let launchStatus = 'idle';
+/** @type {Object|null} Loaded app configuration (install path, runner, performance options) */
 let launchConfig = null;
+/** @type {string[]} Log lines collected during launch */
 let launchLog = [];
+/** @type {Object|null} Installation check result */
 let installStatus = null;
+/** @type {Array} Detected monitors for the Wayland monitor selection */
 let detectedMonitors = [];
+/** @type {Function|null} Unlisten function for log events from the backend */
 let unlistenLaunchLog = null;
+/** @type {Function|null} Unlisten function for the "game started" event */
 let unlistenLaunchStarted = null;
+/** @type {Function|null} Unlisten function for the "game exited" event */
 let unlistenLaunchExited = null;
 
+/**
+ * Definition of available launch options, grouped by category.
+ * Each option has an internal key, a label, and a tooltip.
+ * The keys correspond to the fields in launchConfig.performance.
+ */
 const LAUNCH_OPTIONS = [
   {
     group: 'Performance', options: [
@@ -48,34 +66,71 @@ const LAUNCH_OPTIONS = [
   },
 ];
 
-// --- Auto-Launch Flag ---
+/**
+ * Built-in environment variables set by the Rust backend (configure_wine_env()).
+ * Used for conflict detection: if a user defines a custom variable with the same
+ * name, a warning indicator is displayed.
+ */
+const BUILTIN_ENV_VARS = new Set([
+  'WINEESYNC', 'WINEFSYNC', 'DXVK_ASYNC',
+  'PROTON_ENABLE_HDR', 'DXVK_HDR', 'PROTON_FSR4_UPGRADE',
+  'MANGOHUD', 'DXVK_HUD',
+  'PROTON_ENABLE_WAYLAND', 'WAYLANDDRV_PRIMARY_MONITOR',
+  'WINEPREFIX', 'WINEDLLOVERRIDES', 'WINEDEBUG', 'DISPLAY',
+  '__GL_SHADER_DISK_CACHE', '__GL_SHADER_DISK_CACHE_SIZE',
+  '__GL_SHADER_DISK_CACHE_PATH', '__GL_SHADER_DISK_CACHE_SKIP_CLEANUP',
+  'MESA_SHADER_CACHE_DIR', 'MESA_SHADER_CACHE_MAX_SIZE',
+]);
 
+// --- Auto-Launch-Flag ---
+
+/**
+ * When true, the game is automatically launched once the page is ready.
+ * Set by the dashboard when the user clicks "Launch".
+ */
 let pendingAutoLaunch = false;
 
+/**
+ * Sets the auto-launch flag so that on the next render of the launch page,
+ * the game is automatically started (e.g., from dashboard quick-launch).
+ */
 export function requestAutoLaunch() {
   pendingAutoLaunch = true;
 }
 
 // --- Main Render ---
 
+/**
+ * Entry point: Renders the launch page and starts the installation check.
+ * Optionally carries over log lines from a previous installation process.
+ * @param {HTMLElement} container - DOM container for the page
+ */
 export function renderLaunch(container) {
   launchStatus = 'checking';
-  // Load logs from installation process if available
+  // Carry over logs from the installation process, if available
   launchLog = window._starControlLaunchLogs ? [...window._starControlLaunchLogs] : [];
-  // Clear the stored logs after loading
+  // Clear stored logs after loading
   window._starControlLaunchLogs = [];
   renderPage(container);
   loadAndCheck(container);
 }
 
+/**
+ * Loads the configuration, checks the installation status, and determines the launch status.
+ * Detects available monitors for the Wayland selection in parallel.
+ * If auto-launch was requested and everything is ready, the launch is triggered.
+ * @param {HTMLElement} container - DOM container for re-rendering
+ */
 async function loadAndCheck(container) {
-  // Detect monitors in parallel
+  // Detect monitors in parallel (does not block the main flow)
   invoke('detect_monitors').then(monitors => {
     detectedMonitors = monitors || [];
     updateMonitorSelect();
-    // Auto-disable Wayland if fractional scaling is active
-    if (hasFractionalScaling() && launchConfig?.performance?.wayland) {
-      launchConfig.performance.wayland = false;
+    // Automatically disable Wayland when fractional scaling is detected
+    if (hasFractionalScaling()) {
+      if (launchConfig?.performance?.wayland) {
+        launchConfig.performance.wayland = false;
+      }
       renderPage(container);
     }
   }).catch(() => { detectedMonitors = []; });
@@ -94,7 +149,7 @@ async function loadAndCheck(container) {
     installStatus = status;
 
     if (status.installed) {
-      // Check if the game process is already running (e.g. started by installer)
+      // Check if the game process is already running (e.g., started by the installer)
       const running = await invoke('is_game_running');
       if (running) {
         launchStatus = 'running';
@@ -112,7 +167,7 @@ async function loadAndCheck(container) {
 
   renderPage(container);
 
-  // Auto-launch if requested (e.g. from Dashboard Quick Launch)
+  // Execute auto-launch if requested from the dashboard
   if (pendingAutoLaunch && launchStatus === 'ready') {
     pendingAutoLaunch = false;
     onLaunch(container);
@@ -121,6 +176,10 @@ async function loadAndCheck(container) {
   }
 }
 
+/**
+ * Registers event listeners for the case when the game is already running.
+ * Listens for "launch-exited" (game ended) and "launch-log" (log lines).
+ */
 function listenForExit(container) {
   cleanup();
   listen('launch-exited', () => {
@@ -135,6 +194,11 @@ function listenForExit(container) {
   }).then(fn => { unlistenLaunchLog = fn; }).catch(() => { });
 }
 
+/**
+ * Re-renders the entire launch page:
+ * Launch button, status display, info card, options grid, and log output.
+ * Then binds all event listeners and scrolls the log to the bottom.
+ */
 function renderPage(container) {
   container.innerHTML = `
     <div class="page-header">
@@ -168,8 +232,13 @@ function renderPage(container) {
   scrollLog();
 }
 
-// --- Launch Button ---
+// --- Launch-Button ---
 
+/**
+ * Renders the launch/stop button depending on the current status.
+ * In running state, a stop button is shown;
+ * during launch, a spinner; otherwise a play icon.
+ */
 function renderLaunchButton() {
   const spinning = launchStatus === 'launching';
   const running = launchStatus === 'running';
@@ -201,8 +270,12 @@ function renderLaunchButton() {
   `;
 }
 
-// --- Status ---
+// --- Status Display ---
 
+/**
+ * Renders the context-dependent status message below the launch button.
+ * Shows depending on state: installation hint, error message, running hint, or nothing.
+ */
 function renderLaunchStatus() {
   if (launchStatus === 'not_installed') {
     const msg = installStatus?.message || 'Star Citizen is not installed';
@@ -235,8 +308,12 @@ function renderLaunchStatus() {
   return '';
 }
 
-// --- Info ---
+// --- Info Card ---
 
+/**
+ * Renders the info card with active configuration (runner name, prefix path).
+ * Only displayed when SC is installed and configured.
+ */
 function renderLaunchInfo() {
   if (!launchConfig || !installStatus?.installed) return '';
 
@@ -267,7 +344,13 @@ function renderLaunchInfo() {
 
 // --- Options Grid ---
 
+/**
+ * Renders the complete options grid with performance, display, overlay toggles,
+ * Wayland settings, and custom environment variables.
+ * All options are disabled when the game is currently running or launching.
+ */
 function renderOptionsGrid() {
+  // Disable all options when not in "ready" state
   const disabled = launchStatus === 'launching' || launchStatus === 'running' || launchStatus === 'not_installed' || launchStatus === 'checking';
   const perf = launchConfig?.performance || {};
   const fractional = hasFractionalScaling();
@@ -311,11 +394,60 @@ function renderOptionsGrid() {
         </label>
         ${renderMonitorSelect(disabled, perf)}
       </div>
+      ${fractional ? '<div class="launch-scaling-warning">Fractional scaling active — Wayland mode disabled</div>' : ''}
     </div>
-    ${fractional ? '<div class="launch-scaling-warning">Fractional scaling active — Wayland mode disabled</div>' : ''}
+    ${renderCustomEnvVars(disabled)}
   `;
 }
 
+/**
+ * Renders the list of custom environment variables.
+ * Each variable has an on/off toggle, KEY=value input fields,
+ * a delete button, and optionally a conflict warning indicator.
+ * @param {boolean} disabled - Whether the inputs should be disabled
+ */
+function renderCustomEnvVars(disabled) {
+  const vars = launchConfig?.performance?.custom_env_vars || [];
+  const rows = vars.map((v, i) => {
+    // Check if the variable name overrides a built-in variable
+    const isConflict = v.key && BUILTIN_ENV_VARS.has(v.key);
+    const disabledClass = !v.enabled ? ' env-var-disabled' : '';
+    return `
+      <div class="env-var-row${disabledClass}" data-env-index="${i}">
+        <input type="checkbox" class="env-var-toggle" data-env-index="${i}"
+          ${v.enabled ? 'checked' : ''} ${disabled ? 'disabled' : ''} />
+        <input type="text" class="input env-var-key" data-env-index="${i}"
+          value="${escapeHtml(v.key)}" placeholder="KEY" ${disabled ? 'disabled' : ''} />
+        <span class="env-var-equals">=</span>
+        <input type="text" class="input env-var-value" data-env-index="${i}"
+          value="${escapeHtml(v.value)}" placeholder="value" ${disabled ? 'disabled' : ''} />
+        ${isConflict ? '<span class="env-var-conflict" data-tooltip="This variable overrides a built-in setting">⚠ override</span>' : ''}
+        <button class="btn-env-delete" data-env-index="${i}" ${disabled ? 'disabled' : ''} title="Remove variable">✕</button>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="launch-custom-env-area">
+      <div class="launch-custom-env-header">
+        <h4>Custom Environment Variables</h4>
+        <p class="custom-env-hint">Add custom environment variables for Wine/Proton launches. These override built-in variables with the same name.</p>
+      </div>
+      <div class="launch-custom-env-content">
+        ${rows}
+        <button class="btn btn-sm btn-add-env" id="btn-add-env" ${disabled ? 'disabled' : ''}>+ Add Variable</button>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Renders the Wayland monitor selection.
+ * If monitors were detected, a dropdown is shown;
+ * otherwise a free-text input field (e.g., "DP-1").
+ * @param {boolean} disabled - Whether the input should be disabled
+ * @param {Object} perf - Performance configuration with primary_monitor
+ */
 function renderMonitorSelect(disabled, perf) {
   const hasMonitor = !!perf.primary_monitor;
 
@@ -344,6 +476,10 @@ function renderMonitorSelect(disabled, perf) {
   `;
 }
 
+/**
+ * Updates the monitor dropdown after asynchronous monitor detection.
+ * Replaces the wrap content with the detected monitors.
+ */
 function updateMonitorSelect() {
   const wrap = document.getElementById('launch-monitor-wrap');
   if (!wrap || detectedMonitors.length === 0) return;
@@ -362,6 +498,7 @@ function updateMonitorSelect() {
   bindMonitorSelectListener();
 }
 
+/** Binds change events to the monitor dropdown or input field */
 function bindMonitorSelectListener() {
   const select = document.getElementById('launch-monitor-select');
   if (select) {
@@ -377,8 +514,17 @@ function bindMonitorSelectListener() {
   }
 }
 
-// --- Events ---
+// --- Event-Handler ---
 
+/**
+ * Binds all event listeners for the launch page:
+ * - Launch/stop buttons
+ * - "Go to installation" button when SC is missing
+ * - Retry button on errors
+ * - Toggle checkboxes for launch options (performance, display, overlays)
+ * - Monitor selection for Wayland
+ * - Custom environment variables
+ */
 function bindEvents(container) {
   const launchBtn = document.getElementById('btn-launch');
   if (launchBtn) {
@@ -407,7 +553,7 @@ function bindEvents(container) {
     });
   }
 
-  // Toggle listeners
+  // Toggle listener: Updates the performance options in the configuration
   container.querySelectorAll('.launch-options-grid input[type="checkbox"]').forEach(cb => {
     if (!cb.dataset.key) return;
     cb.addEventListener('change', () => {
@@ -417,7 +563,7 @@ function bindEvents(container) {
     });
   });
 
-  // Monitor enabled checkbox
+  // Monitor enable checkbox: Toggles the monitor selector on/off
   const monitorCb = document.getElementById('launch-monitor-enabled');
   if (monitorCb) {
     monitorCb.addEventListener('change', () => {
@@ -440,8 +586,112 @@ function bindEvents(container) {
   }
 
   bindMonitorSelectListener();
+  bindEnvVarEvents(container);
 }
 
+/**
+ * Binds event listeners for the custom environment variables:
+ * - Toggle: Enables/disables a variable
+ * - Key input: Only [A-Z0-9_] allowed, auto-uppercase, conflict detection
+ * - Value input: Free text input
+ * - Delete: Removes the variable from the list
+ * - Add: Adds a new empty variable
+ */
+function bindEnvVarEvents(container) {
+  // Toggle: Enable/disable variable
+  container.querySelectorAll('.env-var-toggle').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const i = parseInt(cb.dataset.envIndex, 10);
+      if (launchConfig?.performance?.custom_env_vars?.[i] != null) {
+        launchConfig.performance.custom_env_vars[i].enabled = cb.checked;
+        saveConfigNow();
+        renderPage(container);
+      }
+    });
+  });
+
+  // Key input: Only letters, numbers, and underscores allowed, auto-uppercase
+  container.querySelectorAll('.env-var-key').forEach(input => {
+    input.addEventListener('input', () => {
+      const i = parseInt(input.dataset.envIndex, 10);
+      const cleaned = input.value.replace(/[^A-Za-z0-9_]/g, '').toUpperCase();
+      if (input.value !== cleaned) {
+        const pos = input.selectionStart - (input.value.length - cleaned.length);
+        input.value = cleaned;
+        input.setSelectionRange(pos, pos);
+      }
+      if (launchConfig?.performance?.custom_env_vars?.[i] != null) {
+        launchConfig.performance.custom_env_vars[i].key = cleaned;
+        debouncedSaveConfig();
+        // Update conflict badge inline without full re-rendering
+        const row = input.closest('.env-var-row');
+        if (row) {
+          const existing = row.querySelector('.env-var-conflict');
+          const isConflict = cleaned && BUILTIN_ENV_VARS.has(cleaned);
+          if (isConflict && !existing) {
+            const badge = document.createElement('span');
+            badge.className = 'env-var-conflict';
+            badge.setAttribute('data-tooltip', 'This variable overrides a built-in setting');
+            badge.textContent = '⚠ override';
+            const delBtn = row.querySelector('.btn-env-delete');
+            row.insertBefore(badge, delBtn);
+          } else if (!isConflict && existing) {
+            existing.remove();
+          }
+        }
+      }
+    });
+  });
+
+  // Value input: Free text input for the variable value
+  container.querySelectorAll('.env-var-value').forEach(input => {
+    input.addEventListener('input', () => {
+      const i = parseInt(input.dataset.envIndex, 10);
+      if (launchConfig?.performance?.custom_env_vars?.[i] != null) {
+        launchConfig.performance.custom_env_vars[i].value = input.value;
+        debouncedSaveConfig();
+      }
+    });
+  });
+
+  // Delete: Remove variable from the list and update UI
+  container.querySelectorAll('.btn-env-delete').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const i = parseInt(btn.dataset.envIndex, 10);
+      if (launchConfig?.performance?.custom_env_vars) {
+        launchConfig.performance.custom_env_vars.splice(i, 1);
+        saveConfigNow();
+        renderPage(container);
+      }
+    });
+  });
+
+  // Add: Create new empty variable and focus the key field
+  const addBtn = document.getElementById('btn-add-env');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => {
+      if (!launchConfig) return;
+      if (!launchConfig.performance.custom_env_vars) {
+        launchConfig.performance.custom_env_vars = [];
+      }
+      launchConfig.performance.custom_env_vars.push({ key: '', value: '', enabled: true });
+      saveConfigNow();
+      renderPage(container);
+      // Focus the new key input
+      const inputs = container.querySelectorAll('.env-var-key');
+      if (inputs.length > 0) inputs[inputs.length - 1].focus();
+    });
+  }
+}
+
+/**
+ * Starts the game process:
+ * 1. Save configuration (in case toggles were changed)
+ * 2. Check localization and automatically update if needed
+ * 3. Register event listeners for logs, start, and exit events
+ * 4. Trigger game launch via the Rust backend
+ * @param {HTMLElement} container - DOM container for re-rendering
+ */
 async function onLaunch(container) {
   if (launchStatus !== 'ready' || !launchConfig) return;
 
@@ -449,14 +699,17 @@ async function onLaunch(container) {
   launchLog = [];
   renderPage(container);
 
-  // Save config in case toggles changed
+  // Save configuration in case toggle values have changed
   try {
     await invoke('save_config', { config: launchConfig });
   } catch (e) {
-    // non-fatal
+    // Not critical — game can still start
   }
 
-  // Listen for log events
+  // Check localization before launch and automatically update if needed
+  await checkAndUpdateLocalization(container);
+
+  // Clean up old event listeners and register new ones
   cleanup();
 
   try {
@@ -495,6 +748,10 @@ async function onLaunch(container) {
   }
 }
 
+/**
+ * Stops the running game process via the Rust backend.
+ * Errors are written to the log.
+ */
 async function onStop(container) {
   if (launchStatus !== 'running') return;
 
@@ -506,6 +763,10 @@ async function onStop(container) {
   }
 }
 
+/**
+ * Appends a new line to the log output.
+ * Replaces the placeholder text "Waiting for launch..." on the first entry.
+ */
 function appendLogLine(text) {
   const logEl = document.getElementById('launch-log-output');
   if (!logEl) return;
@@ -521,6 +782,7 @@ function appendLogLine(text) {
   scrollLog();
 }
 
+/** Automatically scrolls the log output field to the end */
 function scrollLog() {
   const logEl = document.getElementById('launch-log-output');
   if (logEl) {
@@ -528,6 +790,7 @@ function scrollLog() {
   }
 }
 
+/** Cleans up all active event listeners (prevents memory leaks on re-renders) */
 function cleanup() {
   if (unlistenLaunchLog) { unlistenLaunchLog(); unlistenLaunchLog = null; }
   if (unlistenLaunchStarted) { unlistenLaunchStarted(); unlistenLaunchStarted = null; }
@@ -536,10 +799,161 @@ function cleanup() {
 
 // --- Fractional Scaling ---
 
+/**
+ * Checks if any detected monitor uses fractional scaling (e.g., 1.25x, 1.5x).
+ * Wayland mode is not compatible with fractional scaling and is automatically disabled.
+ * @returns {boolean} true if at least one monitor uses fractional scaling
+ */
 function hasFractionalScaling() {
   return detectedMonitors.some(m => m.scale != null && Math.abs(m.scale - 1.0) > 0.01);
 }
 
-// --- Helpers ---
+// --- Pre-launch Localization Check ---
+
+/**
+ * Shows an overlay with spinner and message while
+ * localization is checked/updated before game launch.
+ * @param {string} message - Message to display
+ * @returns {HTMLElement} The created overlay element
+ */
+function showPreLaunchOverlay(message) {
+  let overlay = document.getElementById('pre-launch-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'pre-launch-overlay';
+    overlay.className = 'pre-launch-overlay';
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = `
+    <div class="pre-launch-dialog">
+      <div class="pre-launch-spinner"></div>
+      <span class="pre-launch-message">${message}</span>
+    </div>
+  `;
+  return overlay;
+}
+
+/** Updates the message in the pre-launch overlay */
+function updatePreLaunchMessage(message) {
+  const el = document.querySelector('.pre-launch-message');
+  if (el) el.innerHTML = message;
+}
+
+/** Removes the pre-launch overlay from the DOM */
+function removePreLaunchOverlay() {
+  const overlay = document.getElementById('pre-launch-overlay');
+  if (overlay) overlay.remove();
+}
+
+/**
+ * Checks before game launch whether installed translations need updates,
+ * and performs them automatically. Shows an overlay with progress.
+ * Iterates through all detected SC versions and updates each that is outdated.
+ * @param {HTMLElement} container - DOM container (not currently used directly)
+ */
+async function checkAndUpdateLocalization(container) {
+  if (!launchConfig?.install_path) return;
+
+  let versions;
+  try {
+    versions = await invoke('detect_sc_versions', { gp: launchConfig.install_path });
+  } catch { return; }
+
+  if (!versions || versions.length === 0) return;
+
+  // Find versions with installed localizations
+  const installed = [];
+  for (const v of versions) {
+    try {
+      const status = await invoke('get_localization_status', {
+        gamePath: launchConfig.install_path,
+        version: v.version,
+      });
+      if (status?.installed) {
+        installed.push({ version: v.version, status });
+      }
+    } catch { /* skip */ }
+  }
+
+  if (installed.length === 0) return;
+
+  // Show overlay and wait for actual rendering (double rAF)
+  showPreLaunchOverlay('Checking for translation updates...');
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+  let updatedCount = 0;
+  for (const { version, status } of installed) {
+    const langName = status.language_name || status.language_code || 'Unknown';
+
+    let needsUpdate = false;
+    try {
+      const check = await invoke('check_localization_update', {
+        gamePath: launchConfig.install_path,
+        version,
+      });
+      needsUpdate = check?.update_available === true;
+    } catch { /* skip */ }
+
+    if (!needsUpdate) continue;
+
+    updatePreLaunchMessage(`Updating <strong>${escapeHtml(langName)}</strong> translation for <strong>${escapeHtml(version)}</strong>...`);
+
+    try {
+      const languages = await invoke('get_available_languages', { version });
+      const source = languages.find(
+        l => l.language_code === status.language_code && l.source_label === status.source_label
+      ) || languages.find(l => l.language_code === status.language_code);
+
+      if (source) {
+        await invoke('install_localization', {
+          gamePath: launchConfig.install_path,
+          version,
+          languageCode: source.language_code,
+          sourceRepo: source.source_repo,
+          languageName: source.language_name,
+          sourceLabel: source.source_label,
+        });
+        launchLog.push(`[Localization] Updated ${langName} for ${version}`);
+        updatedCount++;
+      }
+    } catch (e) {
+      launchLog.push(`[Localization] Update failed for ${version}: ${e}`);
+    }
+  }
+
+  // Show brief result message before closing the overlay
+  if (updatedCount > 0) {
+    updatePreLaunchMessage(`${updatedCount} translation${updatedCount > 1 ? 's' : ''} updated.`);
+    await new Promise(r => setTimeout(r, 1200));
+  } else {
+    updatePreLaunchMessage('Translations are up to date.');
+    await new Promise(r => setTimeout(r, 800));
+  }
+
+  removePreLaunchOverlay();
+}
+
+// --- Helper Functions ---
+
+/**
+ * Delayed saving of the configuration (400ms debounce).
+ * Used for keyboard input in environment variables
+ * to avoid writing to disk on every keystroke.
+ */
+let _saveConfigTimer = null;
+function debouncedSaveConfig() {
+  if (!launchConfig) return;
+  clearTimeout(_saveConfigTimer);
+  _saveConfigTimer = setTimeout(() => {
+    invoke('save_config', { config: launchConfig }).catch(() => {});
+  }, 400);
+}
+
+/** Immediate save (for add/delete, where the UI re-renders immediately) */
+function saveConfigNow() {
+  if (!launchConfig) return;
+  clearTimeout(_saveConfigTimer);
+  invoke('save_config', { config: launchConfig }).catch(() => {});
+}
 
 

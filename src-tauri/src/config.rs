@@ -1,35 +1,64 @@
-//! Configuration management module for Star Control.
+//! Configuration module for Star Control.
 //!
-//! This module handles all application configuration including:
+//! This module manages all application configuration:
 //! - Performance settings (esync, fsync, DXVK, etc.)
-//! - Runner sources (Wine/Proton repositories)
-//! - Installation settings
+//! - Runner sources (Wine/Proton repositories on GitHub)
+//! - Installation settings (path, mode)
 //! - Caching of runner and DXVK data
 //!
-//! Configuration is stored in `~/.config/star-control/config.json`
-//! Cache is stored in `~/.config/star-control/cache.json`
+//! Configuration is stored in `~/.config/star-control/config.json`.
+//! The cache is stored in `~/.config/star-control/cache.json`.
 
 use serde::{ Deserialize, Serialize };
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
-/// Performance-related settings for Wine/Star Citizen execution.
-/// These settings control various Wine features and overlays.
+/// A custom environment variable that is set when launching Star Citizen.
+///
+/// Allows the user to define custom KEY=VALUE pairs
+/// that are passed as environment variables to the Wine process.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct CustomEnvVar {
+    /// Name of the environment variable (e.g. "WINEDEBUG")
+    pub key: String,
+    /// Value of the environment variable (e.g. "-all")
+    pub value: String,
+    /// Whether this variable is active — disabled variables are ignored at launch
+    pub enabled: bool,
+}
+
+/// Performance settings for Wine/Star Citizen execution.
+///
+/// These settings control various Wine features, overlays, and
+/// graphics options. They are set as environment variables at game launch.
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct PerformanceSettings {
+    /// Eventfd-based synchronization — reduces overhead for multithreading
     pub esync: bool,
+    /// Futex-based synchronization (Linux 5.16+) — faster than esync
     pub fsync: bool,
+    /// Asynchronous shader compilation via DXVK — prevents shader stuttering
     pub dxvk_async: bool,
+    /// Show MangoHud overlay — displays FPS, GPU/CPU load, etc.
     pub mangohud: bool,
+    /// Show DXVK's own HUD — displays basic Vulkan/DXVK statistics
     pub dxvk_hud: bool,
+    /// Native Wayland execution instead of X11/XWayland
     pub wayland: bool,
+    /// Enable HDR mode (experimental, requires Wayland + HDR-capable monitor)
     pub hdr: bool,
+    /// AMD FidelityFX Super Resolution — upscaling for performance improvement
     pub fsr: bool,
+    /// Primary monitor for fullscreen mode (e.g. "DP-1", "HDMI-A-1")
     pub primary_monitor: Option<String>,
+    /// Custom environment variables that are additionally set
+    pub custom_env_vars: Vec<CustomEnvVar>,
 }
 
+/// Defaults: esync, fsync, dxvk_async, and Wayland are enabled,
+/// as they provide the best performance for most Linux systems.
 impl Default for PerformanceSettings {
     fn default() -> Self {
         Self {
@@ -42,18 +71,27 @@ impl Default for PerformanceSettings {
             hdr: false,
             fsr: false,
             primary_monitor: None,
+            custom_env_vars: vec![],
         }
     }
 }
 
 /// Configuration for a Wine/Proton runner source.
-/// Runner sources are GitHub repositories that provide pre-built Wine builds.
+///
+/// Runner sources are GitHub repositories that provide precompiled Wine builds
+/// as release assets. Each source has an API URL for
+/// fetching the available releases.
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct RunnerSourceConfig {
+    /// Display name of the source (e.g. "LUG", "Kron4ek")
     pub name: String,
+    /// GitHub API URL for releases (e.g. "https://api.github.com/repos/owner/repo/releases")
     pub api_url: String,
-    pub filter: Option<String>, // "all", "kron4ek"
+    /// Filter mode for release assets: "all" = all assets, "kron4ek" = special filter
+    /// for the Kron4ek naming scheme (e.g. only "staging-tkg" builds)
+    pub filter: Option<String>,
+    /// Whether this source is included when fetching the runner list
     pub enabled: bool,
 }
 
@@ -68,21 +106,34 @@ impl Default for RunnerSourceConfig {
     }
 }
 
-/// Main application configuration structure.
+/// Main application configuration.
+///
 /// Contains all settings needed to run Star Citizen.
+/// Persisted as JSON in `~/.config/star-control/config.json`.
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct AppConfig {
+    /// Installation path for Star Citizen and Wine runners (e.g. "~/Games/star-citizen")
     pub install_path: String,
+    /// Name of the currently selected Wine runner (directory name under `runners/`)
     pub selected_runner: Option<String>,
+    /// Performance and graphics settings
     pub performance: PerformanceSettings,
+    /// Optional GitHub token for higher API rate limits when fetching releases
     pub github_token: Option<String>,
+    /// Log level for the application (e.g. "info", "debug", "warn")
     pub log_level: String,
+    /// Automatic backup of game configuration before each launch
     pub auto_backup_on_launch: Option<bool>,
+    /// List of configured runner sources (GitHub repositories)
     pub runner_sources: Vec<RunnerSourceConfig>,
-    pub install_mode: String, // "full" | "quick"
+    /// Installation mode: "full" = complete installation with all steps,
+    /// "quick" = quick installation without optional steps
+    pub install_mode: String,
 }
 
+/// Defaults: Empty installation path (must be set by the user),
+/// log level "info", and full installation mode.
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -98,20 +149,35 @@ impl Default for AppConfig {
     }
 }
 
-// --- Cached Data Structures ---
+// --- Cached data structures (Cache) ---
+// The cache stores runner and DXVK data locally so that the GitHub API
+// does not need to be queried on every start. The cache is stored in
+// `~/.config/star-control/cache.json`.
 
 /// Cached information about an available runner.
+///
+/// Contains all data needed to display and download a runner
+/// without having to query the GitHub API again.
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct CachedRunner {
+    /// Display name of the runner
     pub name: String,
+    /// Name of the source this runner originates from
     pub source: String,
+    /// Version number or release tag
     pub version: String,
+    /// Direct download URL for the archive
     pub download_url: String,
+    /// File name of the archive (e.g. "wine-lug-9.0.tar.xz")
     pub file_name: String,
+    /// File size in bytes — used for the download progress indicator
     pub size_bytes: u64,
 }
 
 /// Cached information about an available DXVK release.
+///
+/// DXVK translates DirectX calls to Vulkan and is essential
+/// for Star Citizen's graphics performance on Linux.
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct CachedDxvkRelease {
     pub version: String,
@@ -120,28 +186,34 @@ pub struct CachedDxvkRelease {
     pub size_bytes: u64,
 }
 
-/// Cache container for runner data.
+/// Cache container for runner data with timestamp.
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct RunnerCache {
     pub runners: Vec<CachedRunner>,
-    pub cached_at: u64, // Unix timestamp
-}
-
-/// Cache container for DXVK release data.
-#[derive(Serialize, Deserialize, Clone, Default)]
-pub struct DxvkCache {
-    pub releases: Vec<CachedDxvkRelease>,
+    /// Unix timestamp of the last cache update — enables expiration checking
     pub cached_at: u64,
 }
 
-/// Combined application cache containing both runner and DXVK data.
+/// Cache container for DXVK release data with timestamp.
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct DxvkCache {
+    pub releases: Vec<CachedDxvkRelease>,
+    /// Unix timestamp of the last cache update
+    pub cached_at: u64,
+}
+
+/// Complete application cache containing both runner and DXVK data.
+///
+/// Stored as a single JSON file so that when updating one part
+/// (e.g. only runners), the other part (DXVK) is not lost.
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct AppCache {
     pub runners: RunnerCache,
     pub dxvk: DxvkCache,
 }
 
-/// Returns the path to the cache file.
+/// Returns the path to the cache file (`~/.config/star-control/cache.json`).
+/// Returns `None` if the configuration directory cannot be determined.
 fn cache_file_path() -> Option<String> {
     dirs::config_dir().map(|p| {
         p.join("star-control").join("cache.json").to_string_lossy().into_owned()
@@ -149,31 +221,50 @@ fn cache_file_path() -> Option<String> {
 }
 
 /// Result of validating an installation path.
+///
+/// Returned to the frontend to give the user feedback about
+/// the chosen path (write permissions, free disk space, etc.).
 #[derive(Serialize, Deserialize)]
 pub struct PathValidation {
+    /// Whether the path is overall valid (writable + sufficient space)
     pub valid: bool,
+    /// Whether write permissions exist on the path
     pub writable: bool,
+    /// Free disk space in gigabytes
     pub free_space_gb: u64,
+    /// Whether at least 100 GB of free space is available
     pub space_sufficient: bool,
+    /// Human-readable message for the UI display
     pub message: String,
 }
 
 /// Information about a detected runner in the local installation directory.
+///
+/// Created when scanning the `runners/` directory. A valid
+/// runner must contain a `bin/wine` executable.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct DetectedRunner {
+    /// Directory name of the runner (e.g. "wine-lug-9.0")
     pub name: String,
+    /// Path to the runner's `bin/` directory
     pub bin_path: String,
+    /// Full path to the Wine executable
     pub wine_executable: String,
 }
 
-/// Result of scanning for local runners.
+/// Result of scanning for locally installed runners.
 #[derive(Serialize, Deserialize)]
 pub struct ScanRunnersResult {
+    /// List of found runners
     pub runners: Vec<DetectedRunner>,
+    /// Path to the `runners/` directory
     pub runners_dir: String,
 }
 
-/// Expands tilde (~) in a path to the user's home directory.
+/// Replaces the tilde (~) in a path with the user's home directory.
+///
+/// Example: "~/Games/star-citizen" -> "/home/user/Games/star-citizen"
+/// If HOME is not set, the path is returned unchanged.
 fn expand_tilde(path: &str) -> String {
     if path.starts_with('~') {
         if let Ok(home) = std::env::var("HOME") {
@@ -184,6 +275,10 @@ fn expand_tilde(path: &str) -> String {
 }
 
 /// Finds the first existing parent directory in a path.
+///
+/// Used to check disk space and write permissions even when
+/// the target path does not yet exist. Walks up the path until an
+/// existing directory is found.
 fn find_existing_parent(path: &str) -> String {
     let mut p = Path::new(path);
     while !p.exists() {
@@ -192,6 +287,7 @@ fn find_existing_parent(path: &str) -> String {
                 p = parent;
             }
             None => {
+                // No more parent directories found — fallback to root
                 return "/".into();
             }
         }
@@ -199,7 +295,11 @@ fn find_existing_parent(path: &str) -> String {
     p.to_string_lossy().into_owned()
 }
 
-/// Gets the free disk space in gigabytes for a given path.
+/// Determines the free disk space in gigabytes for a given path.
+///
+/// Uses the POSIX system call `statvfs` to query filesystem statistics.
+/// `f_bavail` returns the blocks available to non-privileged users,
+/// `f_frsize` the block size in bytes.
 fn get_free_space_gb(path: &str) -> u64 {
     use std::ffi::CString;
 
@@ -210,11 +310,12 @@ fn get_free_space_gb(path: &str) -> u64 {
         }
     };
 
-    // SAFETY: c_path is a valid, NUL-terminated CString. statvfs is initialized to zero
-    // and only read after a successful statvfs() call. No aliasing or lifetime issues.
+    // SAFETY: c_path is a valid, NUL-terminated CString. statvfs is zero-initialized
+    // and only read after a successful statvfs() call.
     unsafe {
         let mut stat: libc::statvfs = std::mem::zeroed();
         if libc::statvfs(c_path.as_ptr(), &mut stat) == 0 {
+            // Available bytes = available blocks x block size
             let free_bytes = stat.f_bavail * stat.f_frsize;
             free_bytes / (1024 * 1024 * 1024)
         } else {
@@ -223,7 +324,10 @@ fn get_free_space_gb(path: &str) -> u64 {
     }
 }
 
-/// Checks if a path is writable by the current user.
+/// Checks whether the current user has write permissions on a path.
+///
+/// Analyzes Unix file permissions (owner/group/other) and compares
+/// them with the UID/GID of the current process. Root (UID 0) always has write permissions.
 fn is_writable(path: &str) -> bool {
     let p = Path::new(path);
     if !p.exists() {
@@ -234,52 +338,68 @@ fn is_writable(path: &str) -> bool {
             let mode = meta.mode();
             let uid = meta.uid();
             let gid = meta.gid();
-            // SAFETY: getuid/getgid are always safe to call, have no preconditions
+            // SAFETY: getuid/getgid are always safe to call, no preconditions
             let my_uid = unsafe { libc::getuid() };
             let my_gid = unsafe { libc::getgid() };
 
+            // Root always has write access
             if my_uid == 0 {
                 return true;
             }
+            // Check owner write bit (bit 7, octal 0o200)
             if uid == my_uid {
                 return (mode & 0o200) != 0;
             }
+            // Check group write bit (bit 4, octal 0o020)
             if gid == my_gid {
                 return (mode & 0o020) != 0;
             }
+            // Check other write bit (bit 1, octal 0o002)
             (mode & 0o002) != 0
         }
         Err(_) => false,
     }
 }
 
-/// Returns the path to the configuration file.
+/// Returns the path to the configuration file (`~/.config/star-control/config.json`).
+/// Returns `None` if the configuration directory cannot be determined.
 fn config_file_path() -> Option<String> {
     dirs::config_dir().map(|p| {
         p.join("star-control").join("config.json").to_string_lossy().into_owned()
     })
 }
 
-/// Result of checking if initial setup is required.
+/// Result of checking whether initial setup is needed.
 #[derive(Serialize, Deserialize)]
 pub struct SetupCheck {
+    /// Whether the setup wizard needs to be shown
     pub needs_setup: bool,
+    /// Suggested default installation path
     pub default_path: String,
 }
 
-// --- Tauri Commands ---
+// --- Tauri commands ---
+// These functions are called from the frontend via `invoke()`.
+// All blocking filesystem operations are executed in `spawn_blocking`
+// to avoid blocking the Tokio runtime thread.
 
+/// Checks whether initial setup needs to be performed.
+///
+/// Setup is needed if no configuration file exists
+/// or the stored installation path does not point to an existing
+/// directory.
 #[tauri::command]
 pub async fn check_needs_setup() -> Result<SetupCheck, String> {
     tokio::task
         ::spawn_blocking(move || {
+            // Default installation path: ~/Games/star-citizen, fallback to /tmp
             let default_path = if let Ok(home) = std::env::var("HOME") {
                 format!("{}/Games/star-citizen", home)
             } else {
                 "/tmp/star-citizen".into()
             };
 
-            // Check if config exists and has a valid install_path
+            // Check if a valid configuration with an existing installation path is present
             let has_valid_install = config_file_path()
                 .and_then(|p| fs::read_to_string(p).ok())
                 .and_then(|c| serde_json::from_str::<AppConfig>(&c).ok())
@@ -297,6 +417,7 @@ pub async fn check_needs_setup() -> Result<SetupCheck, String> {
         .map_err(|e| format!("Task failed: {}", e))
 }
 
+/// Creates the installation directory recursively (including all parent directories).
 #[tauri::command]
 pub async fn create_install_directory(path: String) -> Result<(), String> {
     tokio::task
@@ -307,6 +428,10 @@ pub async fn create_install_directory(path: String) -> Result<(), String> {
         .map_err(|e| format!("Task failed: {}", e))?
 }
 
+/// Validates an installation path for write permissions and sufficient disk space.
+///
+/// Checks the nearest existing parent directory, since the target path
+/// may not yet exist. Requires at least 100 GB of free space.
 #[tauri::command]
 pub async fn validate_install_path(path: String) -> Result<PathValidation, String> {
     tokio::task
@@ -350,6 +475,10 @@ pub async fn validate_install_path(path: String) -> Result<PathValidation, Strin
         .map_err(|e| format!("Task failed: {}", e))
 }
 
+/// Scans the `runners/` directory for locally installed Wine runners.
+///
+/// A valid runner is detected if it contains a `bin/wine` executable.
+/// Results are returned sorted alphabetically by name.
 #[tauri::command]
 pub async fn scan_runners(base_path: String) -> Result<ScanRunnersResult, String> {
     tokio::task
@@ -360,14 +489,17 @@ pub async fn scan_runners(base_path: String) -> Result<ScanRunnersResult, String
 
             let mut runners = Vec::new();
 
+            // Search all subdirectories in the runners/ folder
             if runners_dir.is_dir() {
                 if let Ok(entries) = fs::read_dir(&runners_dir) {
                     for entry in entries.flatten() {
                         let entry_path = entry.path();
+                        // Only directories are potential runners
                         if !entry_path.is_dir() {
                             continue;
                         }
 
+                        // Check if bin/wine exists — this is the identifying marker
                         let wine_exe = entry_path.join("bin").join("wine");
                         if wine_exe.exists() {
                             let name = entry_path
@@ -398,6 +530,11 @@ pub async fn scan_runners(base_path: String) -> Result<ScanRunnersResult, String
         .map_err(|e| format!("Task failed: {}", e))
 }
 
+/// Saves the configuration to the JSON file.
+///
+/// Performs an intelligent merge with the existing configuration
+/// so that fields not managed by the frontend (e.g. github_token,
+/// runner_sources) are not accidentally overwritten or deleted.
 #[tauri::command]
 pub async fn save_config(config: AppConfig) -> Result<(), String> {
     tokio::task
@@ -405,13 +542,15 @@ pub async fn save_config(config: AppConfig) -> Result<(), String> {
             let path = config_file_path().ok_or("Could not determine config directory")?;
             let config_path = Path::new(&path);
 
+            // Create configuration directory if it does not yet exist
             if let Some(parent) = config_path.parent() {
                 fs
                     ::create_dir_all(parent)
                     .map_err(|e| format!("Failed to create config directory: {}", e))?;
             }
 
-            // Merge with existing config to preserve fields the frontend doesn't manage
+            // Merge with existing configuration to preserve fields
+            // that the frontend does not send
             let defaults = AppConfig::default();
             let merged = if
                 let Some(existing) = config_path
@@ -420,7 +559,8 @@ pub async fn save_config(config: AppConfig) -> Result<(), String> {
                     .flatten()
                     .and_then(|c| serde_json::from_str::<AppConfig>(&c).ok())
             {
-                // Preserve runner_sources: use existing if available, otherwise use defaults
+                // Preserve runner sources: use existing ones if available,
+                // otherwise apply defaults
                 let runner_sources = if
                     existing.runner_sources.is_empty() &&
                     config.runner_sources.is_empty()
@@ -433,12 +573,15 @@ pub async fn save_config(config: AppConfig) -> Result<(), String> {
                 };
 
                 AppConfig {
+                    // GitHub token: empty string = explicit deletion,
+                    // Some = new value, None = keep existing token
                     github_token: match &config.github_token {
-                        Some(t) if t.is_empty() => None, // explicit clear
-                        Some(_) => config.github_token, // new value
-                        None => existing.github_token, // preserve existing
+                        Some(t) if t.is_empty() => None,
+                        Some(_) => config.github_token,
+                        None => existing.github_token,
                     },
                     runner_sources,
+                    // Empty strings mean "not sent by the frontend" -> keep existing value
                     install_mode: if config.install_mode.is_empty() {
                         existing.install_mode
                     } else {
@@ -447,7 +590,8 @@ pub async fn save_config(config: AppConfig) -> Result<(), String> {
                     ..config
                 }
             } else {
-                // No existing config - use provided config but fill defaults for missing fields
+                // No existing configuration — use provided values,
+                // fill in missing fields with defaults
                 AppConfig {
                     runner_sources: if config.runner_sources.is_empty() {
                         defaults.runner_sources
@@ -483,6 +627,11 @@ pub async fn save_config(config: AppConfig) -> Result<(), String> {
         .map_err(|e| format!("Task failed: {}", e))?
 }
 
+/// Loads the configuration from the JSON file.
+///
+/// Returns `None` if the file does not exist or cannot be read.
+/// If the runner sources are empty, the default sources are inserted and
+/// immediately written back to the file so they are available on the next load.
 #[tauri::command]
 pub async fn load_config() -> Result<Option<AppConfig>, String> {
     tokio::task
@@ -508,10 +657,10 @@ pub async fn load_config() -> Result<Option<AppConfig>, String> {
                 }
             };
 
-            // Fill in defaults for runner_sources if empty and save to config
+            // If no runner sources are configured, insert defaults
+            // and write to file immediately so they are persistently available
             let defaults = AppConfig::default();
             if config.runner_sources.is_empty() {
-                // Write defaults to config file immediately
                 let new_config = AppConfig {
                     runner_sources: defaults.runner_sources.clone(),
                     ..config
@@ -527,11 +676,17 @@ pub async fn load_config() -> Result<Option<AppConfig>, String> {
         .map_err(|e| format!("Task failed: {}", e))
 }
 
+/// Resets the entire application to its initial state.
+///
+/// Deletes the installation directory (including runners, Wine prefix, game data),
+/// the configuration file, and the cache. However, the GitHub token is preserved
+/// since it must be manually entered and should not be lost.
 #[tauri::command]
 pub async fn reset_app() -> Result<(), String> {
     let config_path = config_file_path().ok_or("Could not determine config directory")?;
     let cache_path = cache_file_path();
 
+    // Load existing configuration to determine installation path and token
     let existing: Option<AppConfig> = fs
         ::read_to_string(&config_path)
         .ok()
@@ -543,7 +698,7 @@ pub async fn reset_app() -> Result<(), String> {
         .unwrap_or_default();
     let github_token = existing.as_ref().and_then(|c| c.github_token.clone());
 
-    // Delete installation directory
+    // Completely delete the installation directory (runners, prefix, game data)
     if !install_path.is_empty() {
         let p = Path::new(&install_path);
         if p.exists() {
@@ -551,7 +706,7 @@ pub async fn reset_app() -> Result<(), String> {
         }
     }
 
-    // Remove config file
+    // Remove configuration file
     let _ = fs::remove_file(&config_path);
 
     // Remove cache file
@@ -559,7 +714,8 @@ pub async fn reset_app() -> Result<(), String> {
         let _ = fs::remove_file(&cp);
     }
 
-    // Preserve github_token in a minimal config
+    // Preserve the GitHub token in a minimal configuration
+    // so the user does not have to enter it again
     if let Some(token) = github_token {
         let minimal = AppConfig {
             github_token: Some(token),
@@ -576,8 +732,14 @@ pub async fn reset_app() -> Result<(), String> {
     Ok(())
 }
 
-// --- Cache Commands ---
+// --- Cache commands ---
+// The cache functions store and load runner and DXVK data separately,
+// but in the same JSON file (AppCache). When saving, the existing file
+// is loaded and only the relevant part is updated so that the other
+// part (e.g. DXVK during a runner update) is not lost.
 
+/// Loads the runner cache from the cache file.
+/// Returns an empty cache if the file does not exist or is invalid.
 #[tauri::command]
 pub async fn load_runner_cache() -> Result<RunnerCache, String> {
     tokio::task
@@ -605,8 +767,13 @@ pub async fn load_runner_cache() -> Result<RunnerCache, String> {
         .map_err(|e| format!("Task failed: {}", e))
 }
 
+/// Saves the runner data to the cache with the current timestamp.
+///
+/// Loads the existing cache, updates only the runner part, and writes
+/// the entire file back so the DXVK cache is preserved.
 #[tauri::command]
 pub async fn save_runner_cache(runners: Vec<CachedRunner>) -> Result<(), String> {
+    // Set current Unix timestamp to record the time of caching
     let runners_cache = RunnerCache {
         runners,
         cached_at: std::time::SystemTime
@@ -631,7 +798,7 @@ pub async fn save_runner_cache(runners: Vec<CachedRunner>) -> Result<(), String>
             }
         }
 
-        // Load existing cache
+        // Load existing cache to preserve the DXVK part
         let mut cache = if cache_path.exists() {
             fs::read_to_string(&path)
                 .ok()
@@ -641,6 +808,7 @@ pub async fn save_runner_cache(runners: Vec<CachedRunner>) -> Result<(), String>
             AppCache::default()
         };
 
+        // Only update the runner part
         cache.runners = runners_cache;
 
         let json = match serde_json::to_string_pretty(&cache) {
@@ -663,6 +831,8 @@ pub async fn save_runner_cache(runners: Vec<CachedRunner>) -> Result<(), String>
     }
 }
 
+/// Loads the DXVK cache from the cache file.
+/// Returns an empty cache if the file does not exist or is invalid.
 #[tauri::command]
 pub async fn load_dxvk_cache() -> Result<DxvkCache, String> {
     tokio::task
@@ -690,8 +860,13 @@ pub async fn load_dxvk_cache() -> Result<DxvkCache, String> {
         .map_err(|e| format!("Task failed: {}", e))
 }
 
+/// Saves the DXVK release data to the cache with the current timestamp.
+///
+/// Works analogously to `save_runner_cache` — loads the existing cache,
+/// updates only the DXVK part, and preserves the runner cache.
 #[tauri::command]
 pub async fn save_dxvk_cache(releases: Vec<CachedDxvkRelease>) -> Result<(), String> {
+    // Set current Unix timestamp
     let dxvk_cache = DxvkCache {
         releases,
         cached_at: std::time::SystemTime
@@ -716,7 +891,7 @@ pub async fn save_dxvk_cache(releases: Vec<CachedDxvkRelease>) -> Result<(), Str
             }
         }
 
-        // Load existing cache
+        // Load existing cache to preserve the runner part
         let mut cache = if cache_path.exists() {
             fs::read_to_string(&path)
                 .ok()
@@ -726,6 +901,7 @@ pub async fn save_dxvk_cache(releases: Vec<CachedDxvkRelease>) -> Result<(), Str
             AppCache::default()
         };
 
+        // Only update the DXVK part
         cache.dxvk = dxvk_cache;
 
         let json = match serde_json::to_string_pretty(&cache) {
@@ -748,16 +924,27 @@ pub async fn save_dxvk_cache(releases: Vec<CachedDxvkRelease>) -> Result<(), Str
     }
 }
 
-// --- Runner Sources Management ---
+// --- Runner source management ---
+// Runner sources can be added individually or imported as a predefined set
+// (LUG helper sources).
 
 /// Result of adding a new runner source.
 #[derive(Serialize, Deserialize)]
 pub struct AddRunnerSourceResult {
+    /// Whether the addition was successful
     pub success: bool,
+    /// Status message for the UI display
     pub message: String,
+    /// Names of the newly added sources
     pub added_sources: Vec<String>,
 }
 
+/// Adds a new runner source from a GitHub API URL.
+///
+/// Validates the inputs (name not empty, valid GitHub API URL) and
+/// checks for duplicates. The filter is automatically determined based on
+/// the name: "kron4ek" for Kron4ek builds (special naming scheme),
+/// "all" for all other sources.
 #[tauri::command]
 pub async fn add_runner_source_from_github(
     name: String,
@@ -766,6 +953,7 @@ pub async fn add_runner_source_from_github(
     let name = name.trim().to_string();
     let api_url = api_url.trim().to_string();
 
+    // Input validation
     if name.is_empty() {
         return Err("Name cannot be empty".into());
     }
@@ -773,7 +961,7 @@ pub async fn add_runner_source_from_github(
         return Err("API URL cannot be empty".into());
     }
 
-    // Validate URL format
+    // Check URL format — only GitHub API URLs are supported
     if !api_url.contains("api.github.com/repos") {
         return Err(
             "URL must be a GitHub API URL (e.g., https://api.github.com/repos/owner/repo/releases)".into()
@@ -789,7 +977,7 @@ pub async fn add_runner_source_from_github(
                 }
             };
 
-            // Load existing config
+            // Load existing configuration or use defaults
             let mut config = if config_path.exists() {
                 let contents = fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
                 serde_json::from_str::<AppConfig>(&contents).map_err(|e| e.to_string())?
@@ -797,7 +985,7 @@ pub async fn add_runner_source_from_github(
                 AppConfig::default()
             };
 
-            // Check if source already exists
+            // Check for duplicates by name
             if config.runner_sources.iter().any(|s| s.name == name) {
                 return Ok(AddRunnerSourceResult {
                     success: false,
@@ -806,14 +994,15 @@ pub async fn add_runner_source_from_github(
                 });
             }
 
-            // Determine filter based on name
+            // Automatically determine filter: Kron4ek builds have a special
+            // naming scheme and need their own filter
             let filter = if name.to_lowercase().contains("kron4ek") {
                 Some("kron4ek".into())
             } else {
                 Some("all".into())
             };
 
-            // Add new source
+            // Add new source to the list
             config.runner_sources.push(RunnerSourceConfig {
                 name: name.clone(),
                 api_url: api_url.clone(),
@@ -836,9 +1025,16 @@ pub async fn add_runner_source_from_github(
     result
 }
 
+/// Imports the predefined runner sources from the LUG helper project.
+///
+/// LUG (Linux Users Group) provides special Wine builds optimized for
+/// Star Citizen. This function adds all four default sources
+/// (LUG, LUG Experimental, RawFox, Kron4ek) and skips already
+/// existing sources (duplicate check by name).
 #[tauri::command]
 pub async fn import_lug_helper_sources() -> Result<AddRunnerSourceResult, String> {
-    // LUG-Helper Wine runner sources (from https://github.com/starcitizen-lug/lug-helper)
+    // Predefined LUG helper Wine runner sources
+    // (based on https://github.com/starcitizen-lug/lug-helper)
     let lug_sources = vec![
         ("LUG", "https://api.github.com/repos/starcitizen-lug/lug-wine/releases"),
         (
@@ -858,7 +1054,7 @@ pub async fn import_lug_helper_sources() -> Result<AddRunnerSourceResult, String
                 }
             };
 
-            // Load existing config
+            // Load existing configuration
             let mut config = if config_path.exists() {
                 let contents = fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
                 serde_json::from_str::<AppConfig>(&contents).map_err(|e| e.to_string())?
@@ -868,10 +1064,11 @@ pub async fn import_lug_helper_sources() -> Result<AddRunnerSourceResult, String
 
             let mut added_sources = Vec::new();
 
+            // Check each source individually and only add new ones
             for (name, api_url) in lug_sources {
-                // Check if source already exists
+                // Duplicate check: only add if the name does not yet exist
                 if !config.runner_sources.iter().any(|s| s.name == name) {
-                    // Determine filter based on name
+                    // Determine filter based on the source name
                     let filter = if name.to_lowercase().contains("kron4ek") {
                         Some("kron4ek".into())
                     } else {
@@ -888,7 +1085,7 @@ pub async fn import_lug_helper_sources() -> Result<AddRunnerSourceResult, String
                 }
             }
 
-            // Save config
+            // Save configuration (even if no new sources were added)
             let json = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
             fs::write(&config_path, json).map_err(|e| e.to_string())?;
 
