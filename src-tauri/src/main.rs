@@ -11,6 +11,15 @@
 
 /// Entry point of the application.
 /// Delegates all initialization and execution to the library.
+///
+/// Sets WEBKIT_DISABLE_DMABUF_RENDERER=1 on Linux to prevent EGL_BAD_PARAMETER
+/// errors with certain GPU driver / WebKitGTK combinations in AppImage builds.
 fn main() {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER").is_err() {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
+    }
     star_control_lib::run()
 }
