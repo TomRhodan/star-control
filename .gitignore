@@ -27,6 +27,9 @@ Thumbs.db
 .claude/
 GEMINI.md
 
+# Local Cargo config (machine-specific build flags)
+.cargo/
+
 # AI tooling
 .superpowers/
 
