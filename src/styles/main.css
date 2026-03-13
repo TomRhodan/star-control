@@ -1,3 +1,10 @@
+/*
+ * main.css
+ * Global design tokens (CSS variables), resets, and shared UI components.
+ * Defines colors, typography, spacing, and reusable patterns (cards, buttons,
+ * inputs, badges, modals, diffs) used across all pages.
+ */
+
 :root {
   --bg-primary: #0a0e17;
   --bg-secondary: #0f1923;

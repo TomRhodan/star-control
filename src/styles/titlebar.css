@@ -1,3 +1,9 @@
+/*
+ * titlebar.css
+ * Custom window titlebar with drag region, minimize/maximize/close buttons.
+ * Replaces the native OS titlebar in the Tauri WebView window.
+ */
+
 #titlebar {
   height: 36px;
   display: flex;

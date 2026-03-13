@@ -1,3 +1,10 @@
+/*
+ * pages.css
+ * Page-specific styles for every view in the application: setup wizard,
+ * runners, settings, profiles (devices, keybindings, backups, tabs),
+ * dashboard, about page, localization, binding database, and controller views.
+ */
+
 /* ============================
    Setup Wizard (First Run)
    ============================ */
