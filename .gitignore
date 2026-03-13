@@ -55,3 +55,4 @@ Plans/
 actionmaps.xml
 debug_app.sh
 .playwright-mcp/
+test-build-docker.sh
