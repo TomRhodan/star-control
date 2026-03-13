@@ -112,6 +112,18 @@ Please use our [GitHub Issue Templates](https://github.com/TomRhodan/star-contro
 4. Write a clear PR description explaining what changed and why. Use the [PR template](.github/PULL_REQUEST_TEMPLATE.md) as a guide.
 5. Submit the PR against `main`.
 
+## CI / Release Builds
+
+The release workflow (`.github/workflows/release.yml`) builds `.deb`, `.AppImage`, and a portable `.tar.gz` on Ubuntu 24.04.
+
+**Important:** The `libwebkit2gtk-4.1` packages are pinned to version **2.44.0-2**. Newer versions cause `EGL_BAD_PARAMETER` crashes when the AppImage runs on other distributions. Do not remove the version pins without testing the resulting AppImage on multiple distros. See [zmk-studio PR #92](https://github.com/zmkfirmware/zmk-studio/pull/92) for background.
+
+You can test the release build locally with Docker:
+
+```bash
+./test-build-docker.sh
+```
+
 ## Code of Conduct
 
 This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
