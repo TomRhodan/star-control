@@ -6,7 +6,7 @@
 //! user-defined customizations.
 //!
 //! The structures serve as the data model between the Rust backend and the
-//! JavaScript frontend — they are serialized as JSON via Tauri commands.
+//! JavaScript frontend - they are serialized as JSON via Tauri commands.
 
 use serde::{ Deserialize, Serialize };
 use std::collections::HashMap;
@@ -108,7 +108,7 @@ pub struct BindingListResponse {
 /// Star Citizen identifies devices via a combination of GUID and instance number.
 /// This structure bridges the real hardware device (product name) and the
 /// SC-internal representation. Important: The instance number in SC can differ
-/// from the Linux gilrs instance number — therefore device identity is always
+/// from the Linux gilrs instance number - therefore device identity is always
 /// determined via `product_name` and `device_type`, not via the js{N} prefix.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceMapping {

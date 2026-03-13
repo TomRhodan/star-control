@@ -197,7 +197,7 @@ function renderDirectoryStep(container, { onComplete }) {
           existingRunnerName = scanResult.runners[0].name;
         }
       } catch (e) {
-        // Ignore scan errors — no problem if no runners are found
+        // Ignore scan errors - no problem if no runners are found
       }
 
       // Step 2: Check if an existing installation is present
@@ -209,7 +209,7 @@ function renderDirectoryStep(container, { onComplete }) {
       try {
         detectedInstallation = await invoke('check_installation', { config: existingConfig });
       } catch (e) {
-        // check_installation can fail — no problem
+        // check_installation can fail - no problem
         detectedInstallation = null;
       }
 
@@ -223,7 +223,7 @@ function renderDirectoryStep(container, { onComplete }) {
         return;
       }
 
-      // Step 4: No existing launcher — normal flow (create directory + save config)
+      // Step 4: No existing launcher - normal flow (create directory + save config)
       continueBtn.textContent = 'Creating...';
 
       await invoke('create_install_directory', { path: currentPath });
@@ -251,7 +251,7 @@ function renderDirectoryStep(container, { onComplete }) {
         },
       });
 
-      // Setup complete — invoke callback to switch to the main view
+      // Setup complete - invoke callback to switch to the main view
       onComplete();
     } catch (err) {
       // Show error and re-enable the button

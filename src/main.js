@@ -145,5 +145,5 @@ getVersion().then(v => {
   if (el) el.textContent = 'v' + v;
 });
 
-// Initialize router — checks setup status and loads the first page
+// Initialize router - checks setup status and loads the first page
 router.init();

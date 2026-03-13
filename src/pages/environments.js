@@ -99,7 +99,7 @@ let activeProfileTab = 'profile';
 let lastRestoredBackupId = null;
 /** @type {Object} Mapping: SC version -> last active profile ID (per version) */
 const lastRestoredPerVersion = {};
-/** @type {Object|null} Profile status: { matched, files } — shows if profile is in sync with SC files */
+/** @type {Object|null} Profile status: { matched, files } - shows if profile is in sync with SC files */
 let activeProfileStatus = null;
 /** @type {boolean} Whether the changes detail panel is shown */
 let showChangesPanel = false;
@@ -221,7 +221,7 @@ const DEFAULT_SETTINGS = {
   r_DisplaySessionInfo: { value: 0, label: 'Session Info QR', min: 0, max: 1, type: 'toggle', category: 'essential',
     alwaysWrite: true,
     desc: 'QR code overlay for bug reports (PTU default: on)',
-    help: 'Displays a QR code on screen containing session information for Star Citizen bug reports. PTU enables this by default — Star Control always writes this setting explicitly so the QR code stays off unless you enable it.' },
+    help: 'Displays a QR code on screen containing session information for Star Citizen bug reports. PTU enables this by default - Star Control always writes this setting explicitly so the QR code stays off unless you enable it.' },
   // Graphics Quality (verified)
   sys_spec: { value: 3, label: 'Overall Quality', min: 1, max: 4, step: 1, category: 'quality',
     desc: 'Master quality preset (1=Low, 4=Very High)',
@@ -361,7 +361,7 @@ const DEFAULT_SETTINGS = {
   i_Mouse_Smooth: { value: 0, label: 'Mouse Smoothing', min: 0, max: 1, step: 0.1, category: 'input',
     desc: 'Mouse input smoothing (0=off)',
     help: 'Smooths out mouse input by averaging recent movements, reducing jitter but adding slight input lag. Most players prefer 0 (off) for the most responsive, direct mouse input. Higher values make mouse movement feel floaty.' },
-  // Advanced (unverified — may have no effect)
+  // Advanced (unverified - may have no effect)
   sys_budget_sysmem: { value: 16384, label: 'System RAM (MB)', min: 4096, max: 65536, step: 4096, category: 'advanced',
     desc: 'System RAM budget hint for the engine (MB)',
     help: 'Tells the engine how much system RAM is available for budgeting. Set to your actual RAM in MB (16384=16GB, 32768=32GB, 65536=64GB). This is a hint for memory management, not a hard limit. Setting it too high on a system with less RAM may cause instability.' },
@@ -804,7 +804,7 @@ function parseUserCfg(content) {
     } else {
       settings._windowMode = 0; // Windowed
     }
-    // Remove raw CVars — they are managed by the virtual setting
+    // Remove raw CVars - they are managed by the virtual setting
     delete settings.r_Fullscreen;
     delete settings.r_FullscreenWindow;
   }
@@ -1095,7 +1095,7 @@ function renderProfileTab() {
       const showApplyButton = isDirty || isOutOfSync;
 
       if (isDirty) {
-        statusText = 'Unsaved changes — click "Apply to SC" to push to game';
+        statusText = 'Unsaved changes - click "Apply to SC" to push to game';
         statusClass = 'profile-status-changed';
       } else if (activeProfileStatus && activeProfileStatus.files.length > 0) {
         if (activeProfileStatus.matched) {
@@ -1132,7 +1132,7 @@ function renderProfileTab() {
       activeHeader = `
         <div class="profile-active-header profile-active-none">
           <div class="profile-active-info">
-            <span class="text-muted">No profile loaded — load one below or save your current settings</span>
+            <span class="text-muted">No profile loaded - load one below or save your current settings</span>
           </div>
         </div>
       `;
@@ -1653,11 +1653,11 @@ function attachBindingEventListeners() {
 
 /**
  * Renders the collapsible joystick section with drag-and-drop reordering.
- * Only joysticks are shown — keyboards/gamepads have fixed instance numbers.
+ * Only joysticks are shown - keyboards/gamepads have fixed instance numbers.
  */
 function renderDeviceMapCollapsible() {
   const activeBackup = lastRestoredBackupId ? backups.find(b => b.id === lastRestoredBackupId) : null;
-  // Only show joysticks — keyboards/gamepads have fixed instance numbers
+  // Only show joysticks - keyboards/gamepads have fixed instance numbers
   const deviceMap = (activeBackup?.device_map || [])
     .filter(dm => dm.device_type === 'joystick')
     .sort((a, b) => a.sc_instance - b.sc_instance);
@@ -1742,7 +1742,7 @@ function renderBindingsCollapsible() {
         </h3>
       </div>
       <div class="collapsible-content ${isExpanded ? '' : 'collapsed'}">
-        ${renderHint('bindings-intro', 'Changes you make here are saved to this profile only — your game files stay untouched until you click <strong>Apply to SC</strong> above.')}
+        ${renderHint('bindings-intro', 'Changes you make here are saved to this profile only - your game files stay untouched until you click <strong>Apply to SC</strong> above.')}
         <div class="bindings-toolbar">
           <input type="text" class="input binding-search" id="binding-search"
                  placeholder="Search actions..." value="${escapeHtml(bindingFilter)}"
@@ -2695,7 +2695,7 @@ async function applyUserCfg() {
   if (!config?.install_path || !activeScVersion) return;
   if (isSavingUserCfg) return;
 
-  // Write guard — disable button during save
+  // Write guard - disable button during save
   isSavingUserCfg = true;
   const applyBtn = document.getElementById('btn-apply-usercfg');
   if (applyBtn) applyBtn.disabled = true;
@@ -2798,7 +2798,7 @@ function generateUserCfg() {
     const changedSettings = [];
 
     for (const [key, setting] of catSettings) {
-      // Skip virtual settings — they are expanded separately
+      // Skip virtual settings - they are expanded separately
       if (setting.virtual) continue;
       const currentValue = userCfgSettings[key] !== undefined ? userCfgSettings[key] : setting.value;
       if (currentValue !== setting.value || setting.alwaysWrite) {
@@ -3020,7 +3020,7 @@ async function handleDeviceDrop(sourceInstance, targetInstance, sourceDeviceType
 
   // Only allow swaps within the same device type
   if (sourceDeviceType !== targetDeviceType) {
-    showNotification(`Cannot swap ${sourceDeviceType} with ${targetDeviceType} — different device types`, 'warning');
+    showNotification(`Cannot swap ${sourceDeviceType} with ${targetDeviceType} - different device types`, 'warning');
     return;
   }
 
@@ -3530,7 +3530,7 @@ function attachProfilesEventListeners() {
     showDataP4kCopyProgressModal(source, version);
   });
 
-  // Device drag-and-drop (Pointer Events — works in WebKitGTK)
+  // Device drag-and-drop (Pointer Events - works in WebKitGTK)
   // The entire card is draggable. Pointer Capture ensures smooth tracking,
   // even when the cursor leaves card boundaries during fast movements.
   document.querySelectorAll('.device-card.draggable').forEach(card => {
@@ -3543,7 +3543,7 @@ function attachProfilesEventListeners() {
       const sourceInstance = parseInt(card.dataset.instance, 10);
       const sourceDeviceType = card.dataset.deviceType || 'joystick';
       const rect = card.getBoundingClientRect();
-      // Offset from pointer to card top-left — keeps the clone anchored where you grabbed it
+      // Offset from pointer to card top-left - keeps the clone anchored where you grabbed it
       const offsetX = e.clientX - rect.left;
       const offsetY = e.clientY - rect.top;
 
@@ -3869,7 +3869,7 @@ function attachProfilesEventListeners() {
     });
   });
 
-  // Rename saved profile — click edit icon to show inline input
+  // Rename saved profile - click edit icon to show inline input
   document.querySelectorAll('[data-action="rename-saved-profile"]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation(); // prevent card click
@@ -4166,7 +4166,7 @@ function attachProfilesEventListeners() {
     updateSettingHighlight(row, key, setting, setting.value);
   });
 
-  // Data.p4k copy progress listener — clean up old listeners to prevent leaks
+  // Data.p4k copy progress listener - clean up old listeners to prevent leaks
   if (unlistenProgress) { unlistenProgress(); unlistenProgress = null; }
   if (unlistenCopyComplete) { unlistenCopyComplete(); unlistenCopyComplete = null; }
 

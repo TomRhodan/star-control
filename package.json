@@ -2,7 +2,7 @@
   "name": "star-control",
   "private": true,
   "version": "0.2.1",
-  "description": "A Linux management tool for Star Citizen — install, configure, and launch with Wine/Proton",
+  "description": "A Linux management tool for Star Citizen - install, configure, and launch with Wine/Proton",
   "author": "TomRhodan <tomrhodan@gmail.com>",
   "license": "GPL-3.0-or-later",
   "repository": {

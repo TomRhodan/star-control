@@ -252,7 +252,7 @@ export function showDiff(title, lines) {
     }
 
     // Wider modal (modal-wide) for better readability of diff content
-    // No footer with buttons — only a close button in the header
+    // No footer with buttons - only a close button in the header
     overlay.innerHTML = `
       <div class="modal-container modal-wide modal-kind-info">
         <div class="modal-header">

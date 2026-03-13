@@ -545,7 +545,7 @@ async function loadCommunityStats() {
     statsCurrent = result.stats;
     renderStats(el, result.stats);
 
-    // Load history asynchronously — don't block initial render
+    // Load history asynchronously - don't block initial render
     loadStatsHistory();
   } catch {
     el.innerHTML = renderError('Could not load community stats', () => loadCommunityStats());
@@ -554,7 +554,7 @@ async function loadCommunityStats() {
 
 /**
  * Loads the historical community data (up to 30 days) for the sparkline charts.
- * Errors are silently ignored — in that case, stats are displayed without charts.
+ * Errors are silently ignored - in that case, stats are displayed without charts.
  */
 async function loadStatsHistory() {
   try {
@@ -564,7 +564,7 @@ async function loadStatsHistory() {
       renderStatsWithSparklines();
     }
   } catch {
-    // Silent failure — stats remain without sparklines
+    // Silent failure - stats remain without sparklines
   }
 }
 
@@ -632,7 +632,7 @@ function renderStatsWithSparklines() {
       </div>`;
   }
 
-  // Vehicles — no history available, static display
+  // Vehicles - no history available, static display
   html += `
     <div class="dash-stat-item">
       <div class="dash-stat-value">${escapeHtml(statsCurrent.vehicles)}</div>
@@ -724,7 +724,7 @@ function formatDelta(delta, key) {
     return `${sign}$${delta.toFixed(0)}`;
   }
 
-  // Fans/Fleet — format with thousands separators
+  // Fans/Fleet - format with thousands separators
   const formatted = Math.round(abs).toLocaleString('en-US');
   return `${sign}${delta < 0 ? '-' : ''}${formatted}`;
 }

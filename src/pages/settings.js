@@ -109,7 +109,7 @@ function renderAppSettings() {
         </div>
         <!-- GitHub token: Optional, only needed for rate limit issues -->
         <div class="setting-row">
-          <label class="setting-label" data-tooltip="Star Control downloads Wine runners and DXVK from GitHub. Without a token, GitHub allows 60 requests/hour per IP. This is enough for normal use — you only need a token if you hit rate limits, e.g. during development or when many users share one IP." data-tooltip-pos="right">GitHub Token</label>
+          <label class="setting-label" data-tooltip="Star Control downloads Wine runners and DXVK from GitHub. Without a token, GitHub allows 60 requests/hour per IP. This is enough for normal use - you only need a token if you hit rate limits, e.g. during development or when many users share one IP." data-tooltip-pos="right">GitHub Token</label>
           <div class="setting-input">
             <div class="token-field" id="token-field">
               ${hasToken ? `

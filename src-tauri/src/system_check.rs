@@ -148,7 +148,7 @@ fn check_avx() -> CheckResult {
         detail: if has_avx {
             "CPU supports AVX instructions".into()
         } else {
-            "CPU does not support AVX — required by Star Citizen".into()
+            "CPU does not support AVX - required by Star Citizen".into()
         },
         fixable: false,
     }
@@ -255,7 +255,7 @@ fn check_vulkan() -> CheckResult {
         } else if has_libvulkan {
             "libvulkan.so.1 found (vulkaninfo not installed)".into()
         } else {
-            "No Vulkan runtime detected — install your GPU's Vulkan driver".into()
+            "No Vulkan runtime detected - install your GPU's Vulkan driver".into()
         },
         fixable: false,
     }

@@ -6,7 +6,7 @@
 
 <p align="center">
   A Linux management tool for Star Citizen.<br>
-  Install, configure, and launch Star Citizen with Wine/Proton — no terminal required.
+  Install, configure, and launch Star Citizen with Wine/Proton - no terminal required.
 </p>
 
 <p align="center">
@@ -21,7 +21,7 @@
 
 <p align="center">
   <img src="docs/star-control.de/assets/screenshots/dashboard.png" alt="Command Center" width="720"><br>
-  <em>Command Center — RSI news, server status, and community stats at a glance</em>
+  <em>Command Center - RSI news, server status, and community stats at a glance</em>
 </p>
 
 <details>
@@ -31,70 +31,70 @@
 
 <p align="center">
   <img src="docs/star-control.de/assets/screenshots/launch.png" alt="Launch" width="720"><br>
-  <em>Launch — One-click start with performance options and experimental Wayland support</em>
+  <em>Launch - One-click start with performance options and experimental Wayland support</em>
 </p>
 
 <p align="center">
   <img src="docs/star-control.de/assets/screenshots/system-check.png" alt="System Check" width="720"><br>
-  <em>Installation — Automated system compatibility check</em>
+  <em>Installation - Automated system compatibility check</em>
 </p>
 
 <p align="center">
   <img src="docs/star-control.de/assets/screenshots/configuration.png" alt="Configuration" width="720"><br>
-  <em>Configuration — Install directory, Wine runner, and performance options</em>
+  <em>Configuration - Install directory, Wine runner, and performance options</em>
 </p>
 
 <p align="center">
   <img src="docs/star-control.de/assets/screenshots/installation.png" alt="Installation" width="720"><br>
-  <em>Installation — Automated Wine prefix setup and RSI Launcher download</em>
+  <em>Installation - Automated Wine prefix setup and RSI Launcher download</em>
 </p>
 
 <p align="center">
   <img src="docs/star-control.de/assets/screenshots/wine-runners.png" alt="Wine Runners" width="720"><br>
-  <em>Wine Runners — Download runners, manage DXVK, and access prefix tools</em>
+  <em>Wine Runners - Download runners, manage DXVK, and access prefix tools</em>
 </p>
 
 <p align="center">
   <img src="docs/star-control.de/assets/screenshots/profiles.png" alt="Profiles" width="720"><br>
-  <em>Profiles — Backup and restore Star Citizen profiles and USER.cfg settings</em>
+  <em>Profiles - Backup and restore Star Citizen profiles and USER.cfg settings</em>
 </p>
 
 <p align="center">
   <img src="docs/star-control.de/assets/screenshots/usercfg-editor.png" alt="USER.cfg Editor" width="720"><br>
-  <em>USER.cfg Editor — Visual editor for graphics and performance settings</em>
+  <em>USER.cfg Editor - Visual editor for graphics and performance settings</em>
 </p>
 
 <p align="center">
   <img src="docs/star-control.de/assets/screenshots/controllers.png" alt="Controllers" width="720"><br>
-  <em>Controllers — Profile manager, connected devices, keybindings, and joystick reordering</em>
+  <em>Controllers - Profile manager, connected devices, keybindings, and joystick reordering</em>
 </p>
 
 <p align="center">
   <img src="docs/star-control.de/assets/screenshots/localization.png" alt="Localization" width="720"><br>
-  <em>Localization — Install community translations with one click</em>
+  <em>Localization - Install community translations with one click</em>
 </p>
 
 <p align="center">
   <img src="docs/star-control.de/assets/screenshots/about.png" alt="About" width="720"><br>
-  <em>About — Version info, links, and credits</em>
+  <em>About - Version info, links, and credits</em>
 </p>
 
 </details>
 
 ## Features
 
-- **Quick Install** — Automatically detects existing RSI Launcher installations and offers Quick Install (skip RSI Launcher download) or Full Reinstall
-- **Command Center** — Live dashboard with RSI news, server status, and community funding stats
-- **Installation Wizard** — System compatibility check, automated Wine prefix setup, and RSI Launcher installation
-- **Launch Manager** — One-click launch with configurable performance options (ESync, FSync, DXVK Async, DXVK HUD, HDR, FSR, MangoHUD) and experimental Wayland support
-- **Wine Runner Management** — Download and manage Wine/Proton runners from multiple community sources (LUG, LUG Experimental, Kron4ek, RawFox, Mactan)
-- **DXVK Management** — Install and update DXVK versions with automatic DLL deployment
-- **Profile Management** — Backup and restore Star Citizen profiles (actionmaps.xml, attributes.xml, USER.cfg)
-- **Controllers Page** — View connected devices, keybindings, reorder joystick instances, and manage binding profiles with import/export from Star Citizen
-- **USER.cfg Editor** — Visual editor for all Star Citizen graphics, performance, and quality settings
-- **Localization** — Install community translations with one click, with automatic update detection
-- **Prefix Tools** — Winecfg, Wine Shell, DPI scaling, PowerShell installation via winetricks
-- **Multi-version Support** — Manage LIVE, PTU, EPTU, and other Star Citizen channels
+- **Quick Install** - Automatically detects existing RSI Launcher installations and offers Quick Install (skip RSI Launcher download) or Full Reinstall
+- **Command Center** - Live dashboard with RSI news, server status, and community funding stats
+- **Installation Wizard** - System compatibility check, automated Wine prefix setup, and RSI Launcher installation
+- **Launch Manager** - One-click launch with configurable performance options (ESync, FSync, DXVK Async, DXVK HUD, HDR, FSR, MangoHUD) and experimental Wayland support
+- **Wine Runner Management** - Download and manage Wine/Proton runners from multiple community sources (LUG, LUG Experimental, Kron4ek, RawFox, Mactan)
+- **DXVK Management** - Install and update DXVK versions with automatic DLL deployment
+- **Profile Management** - Backup and restore Star Citizen profiles (actionmaps.xml, attributes.xml, USER.cfg)
+- **Controllers Page** - View connected devices, keybindings, reorder joystick instances, and manage binding profiles with import/export from Star Citizen
+- **USER.cfg Editor** - Visual editor for all Star Citizen graphics, performance, and quality settings
+- **Localization** - Install community translations with one click, with automatic update detection
+- **Prefix Tools** - Winecfg, Wine Shell, DPI scaling, PowerShell installation via winetricks
+- **Multi-version Support** - Manage LIVE, PTU, EPTU, and other Star Citizen channels
 
 ## Installation
 
@@ -151,7 +151,7 @@ mv Star-Control_*.AppImage ~/Applications/
 - **Linux** (tested on Arch Linux, should work on most distributions)
 - **Rust** 1.70+
 - **Node.js** 18+
-- **Tauri system dependencies** — see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
+- **Tauri system dependencies** - see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
 
 #### Steps
 
@@ -218,9 +218,9 @@ Contributions are welcome!
 
 ## Credits
 
-- [LUG Helper](https://github.com/starcitizen-lug/lug-helper) — Star Citizen LUG Helper script
-- [luftwerft.com](https://luftwerft.com) — SC Launcher Configurator
-- [Star Citizen LUG Wiki](https://wiki.starcitizen-lug.org/) — Community knowledge base
+- [LUG Helper](https://github.com/starcitizen-lug/lug-helper) - Star Citizen LUG Helper script
+- [luftwerft.com](https://luftwerft.com) - SC Launcher Configurator
+- [Star Citizen LUG Wiki](https://wiki.starcitizen-lug.org/) - Community knowledge base
 
 Star Citizen is a registered trademark of Cloud Imperium Games Corporation. Star Control is not affiliated with or endorsed by Cloud Imperium Games.
 

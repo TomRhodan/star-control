@@ -31,7 +31,7 @@ pub struct LanguageSource {
     pub language_code: String,
     /// Display name of the language (e.g., "Deutsch")
     pub language_name: String,
-    /// Country flag abbreviation (e.g., "DE") — displayed as an emoji flag in the frontend
+    /// Country flag abbreviation (e.g., "DE") - displayed as an emoji flag in the frontend
     pub flag: String,
     /// GitHub repository path (e.g., "Dymerz/StarCitizen-Localization")
     pub source_repo: String,
@@ -99,13 +99,13 @@ struct LocalizationMeta {
     source_label: String,
     installed_at: String,
     file_size: u64,
-    /// Commit SHA — with serde(default) because older installations did not have this field
+    /// Commit SHA - with serde(default) because older installations did not have this field
     #[serde(default)]
     commit_sha: Option<String>,
-    /// Commit date — also added retroactively
+    /// Commit date - also added retroactively
     #[serde(default)]
     commit_date: Option<String>,
-    /// Source repository — added retroactively for update checking
+    /// Source repository - added retroactively for update checking
     #[serde(default)]
     source_repo: Option<String>,
 }
@@ -559,7 +559,7 @@ pub async fn check_localization_update(
 ) -> Result<LocalizationUpdateCheck, String> {
     let meta = load_meta(&version).ok_or_else(|| "No localization installed".to_string())?;
 
-    // Older installations do not have a commit_sha stored —
+    // Older installations do not have a commit_sha stored -
     // in this case an update is always recommended
     let local_sha = meta.commit_sha.clone();
     if local_sha.is_none() {
@@ -571,7 +571,7 @@ pub async fn check_localization_update(
         });
     }
 
-    // Determine source repository — for older installations it must be
+    // Determine source repository - for older installations it must be
     // resolved via the available languages
     let source_repo = meta.source_repo.clone().unwrap_or_else(|| {
         let languages = get_available_languages_sync();
@@ -907,13 +907,13 @@ pub async fn install_localization(
 /// the number of GitHub API calls. Can be forced to ignore the cache
 /// and fetch fresh data via `force_refresh`.
 ///
-/// Results are deduplicated — each unique combination of
+/// Results are deduplicated - each unique combination of
 /// repository and language code is only queried once.
 #[tauri::command]
 pub async fn fetch_remote_language_info(
     force_refresh: bool,
 ) -> Result<Vec<RemoteLanguageInfo>, String> {
-    // Check the cache first — if it is still fresh, use it
+    // Check the cache first - if it is still fresh, use it
     if !force_refresh {
         if let Some(cache) = load_remote_cache() {
             if is_cache_fresh(&cache, 30) {
@@ -987,7 +987,7 @@ pub async fn fetch_remote_language_info(
 pub async fn remove_localization(game_path: String, version: String) -> Result<(), String> {
     let expanded = expand_tilde(&game_path);
 
-    // Determine language code — first from metadata, then from USER.cfg as fallback
+    // Determine language code - first from metadata, then from USER.cfg as fallback
     let language_code = if let Some(meta) = load_meta(&version) {
         meta.language_code
     } else {

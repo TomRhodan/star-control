@@ -38,13 +38,13 @@ fn uuid_to_hex(uuid: [u8; 16]) -> String {
 /// Serialized as JSON for the frontend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectedDevice {
-    /// Linux UUID from gilrs — unique per physical device
+    /// Linux UUID from gilrs - unique per physical device
     pub linux_uuid: String,
     /// Human-readable product name (e.g. "VKB Gladiator NXT")
     pub product_name: String,
     /// Device type: "joystick", "gamepad", "keyboard", "mouse"
     pub device_type: String,
-    /// Current joystick instance number (js1, js2, etc.) — may change on reconnection
+    /// Current joystick instance number (js1, js2, etc.) - may change on reconnection
     pub instance: u32,
 }
 
@@ -53,7 +53,7 @@ pub struct ConnectedDevice {
 /// the captured input to a binding.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CapturedInput {
-    /// Linux UUID from gilrs — primary device identifier
+    /// Linux UUID from gilrs - primary device identifier
     pub linux_uuid: String,
     /// Human-readable product name
     pub product_name: String,
@@ -102,7 +102,7 @@ pub fn list_connected_devices() -> Result<Vec<ConnectedDevice>, String> {
 /// The thread runs until `stop_input_capture()` is called.
 #[tauri::command]
 pub fn start_input_capture(app: AppHandle) {
-    // Prevent double start — if already capturing, return immediately
+    // Prevent double start - if already capturing, return immediately
     if IS_CAPTURING.load(Ordering::SeqCst) {
         return;
     }
@@ -136,11 +136,11 @@ pub fn start_input_capture(app: AppHandle) {
                     ));
                 }
 
-                // Main capture loop — runs until IS_CAPTURING is set to false
+                // Main capture loop - runs until IS_CAPTURING is set to false
                 while capturing.load(Ordering::SeqCst) {
                     // Process all pending events from the gilrs queue
                     while let Some(Event { id, event, .. }) = gilrs.next_event() {
-                        // Look up device information — if the device is not in the map
+                        // Look up device information - if the device is not in the map
                         // (e.g. because it was connected after capture started), it is
                         // queried now and added to the map
                         let (linux_uuid, product_name, instance) = if
@@ -167,10 +167,10 @@ pub fn start_input_capture(app: AppHandle) {
                             // Process button press events
                             EventType::ButtonPressed(button, code) => {
                                 let btn_name = if button != Button::Unknown {
-                                    // Known button — convert to SC format via the mapping function
+                                    // Known button - convert to SC format via the mapping function
                                     format_gilrs_button(button)
                                 } else {
-                                    // Unknown button — evaluate the hardware code directly.
+                                    // Unknown button - evaluate the hardware code directly.
                                     // Gilrs does not recognize all buttons on specialized joysticks,
                                     // so we need to parse the raw code and map it manually.
                                     let code_str = format!("{:?}", code);

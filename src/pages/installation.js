@@ -25,10 +25,10 @@ import { escapeHtml } from '../utils.js';
  */
 const CHECK_ITEMS = [
   { id: 'memory', name: 'Memory', icon: '', tooltip: 'Star Citizen requires at least 16 GB RAM' },
-  { id: 'avx', name: 'AVX Support', icon: '', tooltip: 'Advanced Vector Extensions — required by CryEngine' },
-  { id: 'mapcount', name: 'vm.max_map_count', icon: '', tooltip: 'Kernel parameter for memory-mapped files — Wine needs a high value' },
+  { id: 'avx', name: 'AVX Support', icon: '', tooltip: 'Advanced Vector Extensions - required by CryEngine' },
+  { id: 'mapcount', name: 'vm.max_map_count', icon: '', tooltip: 'Kernel parameter for memory-mapped files - Wine needs a high value' },
   { id: 'filelimit', name: 'File Descriptor Limit', icon: '', tooltip: 'Maximum number of open file descriptors per process' },
-  { id: 'vulkan', name: 'Vulkan Support', icon: '', tooltip: 'Vulkan graphics API — required for DXVK translation' },
+  { id: 'vulkan', name: 'Vulkan Support', icon: '', tooltip: 'Vulkan graphics API - required for DXVK translation' },
   { id: 'diskspace', name: 'Disk Space', icon: '', tooltip: 'At least 100 GB free space recommended' },
 ];
 
@@ -131,7 +131,7 @@ export async function renderInstallation(container) {
   try {
     await invoke('import_lug_helper_sources');
   } catch (e) {
-    // Ignore errors — we use cached/default sources
+    // Ignore errors - we use cached/default sources
   }
 
   // Load saved configuration (must complete before rendering)
@@ -535,14 +535,14 @@ function renderStep2(body) {
       <h4 class="config-section-title">Performance Options</h4>
       <div class="perf-options">
         ${renderPerfGroup('Performance', [
-          renderToggle('esync', 'ESync', 'Eventfd-based synchronization — reduces CPU overhead in Wine', configState.performance.esync),
-          renderToggle('fsync', 'FSync', 'Futex-based synchronization — faster than ESync on supported kernels', configState.performance.fsync),
-          renderToggle('dxvk_async', 'DXVK Async', 'Asynchronous shader compilation — reduces stutter', configState.performance.dxvk_async),
+          renderToggle('esync', 'ESync', 'Eventfd-based synchronization - reduces CPU overhead in Wine', configState.performance.esync),
+          renderToggle('fsync', 'FSync', 'Futex-based synchronization - faster than ESync on supported kernels', configState.performance.fsync),
+          renderToggle('dxvk_async', 'DXVK Async', 'Asynchronous shader compilation - reduces stutter', configState.performance.dxvk_async),
         ])}
         ${renderPerfGroup('Display', [
           // Wayland is blocked when fractional scaling is detected
           fractionalScaling
-            ? renderBlockedToggle('wayland', 'Wayland', 'Fractional scaling detected — Wayland mode is not compatible. Set all monitors to 100% scale to use this option.')
+            ? renderBlockedToggle('wayland', 'Wayland', 'Fractional scaling detected - Wayland mode is not compatible. Set all monitors to 100% scale to use this option.')
             : renderToggle('wayland', 'Wayland', 'Enable Wayland protocol support in Wine', configState.performance.wayland),
           renderToggle('hdr', 'HDR', 'High Dynamic Range rendering (PROTON_ENABLE_HDR + DXVK_HDR)', configState.performance.hdr),
           renderToggle('fsr', 'FSR', 'AMD FidelityFX Super Resolution 4 upscaling', configState.performance.fsr),

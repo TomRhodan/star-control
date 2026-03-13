@@ -47,9 +47,9 @@ let unlistenLaunchExited = null;
 const LAUNCH_OPTIONS = [
   {
     group: 'Performance', options: [
-      { key: 'esync', label: 'ESync', tooltip: 'Eventfd-based synchronization — reduces CPU overhead in Wine' },
-      { key: 'fsync', label: 'FSync', tooltip: 'Futex-based synchronization — faster than ESync on supported kernels' },
-      { key: 'dxvk_async', label: 'DXVK Async', tooltip: 'Asynchronous shader compilation — reduces stutter' },
+      { key: 'esync', label: 'ESync', tooltip: 'Eventfd-based synchronization - reduces CPU overhead in Wine' },
+      { key: 'fsync', label: 'FSync', tooltip: 'Futex-based synchronization - faster than ESync on supported kernels' },
+      { key: 'dxvk_async', label: 'DXVK Async', tooltip: 'Asynchronous shader compilation - reduces stutter' },
     ]
   },
   {
@@ -298,7 +298,7 @@ function renderLaunchStatus() {
   }
 
   if (launchStatus === 'running') {
-    return '<div class="launch-status running">RSI Launcher is running — press Stop to close</div>';
+    return '<div class="launch-status running">RSI Launcher is running - press Stop to close</div>';
   }
 
   if (launchStatus === 'checking') {
@@ -356,7 +356,7 @@ function renderOptionsGrid() {
   const fractional = hasFractionalScaling();
 
   const waylandTooltip = fractional
-    ? 'Fractional scaling detected — Wayland mode is not compatible and has been disabled. Set all monitors to 100% scale to use this option.'
+    ? 'Fractional scaling detected - Wayland mode is not compatible and has been disabled. Set all monitors to 100% scale to use this option.'
     : 'Enable Wayland protocol support in Wine';
 
   return `
@@ -394,7 +394,7 @@ function renderOptionsGrid() {
         </label>
         ${renderMonitorSelect(disabled, perf)}
       </div>
-      ${fractional ? '<div class="launch-scaling-warning">Fractional scaling active — Wayland mode disabled</div>' : ''}
+      ${fractional ? '<div class="launch-scaling-warning">Fractional scaling active - Wayland mode disabled</div>' : ''}
     </div>
     ${renderCustomEnvVars(disabled)}
   `;
@@ -703,7 +703,7 @@ async function onLaunch(container) {
   try {
     await invoke('save_config', { config: launchConfig });
   } catch (e) {
-    // Not critical — game can still start
+    // Not critical - game can still start
   }
 
   // Check localization before launch and automatically update if needed

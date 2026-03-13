@@ -24,7 +24,7 @@ pub struct CustomEnvVar {
     pub key: String,
     /// Value of the environment variable (e.g. "-all")
     pub value: String,
-    /// Whether this variable is active — disabled variables are ignored at launch
+    /// Whether this variable is active - disabled variables are ignored at launch
     pub enabled: bool,
 }
 
@@ -35,21 +35,21 @@ pub struct CustomEnvVar {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct PerformanceSettings {
-    /// Eventfd-based synchronization — reduces overhead for multithreading
+    /// Eventfd-based synchronization - reduces overhead for multithreading
     pub esync: bool,
-    /// Futex-based synchronization (Linux 5.16+) — faster than esync
+    /// Futex-based synchronization (Linux 5.16+) - faster than esync
     pub fsync: bool,
-    /// Asynchronous shader compilation via DXVK — prevents shader stuttering
+    /// Asynchronous shader compilation via DXVK - prevents shader stuttering
     pub dxvk_async: bool,
-    /// Show MangoHud overlay — displays FPS, GPU/CPU load, etc.
+    /// Show MangoHud overlay - displays FPS, GPU/CPU load, etc.
     pub mangohud: bool,
-    /// Show DXVK's own HUD — displays basic Vulkan/DXVK statistics
+    /// Show DXVK's own HUD - displays basic Vulkan/DXVK statistics
     pub dxvk_hud: bool,
     /// Native Wayland execution instead of X11/XWayland
     pub wayland: bool,
     /// Enable HDR mode (experimental, requires Wayland + HDR-capable monitor)
     pub hdr: bool,
-    /// AMD FidelityFX Super Resolution — upscaling for performance improvement
+    /// AMD FidelityFX Super Resolution - upscaling for performance improvement
     pub fsr: bool,
     /// Primary monitor for fullscreen mode (e.g. "DP-1", "HDMI-A-1")
     pub primary_monitor: Option<String>,
@@ -170,7 +170,7 @@ pub struct CachedRunner {
     pub download_url: String,
     /// File name of the archive (e.g. "wine-lug-9.0.tar.xz")
     pub file_name: String,
-    /// File size in bytes — used for the download progress indicator
+    /// File size in bytes - used for the download progress indicator
     pub size_bytes: u64,
 }
 
@@ -190,7 +190,7 @@ pub struct CachedDxvkRelease {
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct RunnerCache {
     pub runners: Vec<CachedRunner>,
-    /// Unix timestamp of the last cache update — enables expiration checking
+    /// Unix timestamp of the last cache update - enables expiration checking
     pub cached_at: u64,
 }
 
@@ -276,7 +276,7 @@ fn find_existing_parent(path: &str) -> String {
                 p = parent;
             }
             None => {
-                // No more parent directories found — fallback to root
+                // No more parent directories found - fallback to root
                 return "/".into();
             }
         }
@@ -488,7 +488,7 @@ pub async fn scan_runners(base_path: String) -> Result<ScanRunnersResult, String
                             continue;
                         }
 
-                        // Check if bin/wine exists — this is the identifying marker
+                        // Check if bin/wine exists - this is the identifying marker
                         let wine_exe = entry_path.join("bin").join("wine");
                         if wine_exe.exists() {
                             let name = entry_path
@@ -584,7 +584,7 @@ pub async fn save_config(config: AppConfig) -> Result<(), String> {
                     ..config
                 }
             } else {
-                // No existing configuration — use provided values,
+                // No existing configuration - use provided values,
                 // fill in missing fields with defaults
                 AppConfig {
                     runner_sources: if config.runner_sources.is_empty() {
@@ -856,7 +856,7 @@ pub async fn load_dxvk_cache() -> Result<DxvkCache, String> {
 
 /// Saves the DXVK release data to the cache with the current timestamp.
 ///
-/// Works analogously to `save_runner_cache` — loads the existing cache,
+/// Works analogously to `save_runner_cache` - loads the existing cache,
 /// updates only the DXVK part, and preserves the runner cache.
 #[tauri::command]
 pub async fn save_dxvk_cache(releases: Vec<CachedDxvkRelease>) -> Result<(), String> {
@@ -955,7 +955,7 @@ pub async fn add_runner_source_from_github(
         return Err("API URL cannot be empty".into());
     }
 
-    // Check URL format — only GitHub API URLs are supported
+    // Check URL format - only GitHub API URLs are supported
     let parsed_url = reqwest::Url::parse(&api_url).map_err(|_| {
         "URL must be a valid GitHub API URL (e.g., https://api.github.com/repos/owner/repo/releases)".to_string()
     })?;

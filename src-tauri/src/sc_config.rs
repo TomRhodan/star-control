@@ -49,9 +49,9 @@ pub struct ScDeviceOptions {
 pub struct ScDeviceOption {
     /// Input identifier (e.g. "x" for X-axis)
     pub input: String,
-    /// Deadzone — range around the center position where no input is registered
+    /// Deadzone - range around the center position where no input is registered
     pub deadzone: Option<f64>,
-    /// Saturation — maximum deflection of the axis
+    /// Saturation - maximum deflection of the axis
     pub saturation: Option<f64>,
 }
 
@@ -61,7 +61,7 @@ pub struct ScDeviceOption {
 pub struct ScDevice {
     /// Device type: "joystick", "keyboard", "mouse" or "gamepad"
     pub device_type: String,
-    /// SC instance number — determines the prefix in bindings (e.g. js1_, js2_)
+    /// SC instance number - determines the prefix in bindings (e.g. js1_, js2_)
     pub instance: u32,
     /// Product name of the device (e.g. "VPC Constellation ALPHA-R")
     pub product: String,
@@ -99,7 +99,7 @@ pub struct ScActionMap {
 /// Corresponds to the `<ActionProfiles>` element in actionmaps.xml.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ScActionProfile {
-    /// Profile name — usually "default"
+    /// Profile name - usually "default"
     pub profile_name: String,
     pub version: String,
     pub options_version: String,
@@ -147,7 +147,7 @@ pub struct ScAttribute {
     pub value: String,
 }
 
-/// Parsed attributes.xml — contains game settings like graphics options and control parameters.
+/// Parsed attributes.xml - contains game settings like graphics options and control parameters.
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct ScAttributes {
     pub version: String,
@@ -196,7 +196,7 @@ pub struct VersionImportInfo {
     pub score: u32,
 }
 
-/// Result of a version import — counts the copied files per category.
+/// Result of a version import - counts the copied files per category.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ImportResult {
     pub profiles_copied: u32,
@@ -623,7 +623,7 @@ fn find_central_directory(file: &mut File, file_length: u64) -> Result<(u64, u64
 
     for i in (0..search_size.saturating_sub(4)).rev() {
         if &buffer[i..i + 4] == b"PK\x06\x07" {
-            // Found ZIP64 EOCD locator — read offset to EOCD64 record
+            // Found ZIP64 EOCD locator - read offset to EOCD64 record
             file
                 .seek(SeekFrom::Start(file_length - (search_size as u64) + (i as u64) + 8))
                 .map_err(|e| format!("Failed to seek to EOCD64 locator: {}", e))?;
@@ -838,7 +838,7 @@ fn traverse_xml_node(
     let tag_offset = u32::from_le_bytes(node_data[0..4].try_into().unwrap_or_default()) as usize;
     let tag = read_c_string(string_table, tag_offset).to_lowercase();
 
-    // Skip Xbox/Gamepad nodes — only PC bindings are relevant
+    // Skip Xbox/Gamepad nodes - only PC bindings are relevant
     if tag == "xboxone" || tag == "gamepad" {
         return;
     }
@@ -1398,7 +1398,7 @@ pub async fn get_master_bindings(gp: String, v: String) -> Result<ParsedActionMa
 /// Labels are cached to avoid re-reading the P4K on every call.
 /// The cache is invalidated when the size or modification time of the P4K changes.
 ///
-/// The global.ini may be UTF-16LE encoded (with BOM 0xFF 0xFE) — in that case
+/// The global.ini may be UTF-16LE encoded (with BOM 0xFF 0xFE) - in that case
 /// it is converted before parsing. Without BOM, UTF-8 is assumed.
 ///
 /// Returns a map of localization keys to translated strings.
@@ -2496,7 +2496,7 @@ pub async fn restore_profile(gp: String, v: String, bid: String) -> Result<(), S
 /// Imports settings from another SC version as a new saved profile.
 /// If `bid` is specified, copies from the saved profile;
 /// otherwise from the live SC files of the source version.
-/// Does NOT overwrite SC files — only creates a new profile that the user can then load.
+/// Does NOT overwrite SC files - only creates a new profile that the user can then load.
 #[tauri::command]
 pub async fn import_version_as_profile(
     gp: String,
@@ -2847,7 +2847,7 @@ pub async fn get_file_diff(file: String, gp: String, v: String, bid: String) -> 
     Ok(lines)
 }
 
-/// Path to active_profiles.json — stores which profile is active per SC version.
+/// Path to active_profiles.json - stores which profile is active per SC version.
 fn active_profiles_path() -> Result<std::path::PathBuf, String> {
     Ok(dirs::config_dir().ok_or("No config dir")?.join("star-control/active_profiles.json"))
 }

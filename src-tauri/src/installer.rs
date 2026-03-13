@@ -89,7 +89,7 @@ fn is_cancelled() -> bool {
 ///
 /// Stdout and stderr are read in separate threads to avoid pipe deadlocks.
 /// A deadlock occurs when the child process fills the stderr buffer while we
-/// are blocking on stdout — the process cannot write further and
+/// are blocking on stdout - the process cannot write further and
 /// both sides hang.
 fn stream_command_output(
     app: &AppHandle,
@@ -142,7 +142,7 @@ fn configure_wine_env(
 
     // Basic Wine environment variables
     vars.push(("WINEPREFIX".into(), install_path.into()));
-    // Disable winemenubuilder.exe and winedbg.exe — otherwise creates
+    // Disable winemenubuilder.exe and winedbg.exe - otherwise creates
     // unwanted desktop entries and starts the debugger on errors
     vars.push(("WINEDLLOVERRIDES".into(), "winemenubuilder.exe=d;winedbg.exe=d".into()));
 
@@ -162,17 +162,17 @@ fn configure_wine_env(
     if perf.fsync {
         vars.push(("WINEFSYNC".into(), "1".into()));
     }
-    // DXVK Async allows asynchronous shader compilation — prevents micro-stuttering
+    // DXVK Async allows asynchronous shader compilation - prevents micro-stuttering
     if perf.dxvk_async {
         vars.push(("DXVK_ASYNC".into(), "1".into()));
     }
 
-    // Display settings — Wayland support
+    // Display settings - Wayland support
     if perf.wayland {
         vars.push(("PROTON_ENABLE_WAYLAND".into(), "1".into())); // For Proton runners
         // For pure Wine runners: remove DISPLAY entirely so the X11 driver initialization
         // fails and the Wayland driver takes over.
-        // DISPLAY="" is not enough — getenv("DISPLAY") still returns a
+        // DISPLAY="" is not enough - getenv("DISPLAY") still returns a
         // non-NULL pointer and Wine tries X11 anyway.
         vars.push(("DISPLAY".into(), "(removed)".to_string())); // Only logged, not set
     }
@@ -181,7 +181,7 @@ fn configure_wine_env(
         vars.push(("PROTON_ENABLE_HDR".into(), "1".into()));
         vars.push(("DXVK_HDR".into(), "1".into()));
     }
-    // AMD FidelityFX Super Resolution 4 — automatic upscaling for better performance
+    // AMD FidelityFX Super Resolution 4 - automatic upscaling for better performance
     if perf.fsr {
         vars.push(("PROTON_FSR4_UPGRADE".into(), "1".into()));
     }
@@ -195,7 +195,7 @@ fn configure_wine_env(
     if perf.mangohud {
         vars.push(("MANGOHUD".into(), "1".into()));
     }
-    // DXVK's own HUD — displays FPS and shader compilation status
+    // DXVK's own HUD - displays FPS and shader compilation status
     if perf.dxvk_hud {
         vars.push(("DXVK_HUD".into(), "fps,compiler".into()));
     }
@@ -229,7 +229,7 @@ fn configure_wine_env(
     // Apply all collected environment variables to the command
     for (key, val) in &vars {
         if key == "DISPLAY" {
-            // Remove DISPLAY entirely instead of setting it empty — needed for Wayland
+            // Remove DISPLAY entirely instead of setting it empty - needed for Wayland
             cmd.env_remove("DISPLAY");
         } else {
             cmd.env(key, val);
@@ -270,7 +270,7 @@ pub fn check_installation(config: AppConfig) -> InstallationStatus {
     } else if !has_runner {
         format!("Runner '{}' not found", runner_name.as_deref().unwrap_or(""))
     } else if !launcher_exe_exists {
-        "RSI Launcher not found — please run installation first".to_string()
+        "RSI Launcher not found - please run installation first".to_string()
     } else {
         "Ready to launch".to_string()
     };
@@ -323,12 +323,12 @@ pub async fn launch_game(app: AppHandle, config: AppConfig) -> Result<(), String
         .join("RSI Launcher.exe");
 
     if !launcher_exe.exists() {
-        return Err("RSI Launcher not found — please run installation first".to_string());
+        return Err("RSI Launcher not found - please run installation first".to_string());
     }
 
     // --- Log: Header for the launch console in the frontend ---
     let _ = app.emit("launch-log", "────────────────────────────────────────");
-    let _ = app.emit("launch-log", "  Star Control — Launch");
+    let _ = app.emit("launch-log", "  Star Control - Launch");
     let _ = app.emit("launch-log", "────────────────────────────────────────");
 
     // --- Log: Output runner and paths for diagnostics ---
@@ -372,7 +372,7 @@ pub async fn launch_game(app: AppHandle, config: AppConfig) -> Result<(), String
         if val.is_empty() {
             let _ = app.emit(
                 "launch-log",
-                &format!("  {}=\"\" (cleared — forcing Wayland driver)", key)
+                &format!("  {}=\"\" (cleared - forcing Wayland driver)", key)
             );
         } else {
             let _ = app.emit("launch-log", &format!("  {}={}", key, val));
@@ -423,7 +423,7 @@ pub async fn launch_game(app: AppHandle, config: AppConfig) -> Result<(), String
         );
     }
 
-    // The RSI Launcher is an Electron app — piping keeps
+    // The RSI Launcher is an Electron app - piping keeps
     // the child handles open and prevents detection of process termination.
     // Therefore redirect stdout/stderr to /dev/null.
     cmd.stdout(Stdio::null()).stderr(Stdio::null());
@@ -442,7 +442,7 @@ pub async fn launch_game(app: AppHandle, config: AppConfig) -> Result<(), String
         *guard = Some((pid, install_path.clone()));
     }
 
-    // Monitor child process in the background — when the launcher exits,
+    // Monitor child process in the background - when the launcher exits,
     // the thread sends a "launch-exited" event to the frontend
     std::thread::spawn(move || {
         let status = child.wait();
@@ -479,7 +479,7 @@ pub async fn stop_game(app: AppHandle) -> Result<(), String> {
     let _ = app.emit("launch-log", "");
     let _ = app.emit("launch-log", &format!("> Stopping game process (PID: {})...", pid));
 
-    // Send SIGTERM — gives the process a chance to shut down cleanly
+    // Send SIGTERM - gives the process a chance to shut down cleanly
     let _ = Command::new("kill").arg("-TERM").arg(pid.to_string()).output();
 
     // Wait 2 seconds, then SIGKILL if the process is still alive
@@ -502,7 +502,7 @@ pub async fn stop_game(app: AppHandle) -> Result<(), String> {
         }
     }
 
-    // Clear stored PID — the game is no longer running
+    // Clear stored PID - the game is no longer running
     if let Ok(mut guard) = GAME_PID.lock() {
         *guard = None;
     }
@@ -735,7 +735,7 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
     }
 
     // ── Phase 3: Install DXVK (45–60%) ──
-    // DXVK translates Direct3D 9/10/11 calls to Vulkan — essential for
+    // DXVK translates Direct3D 9/10/11 calls to Vulkan - essential for
     // graphics performance on Linux since Vulkan communicates directly with the GPU.
     emit_progress(
         &app,
@@ -997,7 +997,7 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
             "Downloading latest.yml..."
         );
 
-        // Download latest.yml from RSI — contains the filename of the current installer version
+        // Download latest.yml from RSI - contains the filename of the current installer version
         let latest_yml = client
             .get("https://install.robertsspaceindustries.com/rel/2/latest.yml")
             .send().await
@@ -1044,7 +1044,7 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
             .send().await
             .map_err(|e| format!("Failed to download RSI Launcher: {}", e))?;
 
-        // Streaming download with progress display — the file is downloaded
+        // Streaming download with progress display - the file is downloaded
         // and written in chunks instead of loading everything into memory
         let total_bytes = response.content_length().unwrap_or(0);
         let mut downloaded: u64 = 0;
@@ -1155,7 +1155,7 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
             "Waiting for installer to finish..."
         );
 
-        // Monitor installer with timeout — the NSIS installer may block
+        // Monitor installer with timeout - the NSIS installer may block
         // because it waits for its child process (RSI Launcher)
         let install_timeout = std::time::Duration::from_secs(120);
         let install_start = std::time::Instant::now();
@@ -1316,7 +1316,7 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
 
     emit_progress(&app, "complete", "RSI Launcher started", 100.0, "RSI Launcher is now running");
 
-    // Monitor child process in the background — send exit event when terminated
+    // Monitor child process in the background - send exit event when terminated
     let bg_app = app.clone();
     std::thread::spawn(move || {
         let status = child.wait();

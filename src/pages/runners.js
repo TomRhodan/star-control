@@ -76,7 +76,7 @@ let unlistenPrefixLog = null;
 /** @type {boolean} Whether PowerShell is installed in the Wine prefix */
 let powershellInstalled = false;
 
-// Tracking which sections are still loading — controls the loading indicators
+// Tracking which sections are still loading - controls the loading indicators
 let loadingFlags = { installed: true, available: true, dxvk: true, dxvkReleases: true, dpi: true };
 
 // Cache state: Runner and DXVK data are cached (max. 1 hour)
@@ -179,7 +179,7 @@ function loadData(container) {
       loadingFlags.dxvkReleases = false;
     }
 
-    // Render skeleton — give the browser a frame to paint
+    // Render skeleton - give the browser a frame to paint
     renderPageSkeleton(container);
 
     // Double requestAnimationFrame: Only load data after the actual paint,
@@ -266,7 +266,7 @@ function syncAvailableRunners(container, forceRefresh) {
       patchSection('download-runners-slot', renderDownloadRunnersContent());
     });
   } else {
-    // Cache is current — use cached data directly
+    // Cache is current - use cached data directly
     if (config && config.runner_sources && config.runner_sources.length > 0) {
       availableSources = sortSources(config.runner_sources.map(s => s.name));
       availableRunners = runnerCache.runners.map(r => ({ ...r, installed: false }));
@@ -307,7 +307,7 @@ function syncAvailableRunners(container, forceRefresh) {
  * @param {boolean} forceRefresh - Forces re-fetching of online data
  */
 function fireDataFetches(container, forceRefresh = false) {
-  // Scan installed runners — must complete first,
+  // Scan installed runners - must complete first,
   // so the "installed" flags for online runners can be set correctly
   invoke('scan_runners', { basePath: config.install_path }).then(result => {
     if (activeContainer !== container) return;
@@ -349,7 +349,7 @@ function fireDataFetches(container, forceRefresh = false) {
     syncAvailableRunners(container, forceRefresh);
   });
 
-  // Start DXVK detection in parallel — checks which DXVK version is installed
+  // Start DXVK detection in parallel - checks which DXVK version is installed
   invoke('detect_dxvk_version', { basePath: config.install_path }).then(result => {
     if (activeContainer !== container) return;
     dxvkStatus = result;
@@ -387,7 +387,7 @@ function fireDataFetches(container, forceRefresh = false) {
       patchSection('dxvk-releases-slot', renderDxvkReleasesContent());
     });
   } else {
-    // Cache is current — display directly
+    // Cache is current - display directly
     loadingFlags.dxvkReleases = false;
     patchSection('dxvk-releases-slot', renderDxvkReleasesContent());
     bindDxvkEvents(container);
@@ -407,7 +407,7 @@ function fireDataFetches(container, forceRefresh = false) {
       bindPrefixToolEvents(container);
     });
 
-    // PowerShell detection is optional — errors are ignored
+    // PowerShell detection is optional - errors are ignored
     invoke('detect_powershell', { basePath: config.install_path }).then(result => {
       if (activeContainer !== container) return;
       powershellInstalled = result;

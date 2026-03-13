@@ -100,7 +100,7 @@ async fn fetch_rsi_news_inner() -> Result<
             Ok(Event::Start(ref e)) => {
                 let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
                 if name == "entry" {
-                    // Start a new entry — reset all fields
+                    // Start a new entry - reset all fields
                     in_entry = true;
                     current_title.clear();
                     current_summary.clear();
@@ -171,7 +171,7 @@ async fn fetch_rsi_news_inner() -> Result<
                     }
                 }
             }
-            // Closing tag — on </entry>, save the collected entry
+            // Closing tag - on </entry>, save the collected entry
             Ok(Event::End(ref e)) => {
                 let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
                 if name == "entry" {
@@ -214,7 +214,7 @@ async fn fetch_rsi_news_inner() -> Result<
             Ok(Event::Eof) => {
                 break;
             }
-            // On parse errors, break — the entries collected so far are still returned
+            // On parse errors, break - the entries collected so far are still returned
             Err(_) => {
                 break;
             }
@@ -258,7 +258,7 @@ fn format_relative_time(date_str: &str) -> String {
                 format!("{}mo ago", days / 30)
             }
         }
-        // Date could not be parsed — return an empty string
+        // Date could not be parsed - return an empty string
         Err(_) => String::new(),
     }
 }
@@ -369,7 +369,7 @@ async fn fetch_server_status_inner() -> Result<
             Ok(Event::End(ref e)) => {
                 let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
                 if name == "item" {
-                    // Incident fully parsed — add to the list
+                    // Incident fully parsed - add to the list
                     in_item = false;
                     incidents.push((
                         current_title.trim().to_string(),
@@ -418,11 +418,11 @@ async fn fetch_server_status_inner() -> Result<
                     (combined.contains("arena commander") || combined.contains("ac ")));
 
             if relevant {
-                // Ignore resolved incidents — component remains operational
+                // Ignore resolved incidents - component remains operational
                 if combined.contains("resolved") || combined.contains("completed") {
-                    // Already resolved — status remains "operational"
+                    // Already resolved - status remains "operational"
                 } else if combined.contains("major") || combined.contains("outage") {
-                    // Major outage — immediately mark as major_outage and break
+                    // Major outage - immediately mark as major_outage and break
                     status = "major_outage".to_string();
                     break;
                 } else if
@@ -463,7 +463,7 @@ struct StatsData {
     fans: u64,
 }
 
-/// Paginated API response — only used to determine the total number
+/// Paginated API response - only used to determine the total number
 /// of vehicles via `meta.total`, without loading all vehicle data.
 #[derive(Deserialize)]
 struct PaginatedResponse {
@@ -562,7 +562,7 @@ async fn fetch_community_stats_inner() -> Result<
     let (stats_result, vehicles_result) = tokio::join!(stats_fut, vehicles_fut);
 
     let stats = stats_result?;
-    // Vehicle fetch may fail — 0 is displayed in that case
+    // Vehicle fetch may fail - 0 is displayed in that case
     let vehicles_count = vehicles_result.map(|p| p.meta.total).unwrap_or(0);
 
     // Convert funds string to number
@@ -701,12 +701,12 @@ pub async fn fetch_community_stats_history(days: u32) -> StatsHistoryResult {
 async fn fetch_stats_history_inner(
     days: u32,
 ) -> Result<Vec<StatsDataPoint>, Box<dyn std::error::Error + Send + Sync>> {
-    // Check cache — return immediately if cache is still valid (< 1 hour old)
+    // Check cache - return immediately if cache is still valid (< 1 hour old)
     {
         let cache = STATS_HISTORY_CACHE.lock().unwrap();
         if let Some(ref cached) = *cache {
             if cached.fetched_at.elapsed() < std::time::Duration::from_secs(3600) {
-                // Cache is still valid — only trim to the requested time range
+                // Cache is still valid - only trim to the requested time range
                 let trimmed = trim_to_days(&cached.data, days);
                 return Ok(trimmed);
             }
@@ -733,14 +733,14 @@ async fn fetch_stats_history_inner(
         let date_key = item.timestamp.split('T').next().unwrap_or(&item.timestamp).to_string();
 
         if let Some(&idx) = seen.get(&date_key) {
-            // Date already seen — overwrite with the newer entry
+            // Date already seen - overwrite with the newer entry
             data_points[idx] = StatsDataPoint {
                 funds,
                 fans: item.fans,
                 timestamp: item.timestamp,
             };
         } else {
-            // New date — add entry and remember its position
+            // New date - add entry and remember its position
             seen.insert(date_key, data_points.len());
             data_points.push(StatsDataPoint {
                 funds,
