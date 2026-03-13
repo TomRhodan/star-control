@@ -173,6 +173,7 @@ nav {
 
 .nav-links {
   display: flex;
+  align-items: center;
   gap: 2rem;
   list-style: none;
 }
@@ -203,6 +204,38 @@ nav {
 
 .nav-links a:hover::after {
   width: 100%;
+}
+
+.nav-links a.lang-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid rgba(251, 146, 60, 0.4);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #fb923c;
+}
+
+.nav-links a.lang-switch svg {
+  opacity: 0.8;
+  stroke: #fb923c;
+}
+
+.nav-links a.lang-switch::after {
+  display: none;
+}
+
+.nav-links a.lang-switch:hover {
+  color: #f97316;
+  border-color: #fb923c;
+  background: rgba(251, 146, 60, 0.1);
+}
+
+.nav-links a.lang-switch:hover svg {
+  opacity: 1;
 }
 
 /* Hero Section */
@@ -496,21 +529,25 @@ section {
 }
 
 .download-options {
-  display: flex;
-  gap: 2rem;
-  justify-content: center;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.5rem;
   margin-top: 3rem;
+  max-width: 900px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .download-card {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 16px;
-  padding: 2.5rem;
-  min-width: 280px;
+  padding: 2rem 1.5rem;
   transition: all 0.4s ease;
   position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .download-card::before {
@@ -556,18 +593,26 @@ section {
 .download-card p {
   color: var(--text-secondary);
   font-size: 0.9rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: auto;
+  padding-bottom: 1.5rem;
 }
 
-.download-card .btn {
+.download-card code {
+  display: block;
   width: 100%;
-  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 0.6rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: var(--accent-cyan);
+  font-family: monospace;
+  text-align: center;
 }
 
-.download-note {
-  margin-top: 2rem;
-  color: var(--text-muted);
-  font-size: 0.9rem;
+.download-main-btn {
+  margin-top: 2.5rem;
+  font-size: 1.1rem;
+  padding: 1.1rem 2.5rem;
 }
 
 .version-tag {
@@ -709,14 +754,10 @@ footer {
   }
 
   .download-options {
-    flex-direction: column;
-    align-items: center;
+    grid-template-columns: 1fr;
+    max-width: 400px;
   }
 
-  .download-card {
-    width: 100%;
-    max-width: 360px;
-  }
 }
 
 /* Scroll animations */
@@ -729,6 +770,36 @@ footer {
 .animate-on-scroll.visible {
   opacity: 1;
   transform: translateY(0);
+}
+
+/* Early Development Banner */
+.dev-banner {
+  margin-top: 2.5rem;
+  padding: 0.8rem 1.5rem;
+  background: rgba(251, 146, 60, 0.08);
+  border: 1px solid rgba(251, 146, 60, 0.25);
+  border-radius: 10px;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.dev-banner strong {
+  color: #fb923c;
+}
+
+.dev-banner-link {
+  display: inline-block;
+  margin-top: 0.4rem;
+  color: #fb923c;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.85rem;
+  transition: color 0.3s ease;
+}
+
+.dev-banner-link:hover {
+  color: #f97316;
 }
 
 /* Stagger delays for grid items */
@@ -751,7 +822,7 @@ footer {
 /* Story Section */
 .story {
   background: var(--bg-primary);
-  padding: 8rem 2rem;
+  padding: 4rem 2rem;
   position: relative;
   overflow: hidden;
 }
