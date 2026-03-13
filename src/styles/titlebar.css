@@ -6,6 +6,8 @@
   border-bottom: 1px solid var(--border);
   user-select: none;
   -webkit-user-select: none;
+  position: relative;
+  z-index: 10000;
 }
 
 #titlebar-drag {

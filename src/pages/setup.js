@@ -384,6 +384,9 @@ function showInstallModeModal(container, { onComplete, continueBtn }) {
 
   container.appendChild(modal);
 
+  // Trigger CSS transition: show modal overlay with fade-in
+  requestAnimationFrame(() => modal.classList.add('show'));
+
   // Click handler for mode options: Highlights the selected option
   const options = modal.querySelectorAll('.mode-option');
   options.forEach(opt => {
