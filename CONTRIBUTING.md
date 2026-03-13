@@ -112,6 +112,10 @@ Please use our [GitHub Issue Templates](https://github.com/TomRhodan/star-contro
 4. Write a clear PR description explaining what changed and why. Use the [PR template](.github/PULL_REQUEST_TEMPLATE.md) as a guide.
 5. Submit the PR against `main`.
 
+## Code of Conduct
+
+This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
+
 ## License
 
 By contributing to Star Control, you agree that your contributions will be licensed under the [GPL-3.0-or-later](LICENSE) license.

@@ -220,7 +220,7 @@ Star Control currently relies on manual testing. When contributing, please verif
 
 ## Contributing
 
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details on the development setup, code style, and pull request process.
+Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details on the development setup, code style, and pull request process. This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md).
 
 We use [GitHub Issue Templates](.github/ISSUE_TEMPLATE/) for bug reports and feature requests.
 
