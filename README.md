@@ -206,9 +206,23 @@ The built binary will be in `src-tauri/target/release/` and packages in `src-tau
 
 See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes.
 
+## Documentation
+
+The Rust backend is fully documented with `///` doc comments. You can generate and browse the API documentation locally:
+
+```bash
+cargo doc --no-deps --open
+```
+
+## Testing
+
+Star Control currently relies on manual testing. When contributing, please verify your changes by running `cargo tauri dev` and testing the affected pages. Automated tests are a welcome contribution -- see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+
 ## Contributing
 
-Contributions are welcome!
+Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details on the development setup, code style, and pull request process.
+
+We use [GitHub Issue Templates](.github/ISSUE_TEMPLATE/) for bug reports and feature requests.
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/my-feature`)

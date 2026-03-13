@@ -62,16 +62,25 @@ star-control/
 
 ## Code Style
 
+### General
+
+- Use `--` (double hyphen) instead of em dashes in all text and comments.
+- All code comments and documentation must be in English.
+
 ### Rust
 
 - Run `cargo fmt` before committing.
 - Run `cargo clippy` and resolve all warnings.
 - Avoid `unwrap()` in error paths -- use proper error handling (`?`, `Result`, `.unwrap_or_default()`, etc.).
+- All public and private functions must have `///` doc comments.
+- Structs and enums should have field-level `///` comments where the purpose is not obvious.
 
 ### JavaScript / HTML / CSS
 
 - Use 2-space indentation.
 - Keep frontend code in the appropriate `src/pages/` or `src/styles/` directory.
+- All functions must have JSDoc comments with `@param` and `@returns` annotations.
+- Module-scope state variables should have `@type` annotations.
 
 ## Commit Messages
 
@@ -87,6 +96,10 @@ Use [Conventional Commits](https://www.conventionalcommits.org/) format:
 
 Example: `feat: add Wine version selection dropdown`
 
+## Reporting Issues
+
+Please use our [GitHub Issue Templates](https://github.com/TomRhodan/star-control/issues/new/choose) for bug reports and feature requests. The templates guide you through providing the information we need to investigate.
+
 ## Pull Request Process
 
 1. Create a feature branch from `main`.
@@ -96,7 +109,7 @@ Example: `feat: add Wine version selection dropdown`
    - SC Versions (install/manage Star Citizen versions)
    - Bindings (import, view, and export controller bindings)
    - Settings (configuration options)
-4. Write a clear PR description explaining what changed and why.
+4. Write a clear PR description explaining what changed and why. Use the [PR template](.github/PULL_REQUEST_TEMPLATE.md) as a guide.
 5. Submit the PR against `main`.
 
 ## License
