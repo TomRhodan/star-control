@@ -768,15 +768,20 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
         return Err(format!("GitHub API returned {} for DXVK", dxvk_resp.status()));
     }
 
-    // Helper structs for deserializing the GitHub release API response
+    /// A GitHub release object from the GitHub Releases API.
     #[derive(Deserialize)]
     struct GhRelease {
+        /// Release tag (e.g. "v2.5.1"), used as the version identifier.
         tag_name: String,
+        /// List of downloadable assets attached to this release.
         assets: Vec<GhAsset>,
     }
+    /// A single downloadable asset within a GitHub release.
     #[derive(Deserialize)]
     struct GhAsset {
+        /// Filename of the asset (e.g. "dxvk-2.5.1.tar.gz").
         name: String,
+        /// Direct download URL for the asset.
         browser_download_url: String,
     }
 

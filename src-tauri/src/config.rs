@@ -95,6 +95,7 @@ pub struct RunnerSourceConfig {
     pub enabled: bool,
 }
 
+/// Defaults: empty name and URL, no filter, enabled by default.
 impl Default for RunnerSourceConfig {
     fn default() -> Self {
         Self {
@@ -180,15 +181,20 @@ pub struct CachedRunner {
 /// for Star Citizen's graphics performance on Linux.
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct CachedDxvkRelease {
+    /// Version string of the DXVK release (e.g. "2.4")
     pub version: String,
+    /// Direct download URL for the archive
     pub download_url: String,
+    /// File name of the archive (e.g. "dxvk-2.4.tar.gz")
     pub file_name: String,
+    /// File size in bytes - used for the download progress indicator
     pub size_bytes: u64,
 }
 
 /// Cache container for runner data with timestamp.
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct RunnerCache {
+    /// List of cached runner entries
     pub runners: Vec<CachedRunner>,
     /// Unix timestamp of the last cache update - enables expiration checking
     pub cached_at: u64,
@@ -197,6 +203,7 @@ pub struct RunnerCache {
 /// Cache container for DXVK release data with timestamp.
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct DxvkCache {
+    /// List of cached DXVK release entries
     pub releases: Vec<CachedDxvkRelease>,
     /// Unix timestamp of the last cache update
     pub cached_at: u64,
@@ -208,7 +215,9 @@ pub struct DxvkCache {
 /// (e.g. only runners), the other part (DXVK) is not lost.
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct AppCache {
+    /// Cached runner data (Wine/Proton builds)
     pub runners: RunnerCache,
+    /// Cached DXVK release data
     pub dxvk: DxvkCache,
 }
 
