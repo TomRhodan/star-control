@@ -8,7 +8,7 @@ on:
 jobs:
   build-and-release:
     name: Build & Publish Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     permissions:
       contents: write
@@ -21,15 +21,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            libgtk-3-dev \
-            libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev \
-            libudev-dev \
-            jq
+            libappindicator3-dev librsvg2-dev patchelf \
+            libgtk-3-dev libsoup-3.0-dev libudev-dev jq \
+            libwebkit2gtk-4.1-0=2.44.0-2 \
+            libwebkit2gtk-4.1-dev=2.44.0-2 \
+            libjavascriptcoregtk-4.1-0=2.44.0-2 \
+            libjavascriptcoregtk-4.1-dev=2.44.0-2 \
+            gir1.2-javascriptcoregtk-4.1=2.44.0-2 \
+            gir1.2-webkit2-4.1=2.44.0-2
 
       - name: Install Rust stable toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -63,36 +62,6 @@ jobs:
           CXXFLAGS: "-march=x86-64-v2 -mtune=generic -O2"
         run: cargo tauri build
 
-      - name: Repack AppImage without GPU libs
-        run: |
-          BUNDLE_DIR="src-tauri/target/release/bundle/appimage"
-          APPIMAGE=$(ls "$BUNDLE_DIR"/*.AppImage)
-          echo "Original AppImage: $APPIMAGE"
-
-          # Extract
-          chmod +x "$APPIMAGE"
-          cd "$BUNDLE_DIR"
-          "$APPIMAGE" --appimage-extract
-
-          # Remove bundled EGL/Mesa/GPU libs that conflict with host drivers
-          cd squashfs-root/usr/lib
-          rm -vf libEGL*.so* libGLX*.so* libGLdispatch*.so* \
-                 libgbm*.so* libdrm*.so* libxshmfence*.so* \
-                 libvulkan*.so* 2>/dev/null || true
-          cd "$BUNDLE_DIR"
-
-          # Download appimagetool
-          wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" \
-            -O appimagetool
-          chmod +x appimagetool
-
-          # Repack (ARCH required for appimagetool)
-          rm "$APPIMAGE"
-          ARCH=x86_64 ./appimagetool squashfs-root "$APPIMAGE"
-          rm -rf squashfs-root appimagetool
-
-          echo "Repacked AppImage: $(ls -lh "$APPIMAGE")"
-
       - name: Create portable tarball
         run: |
           VERSION=$(jq -r '.version' src-tauri/tauri.conf.json)
@@ -111,13 +80,6 @@ jobs:
           for f in "$APPDIR"/*.desktop "$APPDIR"/*.png; do
             [ -e "$f" ] && cp -a "$f" "$STAGING_DIR/"
           done
-
-          # Remove GPU libs from portable tarball too
-          cd "$STAGING_DIR/usr/lib"
-          rm -f libEGL*.so* libGLX*.so* libGLdispatch*.so* \
-                libgbm*.so* libdrm*.so* libxshmfence*.so* \
-                libvulkan*.so* 2>/dev/null || true
-          cd "$BUNDLE_DIR"
 
           printf '%s\n' '#!/usr/bin/env bash' \
             'set -e' \
