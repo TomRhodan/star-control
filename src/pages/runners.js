@@ -76,14 +76,15 @@ let unlistenPrefixLog = null;
 /** @type {boolean} Whether PowerShell is installed in the Wine prefix */
 let powershellInstalled = false;
 
-// Tracking which sections are still loading - controls the loading indicators
+/** @type {{installed: boolean, available: boolean, dxvk: boolean, dxvkReleases: boolean, dpi: boolean}} Tracks which sections are still loading */
 let loadingFlags = { installed: true, available: true, dxvk: true, dxvkReleases: true, dpi: true };
 
-// Cache state: Runner and DXVK data are cached (max. 1 hour)
+/** @type {{runners: Array, cached_at: number}} Cached runner data (max. 1 hour) */
 let runnerCache = { runners: [], cached_at: 0 };
+/** @type {{releases: Array, cached_at: number}} Cached DXVK release data (max. 1 hour) */
 let dxvkCache = { releases: [], cached_at: 0 };
 
-// Reference to the current container for incremental DOM updates
+/** @type {HTMLElement|null} Reference to the current container for incremental DOM updates */
 let activeContainer = null;
 
 // --- Main rendering ---

@@ -67,7 +67,9 @@ let scVersions = [];
 let copyingVersion = null;
 
 // Event listener cleanup (prevents memory leaks on re-renders)
+/** @type {Function|null} Unlisten function for Data.p4k copy progress events */
 let unlistenProgress = null;
+/** @type {Function|null} Unlisten function for Data.p4k copy-complete events */
 let unlistenCopyComplete = null;
 
 // Binding and profile state
@@ -89,7 +91,7 @@ let bindingFilter = '';
 let bindingCategory = 'all';
 /** @type {Set<string>} Collapsed USER.cfg categories */
 let collapsedCategories = new Set(['quality', 'shaders', 'textures', 'effects', 'clarity', 'lod', 'input', 'advanced']);
-/** Global: Which binding categories are expanded (must be global for inline onclick) */
+/** @type {Set<string>} Which binding categories are expanded (must be global for inline onclick) */
 window.expandedBindingCategories = new Set();
 /** @type {number|null} Instance number of the joystick currently being dragged */
 let draggedJoystickInstance = null;
@@ -140,14 +142,21 @@ if (!window.expandedPanels) window.expandedPanels = { bindings: false, devices: 
 
 // ==================== Contextual Hints ====================
 
-/** Reads the IDs of already dismissed hints from localStorage */
+/**
+ * Reads the IDs of already dismissed hints from localStorage.
+ * @returns {string[]} Array of dismissed hint IDs
+ */
 function getDismissedHints() {
   try {
     return JSON.parse(localStorage.getItem('starcontrol-dismissed-hints') || '[]');
   } catch { return []; }
 }
 
-/** Permanently dismisses a hint and saves the decision in localStorage */
+/**
+ * Permanently dismisses a hint and saves the decision in localStorage.
+ * Also removes the hint banner from the DOM if present.
+ * @param {string} id - Unique identifier of the hint to dismiss
+ */
 function dismissHint(id) {
   const dismissed = getDismissedHints();
   if (!dismissed.includes(id)) {
@@ -564,7 +573,10 @@ export async function renderEnvironments(container) {
 
 // ==================== Load Data ====================
 
-/** Loads the action definitions (categories, display names) from the backend */
+/**
+ * Loads the action definitions (categories, display names) from the backend.
+ * Populates the actionDefinitions state variable.
+ */
 async function loadActionDefinitions() {
   try {
     actionDefinitions = await invoke('get_action_definitions');
@@ -603,7 +615,10 @@ async function loadCompleteBindingList() {
 }
 
 
-/** Parses the actionmaps (actionmaps.xml) for the active version and source */
+/**
+ * Parses the actionmaps (actionmaps.xml) for the active version and source.
+ * Populates parsedActionMaps with device and binding data.
+ */
 async function loadDevicesAndBindings() {
   if (!config?.install_path || !activeScVersion) {
     parsedActionMaps = null;
@@ -620,7 +635,10 @@ async function loadDevicesAndBindings() {
   }
 }
 
-/** Loads the list of exported keyboard/controller layouts */
+/**
+ * Loads the list of exported keyboard/controller layouts
+ * from the active SC version's directory.
+ */
 async function loadExportedLayouts() {
   if (!config?.install_path || !activeScVersion) {
     exportedLayouts = [];
@@ -637,7 +655,10 @@ async function loadExportedLayouts() {
 }
 
 
-/** Loads all saved profiles (backups) for the active SC version */
+/**
+ * Loads all saved profiles (backups) for the active SC version.
+ * Populates the backups state array.
+ */
 async function loadBackups() {
   if (!activeScVersion) {
     backups = [];
@@ -650,7 +671,10 @@ async function loadBackups() {
   }
 }
 
-/** Checks if the active profile is in sync with SC files (matched/changed) */
+/**
+ * Checks if the active profile is in sync with SC files.
+ * Populates activeProfileStatus with match/changed file info.
+ */
 async function loadProfileStatus() {
   if (!config?.install_path || !activeScVersion || !lastRestoredBackupId) {
     activeProfileStatus = null;
@@ -665,7 +689,10 @@ async function loadProfileStatus() {
   }
 }
 
-/** Reads the USER.cfg file and parses the settings into userCfgSettings */
+/**
+ * Reads the USER.cfg file and parses the settings into userCfgSettings.
+ * Also stores a snapshot for external change detection.
+ */
 async function loadUserCfgSettings() {
   if (!config?.install_path || !activeScVersion) {
     userCfgSettings = {};
@@ -1197,7 +1224,10 @@ function renderProfileTab() {
   `;
 }
 
-/** Renders the Localization tab: installation status + language selector */
+/**
+ * Renders the Localization tab: installation status + language selector.
+ * @returns {string} HTML string for the tab content
+ */
 function renderLocalizationTab() {
   return `
     <div class="localization-tab">
@@ -1410,7 +1440,11 @@ function renderLanguageSelector() {
   `;
 }
 
-/** Formats bytes into human-readable file size (KB, MB, GB, etc.) */
+/**
+ * Formats bytes into human-readable file size (KB, MB, GB, etc.).
+ * @param {number} bytes - Size in bytes
+ * @returns {string} Formatted size string (e.g. "1.5 MB")
+ */
 function formatFileSize(bytes) {
   if (bytes === 0) return '0 B';
   const k = 1024;
@@ -1419,7 +1453,11 @@ function formatFileSize(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-/** Formats an ISO date into German date format (e.g. "12. Mär. 2026") */
+/**
+ * Formats an ISO date into German date format (e.g. "12. Mär. 2026").
+ * @param {string} isoDate - ISO 8601 date string
+ * @returns {string} Formatted date or original string on parse failure
+ */
 function formatCommitDate(isoDate) {
   if (!isoDate) return '';
   try {
@@ -1460,7 +1498,10 @@ async function installLocalization(langCode, sourceRepo, displayName, sourceLabe
   renderEnvironments(document.getElementById('content'));
 }
 
-/** Removes the installed localization after user confirmation */
+/**
+ * Removes the installed localization after user confirmation.
+ * Resets the language to English (default) and reloads the UI.
+ */
 async function removeLocalization() {
   if (!config?.install_path || !activeScVersion) return;
 
@@ -1486,7 +1527,11 @@ async function removeLocalization() {
   renderEnvironments(document.getElementById('content'));
 }
 
-/** Finds the source repository for the currently installed localization */
+/**
+ * Finds the source repository URL for the currently installed localization.
+ * Matches against the available languages list by code and source label.
+ * @returns {string|null} Repository identifier or null if not found
+ */
 function resolveSourceRepo() {
   if (!localizationStatus?.installed) return null;
   const code = localizationStatus.language_code;
@@ -1560,7 +1605,10 @@ function refreshBindingsInPlace() {
   }
 }
 
-/** Attaches only the binding-related event listeners (search, edit, add, delete) */
+/**
+ * Attaches only the binding-related event listeners (search, edit, add, delete).
+ * Called after in-place binding updates to rebind handlers on new DOM elements.
+ */
 function attachBindingEventListeners() {
   document.getElementById('binding-search')?.addEventListener('input', (e) => {
     const term = e.target.value.toLowerCase().trim();
@@ -1891,6 +1939,8 @@ function renderBindingCategory(categoryKey, label, items) {
 /**
  * Determines the device type based on the input prefix.
  * e.g. "kb1_w" -> 'keyboard', "js2_button5" -> 'joystick'
+ * @param {string|null} input - Raw input string with device prefix
+ * @returns {string} Device type: 'keyboard', 'mouse', 'gamepad', 'joystick', 'none', or 'unknown'
  */
 function resolveDeviceType(input) {
   if (!input) return 'none';
@@ -1901,7 +1951,11 @@ function resolveDeviceType(input) {
   return 'unknown';
 }
 
-/** Translates a device type key into a human-readable label */
+/**
+ * Translates a device type key into a human-readable label.
+ * @param {string} deviceType - Device type key (e.g. 'keyboard', 'joystick')
+ * @returns {string} Human-readable label (e.g. "Keyboard", "Joystick")
+ */
 function formatDeviceType(deviceType) {
   const labels = {
     keyboard: 'Keyboard',
@@ -1941,7 +1995,9 @@ function resolveDeviceLabel(input) {
 }
 
 /**
- * Generate SVG icon for device type
+ * Generates an inline SVG icon wrapped in a span for the given device type.
+ * @param {string} deviceType - Device type key (e.g. 'keyboard', 'mouse', 'joystick', 'gamepad')
+ * @returns {string} HTML string containing the SVG icon
  */
 function getDeviceIconSvg(deviceType) {
   const icons = {
@@ -2004,7 +2060,11 @@ function formatInputDisplayText(input) {
 
 // ==================== Binding Editor ====================
 
-/** Strips the device prefix for display (e.g. "js2_x" -> "x", "kb1_w" -> "w") */
+/**
+ * Strips the device prefix for display (e.g. "js2_x" -> "x", "kb1_w" -> "w").
+ * @param {string|null} input - Raw input string with device prefix
+ * @returns {string|null} Input without prefix, or original value if no prefix found
+ */
 function stripDevicePrefix(input) {
   if (!input) return input;
   return input.replace(/^(js|kb|mo)\d+_/, '');
@@ -2384,7 +2444,12 @@ function openBindingEditor(actionName, category, currentInput) {
 // Make globally accessible (for inline onclick handlers)
 window.openBindingEditor = openBindingEditor;
 
-/** Formats a technical category name into a human-readable title */
+/**
+ * Formats a technical category name into a human-readable title.
+ * Strips common prefixes and replaces underscores with spaces.
+ * @param {string} name - Technical category name (e.g. "spaceship_movement")
+ * @returns {string} Formatted title (e.g. "Movement")
+ */
 function formatCategoryName(name) {
   return name
     .replace(/^spaceship_/, '')
@@ -2417,7 +2482,12 @@ function renderChangesPanel(files) {
 
 // ==================== Profile/Backup Section ====================
 
-/** Formats the file list of a backup into a human-readable summary */
+/**
+ * Formats the file list of a backup into a human-readable summary.
+ * Counts profiles, mappings, and character presets separately.
+ * @param {string[]} files - Array of file paths in the backup
+ * @returns {string} Summary string (e.g. "2 profiles + 1 mapping")
+ */
 function formatBackupFiles(files) {
   let profiles = 0, mappings = 0, characters = 0;
   for (const f of files) {
@@ -2432,7 +2502,12 @@ function formatBackupFiles(files) {
   return parts.join(' + ') || '0 files';
 }
 
-/** Translates the technical backup type into a human-readable badge label */
+/**
+ * Translates the technical backup type into a human-readable badge label.
+ * Handles both current and legacy backup type names.
+ * @param {string} backupType - Technical type (e.g. 'manual', 'pre-import', 'auto')
+ * @returns {string} Display label (e.g. 'saved', 'pre-import', 'auto-save')
+ */
 function formatProfileTypeBadge(backupType) {
   const map = {
     'manual': 'saved',
@@ -2448,7 +2523,11 @@ function formatProfileTypeBadge(backupType) {
 
 // ==================== USER.cfg UI ====================
 
-/** Counts the number of settings that differ from default values */
+/**
+ * Counts the number of settings that differ from default values.
+ * Resolution is counted as a single setting (width + height).
+ * @returns {number} Number of changed settings
+ */
 function getChangedSettingsCount() {
   let count = 0;
   for (const [key, setting] of Object.entries(DEFAULT_SETTINGS)) {
@@ -2564,7 +2643,12 @@ function renderCategorySettings(category, collapsible) {
   `;
 }
 
-/** Renders an info icon button that shows help text as a popover on click */
+/**
+ * Renders an info icon button that shows help text as a popover on click.
+ * Returns an empty string if the setting has no help text.
+ * @param {Object} setting - Setting definition with optional help and desc fields
+ * @returns {string} HTML string of the help button or empty string
+ */
 function renderHelpIcon(setting) {
   if (!setting.help) return '';
   return `<button class="usercfg-help-btn" data-help="${escapeHtml(setting.help)}" title="${escapeHtml(setting.desc)}">
@@ -2742,7 +2826,10 @@ async function applyUserCfg() {
   }
 }
 
-/** Resets all USER.cfg settings to default values and clears the file */
+/**
+ * Resets all USER.cfg settings to default values and clears the file.
+ * Shows a confirmation dialog before proceeding.
+ */
 async function resetUserCfg() {
   if (!config?.install_path || !activeScVersion) return;
   const confirmed = await confirm('Reset all settings to defaults?', { title: 'Reset USER.cfg', kind: 'warning' });
@@ -2944,7 +3031,11 @@ async function loadProfile(backupId) {
   }
 }
 
-/** Deletes a saved profile after confirmation */
+/**
+ * Deletes a saved profile after confirmation.
+ * If the deleted profile was active, clears the active profile state.
+ * @param {string} backupId - Unique identifier of the profile to delete
+ */
 async function deleteProfile(backupId) {
   const backup = backups.find(b => b.id === backupId);
   const displayName = backup?.label || 'Unnamed profile';
@@ -4192,7 +4283,11 @@ function attachProfilesEventListeners() {
   }).then(fn => { unlistenCopyComplete = fn; });
 }
 
-/** Updates the resolution setting highlight (changed/default) */
+/**
+ * Updates the resolution setting highlight (changed/default).
+ * Adds or removes the changed class, default label, and reset button
+ * based on whether the current resolution differs from 1920x1080.
+ */
 function updateResolutionHighlight() {
   const row = document.querySelector('.usercfg-res-input')?.closest('.usercfg-row');
   if (!row) return;
@@ -4229,6 +4324,15 @@ function updateResolutionHighlight() {
   updateChangedCounts();
 }
 
+/**
+ * Updates the visual highlight of a setting row based on whether
+ * it differs from its default value. Manages the changed class,
+ * default value label, and per-setting reset button.
+ * @param {HTMLElement|null} row - The .usercfg-row element to update
+ * @param {string} key - CVar key name
+ * @param {Object} setting - Setting definition from DEFAULT_SETTINGS
+ * @param {number|string} value - Current value of the setting
+ */
 function updateSettingHighlight(row, key, setting, value) {
   const isChanged = value !== setting.value;
   if (!row) return;
@@ -4276,6 +4380,10 @@ function updateSettingHighlight(row, key, setting, value) {
   updateChangedCounts();
 }
 
+/**
+ * Updates the changed-count badges on each category header and the
+ * overall header count. Also toggles the unsaved changes indicator.
+ */
 function updateChangedCounts() {
   // Update each category badge
   document.querySelectorAll('.usercfg-category').forEach(cat => {
@@ -4312,6 +4420,10 @@ function updateChangedCounts() {
   }
 }
 
+/**
+ * Checks whether the current USER.cfg settings differ from the last saved state.
+ * @returns {boolean} True if there are unsaved changes
+ */
 function hasUnsavedChanges() {
   // Compare current settings against saved snapshot
   const allKeys = new Set([
@@ -4329,6 +4441,12 @@ function hasUnsavedChanges() {
 // ==================== Utilities ====================
 
 
+/**
+ * Shows a temporary toast notification at the bottom of the screen.
+ * Automatically disappears after 3 seconds.
+ * @param {string} message - Notification text
+ * @param {string} [type='info'] - Notification type: 'info', 'success', 'error', or 'warning'
+ */
 function showNotification(message, type = 'info') {
   const existing = document.querySelector('.settings-notification');
   if (existing) existing.remove();
@@ -4342,6 +4460,11 @@ function showNotification(message, type = 'info') {
 
 // ==================== App Close Blocker ====================
 
+/**
+ * Initializes a window close blocker that prevents closing the app
+ * while a Data.p4k copy operation is in progress. Shows a confirmation
+ * dialog and aborts the copy if the user confirms.
+ */
 async function initCloseBlocker() {
   try {
     const { getCurrentWindow } = await import('@tauri-apps/api/window');
@@ -4389,6 +4512,11 @@ async function initCloseBlocker() {
 // Initialize close blocker when profiles module loads
 initCloseBlocker();
 
+/**
+ * Creates a new SC version folder in the installation directory.
+ * Reloads the environments view after creation.
+ * @param {string} version - Version name to create (e.g. "PTU")
+ */
 async function createScVersion(version) {
   if (!version || !config?.install_path) return;
   
@@ -4405,6 +4533,12 @@ async function createScVersion(version) {
   }
 }
 
+/**
+ * Creates a symlink for Data.p4k from one version to another.
+ * This saves disk space by sharing the large game data file.
+ * @param {string} sourceVersion - Version that has the original Data.p4k
+ * @param {string} targetVersion - Version that will receive the symlink
+ */
 async function linkDataP4k(sourceVersion, targetVersion) {
   if (!sourceVersion || !targetVersion || !config?.install_path) return;
   
@@ -4421,6 +4555,11 @@ async function linkDataP4k(sourceVersion, targetVersion) {
   }
 }
 
+/**
+ * Updates an existing profile with the current Star Citizen game files.
+ * Overwrites the profile's stored files with the live SC files.
+ * @param {string} backupId - ID of the profile to update
+ */
 async function updateProfileFromSc(backupId) {
   if (!backupId || !activeScVersion || !config?.install_path) return;
   
