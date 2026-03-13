@@ -1,0 +1,92 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in Star Control
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to report a bug. Please fill out the form below to help us investigate.
+
+  - type: input
+    id: sc-version
+    attributes:
+      label: Star Control Version
+      description: Which version of Star Control are you using?
+      placeholder: "e.g. 0.2.1"
+    validations:
+      required: true
+
+  - type: input
+    id: sc-channel
+    attributes:
+      label: Star Citizen Channel
+      description: Which Star Citizen channel are you using?
+      placeholder: "e.g. LIVE, PTU, EPTU"
+    validations:
+      required: false
+
+  - type: input
+    id: wine-runner
+    attributes:
+      label: Wine Runner
+      description: Which Wine/Proton runner are you using?
+      placeholder: "e.g. wine-ge-proton-9-20"
+    validations:
+      required: false
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating System
+      description: Your Linux distribution and version
+      placeholder: "e.g. Arch Linux, Ubuntu 24.04, Fedora 41"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear description of what the bug is
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this behavior?
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs
+      description: |
+        Paste any relevant log output here.
+        Debug log location: `~/.config/star-control/logs/debug.log`
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: If applicable, add screenshots to help explain the problem
+    validations:
+      required: false
