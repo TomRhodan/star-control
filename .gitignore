@@ -25,6 +25,18 @@ Thumbs.db
 
 # Claude Code
 .claude/
+GEMINI.md
+
+# AI tooling
+.superpowers/
+
+# Internal dev docs (not for public release)
+docs/analyses/
+docs/plans/
+docs/superpowers/
+docs/Reviews/
+docs/Testing-Docs/
+docs/analysis-profiles-controllers.md
 
 # Worktrees
 .worktrees
