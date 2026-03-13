@@ -37,8 +37,6 @@ Packages/
 Packages.local/
 build-packages.sh
 Plans/
-package-lock.json
 actionmaps.xml
-.editorconfig
 debug_app.sh
 .playwright-mcp/
