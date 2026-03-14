@@ -148,6 +148,20 @@ fn configure_wine_env(
     // Also disable winemenubuilder and winedbg
     vars.push(("WINEDLLOVERRIDES".into(), "winemenubuilder.exe=d;winedbg.exe=d".into()));
 
+    // LD_LIBRARY_PATH: Put system paths first for Vulkan/graphics libraries,
+    // then existing paths. This ensures Wine uses system Vulkan drivers
+    // instead of potentially incompatible bundled libraries in AppImage.
+    let current_ld_path = std::env::var("LD_LIBRARY_PATH").unwrap_or_default();
+    let new_ld_path = format!("/usr/lib:/usr/lib64:{}", current_ld_path);
+    vars.push(("LD_LIBRARY_PATH".into(), new_ld_path));
+
+    // XDG_RUNTIME_DIR: Required for X11/Wayland socket connections.
+    // Set fallback if not already defined.
+    if std::env::var("XDG_RUNTIME_DIR").is_err() {
+        let runtime_dir = format!("/run/user/{}", std::process::id());
+        vars.push(("XDG_RUNTIME_DIR".into(), runtime_dir));
+    }
+
     // WINEDEBUG: In debug mode enable detailed Wine output,
     // otherwise suppress all messages for better performance
     let winedebug = match log_level {
