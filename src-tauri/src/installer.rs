@@ -144,6 +144,8 @@ fn configure_wine_env(
     vars.push(("WINEPREFIX".into(), install_path.into()));
     // Disable winemenubuilder.exe and winedbg.exe - otherwise creates
     // unwanted desktop entries and starts the debugger on errors
+    // Disable DXVK for RSI Launcher (it's an Electron app that doesn't need DXVK)
+    // Also disable winemenubuilder and winedbg
     vars.push(("WINEDLLOVERRIDES".into(), "winemenubuilder.exe=d;winedbg.exe=d".into()));
 
     // WINEDEBUG: In debug mode enable detailed Wine output,
@@ -226,14 +228,38 @@ fn configure_wine_env(
         vars.push((key, value));
     }
 
+    // Determine DISPLAY value before applying environment variables
+    // For X11 mode: use current DISPLAY from environment (or fallback to :0)
+    // For Wayland mode: remove DISPLAY so Wine uses Wayland driver
+    let display_value = if perf.wayland {
+        None // Remove DISPLAY for Wayland
+    } else {
+        Some(std::env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string()))
+    };
+
+    // Add DISPLAY to vars so it appears in the log
+    // Replace any existing DISPLAY entry
+    vars.retain(|(k, _)| k != "DISPLAY");
+    if let Some(ref display) = display_value {
+        vars.push(("DISPLAY".into(), display.clone()));
+    } else {
+        vars.push(("DISPLAY".into(), "(removed)".to_string()));
+    }
+
     // Apply all collected environment variables to the command
     for (key, val) in &vars {
-        if key == "DISPLAY" {
-            // Remove DISPLAY entirely instead of setting it empty - needed for Wayland
-            cmd.env_remove("DISPLAY");
-        } else {
-            cmd.env(key, val);
+        // Skip the "(removed)" DISPLAY placeholder - we handle DISPLAY separately
+        if key == "DISPLAY" && val == "(removed)" {
+            continue;
         }
+        cmd.env(key, val);
+    }
+
+    // Apply DISPLAY based on mode
+    if let Some(display) = display_value {
+        cmd.env("DISPLAY", display);
+    } else {
+        cmd.env_remove("DISPLAY");
     }
 
     vars
