@@ -63,31 +63,7 @@ jobs:
         run: cargo tauri build
 
       - name: Create portable tarball
-        run: |
-          VERSION=$(jq -r '.version' src-tauri/tauri.conf.json)
-          BUNDLE_DIR="src-tauri/target/release/bundle"
-          APPDIR="$BUNDLE_DIR/appimage/Star Control.AppDir"
-          TARBALL_NAME="star-control_${VERSION}_amd64_portable"
-          STAGING_DIR="$BUNDLE_DIR/$TARBALL_NAME"
-
-          if [ ! -d "$APPDIR/usr" ]; then
-            echo "ERROR: AppDir not found, cannot create portable tarball"
-            exit 1
-          fi
-
-          mkdir -p "$STAGING_DIR"
-          cp -a "$APPDIR/usr" "$STAGING_DIR/"
-          for f in "$APPDIR"/*.desktop "$APPDIR"/*.png; do
-            [ -e "$f" ] && cp -a "$f" "$STAGING_DIR/"
-          done
-
-          # Decode start.sh from base64
-          echo 'IyEvdXNyL2Jpbi9lbnYgYmFzaApzZXQgLWUKSEVRUj0iJChkaXJuYW1lICIkKHJlYWRsaW5rIC1mICIkMCIpIikKbWdldHRpbmdzIGdldCBvcmcuZ5ub21lLmRlc2t0b3AuaW50ZXJmYWNlIGd0ay10aGVtZSAyPi9kZXYvbnVsbCB8IGdyZXAgLXFpIGRhcmsgJiYgR1RLX1RIRU1FX1ZBUklBTlQ9ZGFyayB8fCBHVEtfVEhFTUVfVkFSSUFOVD1saWdodApleHBvcnQgTERfTElCUkFSWV9QQVRIPSIvdXNyL2xpYjovdXNyL2xpYjY0OiRIRVJFL3Vzci9saWI6JEhFUkUvdXNyL2xpYi94ODZfNjQtbGludXgtZ251OiRIRVJFL3Vzci9saWI2NDokSEVSRS91c3IvbGliMzI6JEhFUkUvbGliOiRIRVJFL2xpYi94ODZfNjQtbGludXgtZ251IgpleHBvcnQgUEFUSD0iJEhFUkUvdXNyL2JpbjokUEFUSCIKZXhwb3J0IEdUS19EQVRBX1BSRUZJWD0iJEhFUkUiCmV4cG9ydCBHVEtfVEhFTUU9IkFkd2FpdGE6JEdUS19USEVNRV9WQVJJQU5UIgpleHBvcnQgR0RLX0JBQ0tFTkQ9eDExCmV4cG9ydCBYREdfREFUQV9ESVJTPSIkSEVSRS91c3Ivc2hhcmU6L3Vzci9zaGFyZTovdXNyL2xvY2FsL3NoYXJlOi91c3Ivc2hhcmUiCmV4cG9ydCBHU0VUVElOR1NfU0NIRU1BX0RJUj0iJEhFUkUvdXNyL3NoYXJlL2dsaWItMi4wL3NjaGVtYXMiCmV4cG9ydCBHVEtfRVhFX1BSRUZJWD0iJEhFUkUiCmV4cG9ydCBHVEtfUEFUSD0iJEhFUkUvdXNyL2xpYi9ndGstMy4wOi91c3IvbGliNjQvZ3RrLTMuMDovdXNyL2xpYi94ODZfNjQtbGludXgtZ251L2d0ay0zLjAiCmV4cG9ydCBHVEtfSU1fTU9EVUxFX0ZJTEU9IiRIRVJFL3Vzci9saWIvZ3RrLTMuMC8zLjAuMC9pbW1vZHVsZXMuY2FjaGUiCmV4cG9ydCBHREtfUElYQlVGX01PRFVMRV9GSUxFPSIkSEVSRS91c3IvbGliL2dkay1waXhidWYtMi4wLzIuMTAuMC9sb2FkZXJzLmNhY2hlIgpleHBvcnQgR0lPX0VYVFJBX01PRFVMRVM9IiRIRVJFL3Vzci9saWIvZ2lvL21vZHVsZXMiCmV4cG9ydCBYREdfUlVOVElNRV9ESVI9IiR7WERHX1JVTlRJTUVfRElSOi0vcnVuL3VzZXIvJChpZCAtdSl9IgpleHBvcnQgRElTUExBWT0iJHtESVNQTEFZOi06MH0iCmNkICIkSEVSRS91c3IiCmV4ZWMgIiRIRVJFL3Vzci9iaW4vc3Rhci1jb250cm9sIiAiJEAiCg==' | base64 -d > "$STAGING_DIR/start.sh"
-          chmod +x "$STAGING_DIR/start.sh"
-
-          tar czf "$BUNDLE_DIR/${TARBALL_NAME}.tar.gz" -C "$BUNDLE_DIR" "$TARBALL_NAME"
-          rm -rf "$STAGING_DIR"
-          echo "Portable tarball created: ${TARBALL_NAME}.tar.gz"
+        run: bash ./scripts/create-portable-tarball.sh
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
