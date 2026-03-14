@@ -56,3 +56,6 @@ actionmaps.xml
 debug_app.sh
 .playwright-mcp/
 test-build-docker.sh
+
+# linuxdeploy extraction (temporary)
+src-tauri/squashfs-root/

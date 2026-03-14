@@ -60,6 +60,7 @@ jobs:
         env:
           CFLAGS: "-march=x86-64-v2 -mtune=generic -O2"
           CXXFLAGS: "-march=x86-64-v2 -mtune=generic -O2"
+          NO_STRIP: "1"
         run: cargo tauri build
 
       - name: Create portable tarball
