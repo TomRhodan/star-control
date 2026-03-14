@@ -93,7 +93,7 @@ gsettings get org.gnome.desktop.interface gtk-theme 2>/dev/null | grep -qi "dark
 # Use system libraries first, AppImage libraries only for GTK-specific paths
 # AppImage paths for GTK first, then system paths for Vulkan/graphics
 # Use system Vulkan libraries first, then AppImage GTK libraries
-# IMPORTANT: Wine libs in runner directory take precedence via PATH
+# IMPORTANT: Wine libs in game directory take precedence via PATH
 export LD_LIBRARY_PATH="/usr/lib:/usr/lib64:\$HERE/usr/lib:\$HERE/usr/lib/x86_64-linux-gnu:\$HERE/usr/lib64:\$HERE/usr/lib32:\$HERE/lib:\$HERE/lib/x86_64-linux-gnu"
 export PATH="\$HERE/usr/bin:\$PATH"
 export GTK_DATA_PREFIX="\$HERE"
