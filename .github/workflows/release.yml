@@ -72,4 +72,4 @@ jobs:
           files: |
             src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/appimage/*.AppImage
-            src-tauri/target/release/bundle/appimage/*_portable.tar.gz
+            src-tauri/target/release/bundle/*_portable.tar.gz
