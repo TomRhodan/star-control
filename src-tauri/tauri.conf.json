@@ -1,6 +1,6 @@
 {
   "productName": "Star Control",
-  "version": "0.2.4",
+  "version": "0.2.6",
   "identifier": "com.starcontrol.launcher",
   "bundle": {
     "active": true,
