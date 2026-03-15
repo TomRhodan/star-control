@@ -69,7 +69,7 @@ pub async fn save_screenshot(base64_data: String, filename: String) -> Result<()
     if project_root.ends_with("src-tauri") { project_root.pop(); }
     
     let target_path = project_root.join("docs/star-control.de/assets/screenshots").join(&filename);
-    let data = base64_data.split(',').last().ok_or("Invalid image data")?;
+    let data = base64_data.split(',').next_back().ok_or("Invalid image data")?;
     let decoded = general_purpose::STANDARD.decode(data).map_err(|e| e.to_string())?;
     
     std::fs::write(target_path, decoded).map_err(|e| e.to_string())?;
