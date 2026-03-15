@@ -11,7 +11,7 @@
 // Tauri APIs for window management, external URL opening, and app info
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getVersion } from '@tauri-apps/api/app';
-import { openUrl } from '@tauri-apps/plugin-opener';
+import { invoke } from '@tauri-apps/api/core';
 import { router } from './router.js';
 
 // Reference to the current Tauri window for minimize/maximize/close
@@ -67,7 +67,7 @@ document.getElementById('btn-close').addEventListener('click', () => {
 // Wiki link: Opens the Star Citizen LUG Wiki page in the default browser
 document.getElementById('link-wiki').addEventListener('click', (e) => {
   e.preventDefault();
-  openUrl('https://wiki.starcitizen-lug.org/');
+  invoke('open_browser', { url: 'https://wiki.starcitizen-lug.org/' }).catch(err => console.error(err));
 });
 
 /**

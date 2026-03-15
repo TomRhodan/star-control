@@ -12,7 +12,7 @@
  */
 
 // Tauri plugin for opening external URLs in the default browser
-import { openUrl } from '@tauri-apps/plugin-opener';
+import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 // Static image assets for logo and community badge
 import logoUrl from '../assets/logos/StarControl-Transparent-Logo-Image.png';
@@ -130,12 +130,12 @@ export async function renderAbout(container) {
     </div>
   `;
 
-  // Intercept external links: Use openUrl instead of normal navigation,
+  // Intercept external links: Use open_browser instead of normal navigation,
   // so links open in the system browser (not in the Tauri WebView)
   container.querySelectorAll('.about-link[data-url]').forEach(link => {
     link.addEventListener('click', (e) => {
       e.preventDefault();
-      openUrl(link.dataset.url);
+      invoke('open_browser', { url: link.dataset.url }).catch(err => console.error('[DEBUG] open_browser failed:', err));
     });
   });
 }

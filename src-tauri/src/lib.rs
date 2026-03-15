@@ -429,7 +429,10 @@ pub fn run() {
                 dashboard::fetch_rsi_news,
                 dashboard::fetch_server_status,
                 dashboard::fetch_community_stats,
-                dashboard::fetch_community_stats_history
+                dashboard::fetch_community_stats_history,
+                
+                // Utilities
+                util::open_browser
             ]
         )
         // Window event handler: save window state on close,

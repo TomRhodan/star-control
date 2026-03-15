@@ -15,7 +15,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import { confirm, prompt, showDiff } from '../utils/dialogs.js';
 import { escapeHtml } from '../utils.js';
 
@@ -4200,7 +4199,7 @@ function attachProfilesEventListeners() {
     link.addEventListener('click', (e) => {
       e.preventDefault();
       const url = link.dataset.url;
-      if (url) openUrl(url);
+      if (url) invoke('open_browser', { url }).catch(err => console.error(err));
     });
   });
 

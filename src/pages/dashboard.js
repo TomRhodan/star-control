@@ -12,7 +12,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { openUrl, openPath } from '@tauri-apps/plugin-opener';
+import { openPath } from '@tauri-apps/plugin-opener';
 import { router } from '../router.js';
 import { requestAutoLaunch } from './launch.js';
 import { escapeHtml } from '../utils.js';
@@ -462,7 +462,7 @@ function renderNewsItems(el, items) {
   el.querySelectorAll('.dash-news-item').forEach(item => {
     item.addEventListener('click', () => {
       const url = item.dataset.url;
-      if (url) openUrl(url);
+      if (url) invoke('open_browser', { url }).catch(err => console.error(err));
     });
   });
 }
