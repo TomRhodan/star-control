@@ -295,7 +295,7 @@ pub async fn install_powershell(
 
     let client = reqwest::Client
         ::builder()
-        .user_agent("star-control/0.2.4")
+        .user_agent("star-control/0.3.0")
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(30))
         .build()
