@@ -23,6 +23,10 @@
 //! and restores them on the next start, so the user can seamlessly continue working.
 
 use tauri::Manager;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+// Global flag to store if the app was started with --screenshots
+static IS_SCREENSHOT_MODE: AtomicBool = AtomicBool::new(false);
 
 // ── Module Declarations ──
 // Each module encapsulates a self-contained functional area of the application.
@@ -118,6 +122,11 @@ fn get_log_file_path() -> String {
         .join("debug.log")
         .to_string_lossy()
         .to_string()
+}
+
+#[tauri::command]
+fn is_screenshot_mode() -> bool {
+    IS_SCREENSHOT_MODE.load(Ordering::Relaxed)
 }
 
 /// Simple test command to verify the Tauri command infrastructure.
@@ -271,6 +280,12 @@ pub fn run() {
     // Logging must be initialized first so that all subsequent
     // initialization steps can already be logged
     init_logging();
+
+    // Check for screenshot mode via environment variable
+    if std::env::var("STAR_CONTROL_SCREENSHOTS").map(|v| v == "1").unwrap_or(false) {
+        IS_SCREENSHOT_MODE.store(true, Ordering::Relaxed);
+        log::info!("Screenshot mode enabled via environment variable");
+    }
 
     tauri::Builder
         ::default()
@@ -432,7 +447,10 @@ pub fn run() {
                 dashboard::fetch_community_stats_history,
                 
                 // Utilities
-                util::open_browser
+                util::open_browser,
+                util::capture_app_window,
+                util::save_screenshot,
+                is_screenshot_mode
             ]
         )
         // Window event handler: save window state on close,

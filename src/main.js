@@ -13,6 +13,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import { router } from './router.js';
+import { initScreenshotBot } from './utils/screenshot-bot.js';
 
 // Reference to the current Tauri window for minimize/maximize/close
 const appWindow = getCurrentWindow();
@@ -147,3 +148,6 @@ getVersion().then(v => {
 
 // Initialize router - checks setup status and loads the first page
 router.init();
+
+// Initialize screenshot bot (only active if --screenshots flag is set)
+initScreenshotBot();

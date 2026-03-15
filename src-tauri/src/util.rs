@@ -2,12 +2,81 @@
 
 use std::io;
 use std::path::Path;
+use tauri::Window;
+use base64::{Engine as _, engine::general_purpose};
+
+/// Robustly captures the current active window to a file using system tools.
+/// Automatically detects project root to avoid rebuild loops during development.
+#[tauri::command]
+pub async fn capture_app_window(window: Window, filename: String) -> Result<(), String> {
+    let mut project_root = std::env::current_dir().map_err(|e| format!("Failed to get current dir: {}", e))?;
+    
+    // If we are in src-tauri, we must go up to reach the project root
+    if project_root.ends_with("src-tauri") {
+        project_root.pop();
+    }
+    
+    let target_path = project_root
+        .join("docs/star-control.de/assets/screenshots")
+        .join(&filename);
+
+    log::info!("Capturing window to: {:?}", target_path);
+
+    // Ensure directory exists
+    if let Some(parent) = target_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Focus the window before taking the screenshot to ensure it's on top
+        let _ = window.set_focus();
+        
+        // Short delay to ensure UI has finished rendering and focus is set
+        std::thread::sleep(std::time::Duration::from_millis(500));
+
+        // KDE Spectacle: -a (active window), -b (background), -n (non-interactive), -o (output)
+        let spectacle = std::process::Command::new("spectacle")
+            .args(["-a", "-b", "-n", "-o", target_path.to_str().unwrap()])
+            .status();
+        if spectacle.is_ok() && spectacle.unwrap().success() { return Ok(()); }
+
+        // Fallback: GNOME Screenshot
+        let gnome = std::process::Command::new("gnome-screenshot")
+            .args(["-w", "-f", target_path.to_str().unwrap()])
+            .status();
+        if gnome.is_ok() && gnome.unwrap().success() { return Ok(()); }
+
+        // Fallback: Grim (Wayland Generic)
+        let grim = std::process::Command::new("grim")
+            .args([target_path.to_str().unwrap()])
+            .status();
+        if grim.is_ok() && grim.unwrap().success() { return Ok(()); }
+
+        Err("No screenshot tool found. Please install spectacle or gnome-screenshot.".into())
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err("Only Linux supported.".into())
+    }
+}
+
+/// Robustly saves a base64 encoded image (Fallback).
+#[tauri::command]
+pub async fn save_screenshot(base64_data: String, filename: String) -> Result<(), String> {
+    let mut project_root = std::env::current_dir().map_err(|e| e.to_string())?;
+    if project_root.ends_with("src-tauri") { project_root.pop(); }
+    
+    let target_path = project_root.join("docs/star-control.de/assets/screenshots").join(&filename);
+    let data = base64_data.split(',').last().ok_or("Invalid image data")?;
+    let decoded = general_purpose::STANDARD.decode(data).map_err(|e| e.to_string())?;
+    
+    std::fs::write(target_path, decoded).map_err(|e| e.to_string())?;
+    Ok(())
+}
 
 /// Opens a URL in the default browser robustly.
-/// 
-/// This bypasses Tauri's default opener to fix a known issue where AppImage builds
-/// fail to open links because they bundle their own `xdg-open` or `LD_LIBRARY_PATH`
-/// which conflicts with the host system's browser.
 #[tauri::command]
 pub fn open_browser(url: String) -> Result<(), String> {
     if !url.starts_with("http://") && !url.starts_with("https://") && !url.starts_with("mailto:") {
@@ -18,9 +87,6 @@ pub fn open_browser(url: String) -> Result<(), String> {
 
     #[cfg(target_os = "linux")]
     {
-        // 1. Try XDG Desktop Portal via dbus-send
-        // This is the modern standard for sandbox escape (Flatpak/AppImage).
-        // Syntax: dbus-send [options] <path> <interface.method> <type:value> [type:value...]
         let mut command = std::process::Command::new("dbus-send");
         command.args([
             "--session",
@@ -29,12 +95,11 @@ pub fn open_browser(url: String) -> Result<(), String> {
             "--print-reply",
             "/org/freedesktop/portal/desktop",
             "org.freedesktop.portal.OpenURI.OpenURI",
-            "string:", // parent_window (empty string)
-            &format!("string:{}", url), // uri (with type prefix!)
-            "array:dict:string:variant:handle_token,string:starcontrol" // options (a{sv})
+            "string:",
+            &format!("string:{}", url),
+            "array:dict:string:variant:handle_token,string:starcontrol"
         ]);
 
-        // Preserve only the minimum environment required for D-Bus
         command.env_clear();
         if let Ok(dbus_addr) = std::env::var("DBUS_SESSION_BUS_ADDRESS") {
             command.env("DBUS_SESSION_BUS_ADDRESS", dbus_addr);
@@ -47,21 +112,14 @@ pub fn open_browser(url: String) -> Result<(), String> {
         }
 
         if let Ok(mut child) = command.spawn() {
-            // We wait a tiny bit to see if dbus-send exits immediately with an error (like the type error before)
             std::thread::sleep(std::time::Duration::from_millis(100));
             if let Ok(Some(status)) = child.try_wait() {
-                if status.success() {
-                    return Ok(());
-                }
-                log::warn!("dbus-send exited with status: {}. Trying fallback...", status);
+                if status.success() { return Ok(()); }
             } else {
-                // Still running or couldn't wait, assume it's working (portal calls are async)
                 return Ok(());
             }
         }
 
-        // 2. Fallback: gio open (Modern GNOME/Arch standard, very robust)
-        log::info!("Trying fallback: gio open");
         let mut gio_cmd = std::process::Command::new("gio");
         gio_cmd.arg("open").arg(&url);
         gio_cmd.env_remove("LD_LIBRARY_PATH");
@@ -77,22 +135,17 @@ pub fn open_browser(url: String) -> Result<(), String> {
             }
         }
 
-        // 3. Last resort: xdg-open with cleaned environment
-        log::info!("Trying last resort: xdg-open");
         let mut xdg_cmd = std::process::Command::new("xdg-open");
         xdg_cmd.arg(&url);
         xdg_cmd.env_remove("LD_LIBRARY_PATH");
         xdg_cmd.env_remove("LD_PRELOAD");
         xdg_cmd.env_remove("APPDIR");
         xdg_cmd.env_remove("APPIMAGE");
-        xdg_cmd.env_remove("XDG_DATA_DIRS"); // Important: don't look for .desktop files inside the AppImage
+        xdg_cmd.env_remove("XDG_DATA_DIRS");
 
         match xdg_cmd.spawn() {
             Ok(_) => Ok(()),
-            Err(e) => {
-                log::error!("All browser opening methods failed: {}", e);
-                Err(format!("Failed to open browser: {}", e))
-            }
+            Err(e) => Err(format!("Failed to open browser: {}", e))
         }
     }
 
@@ -102,16 +155,6 @@ pub fn open_browser(url: String) -> Result<(), String> {
     }
 }
 
-/// Replaces `~` at the beginning of a path with the actual home directory.
-///
-/// Uses `dirs::home_dir()` which is more robust than `std::env::var("HOME")`
-/// as it also works when the HOME variable is not set.
-///
-/// # Examples
-/// ```
-/// // "~/Games/star-citizen" -> "/home/user/Games/star-citizen"
-/// // "/absolute/path" -> "/absolute/path" (unchanged)
-/// ```
 pub(crate) fn expand_tilde(p: &str) -> String {
     if p.starts_with('~') {
         if let Some(h) = dirs::home_dir() {
@@ -121,75 +164,25 @@ pub(crate) fn expand_tilde(p: &str) -> String {
     p.to_string()
 }
 
-/// Safely unpacks a tar archive, validating that no entry escapes the target directory.
-///
-/// This prevents path-traversal attacks where a malicious archive could contain
-/// entries like `../../.bashrc` to overwrite files outside the intended directory.
 pub(crate) fn safe_unpack<R: io::Read>(archive: &mut tar::Archive<R>, dst: &Path) -> io::Result<()> {
     let canonical_dst = dst.canonicalize()?;
-
     for entry in archive.entries()? {
         let mut entry = entry?;
         let path = entry.path()?;
-
-        // Resolve the full target path
         let target = canonical_dst.join(&path);
-
-        // Canonicalize parent to resolve any `..` components.
-        // The file itself may not exist yet, so we canonicalize the parent.
-        let parent = target.parent().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "Entry has no parent directory")
-        })?;
-
-        // Create parent directories so canonicalize can work
+        let parent = target.parent().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "No parent"))?;
         std::fs::create_dir_all(parent)?;
-
-        let canonical_target = parent.canonicalize()?.join(
-            target.file_name().ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidInput, "Entry has no file name")
-            })?
-        );
-
-        if !canonical_target.starts_with(&canonical_dst) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("Path traversal detected: {}", path.display()),
-            ));
-        }
-
+        let canonical_target = parent.canonicalize()?.join(target.file_name().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "No name"))?);
+        if !canonical_target.starts_with(&canonical_dst) { return Err(io::Error::new(io::ErrorKind::InvalidInput, "Traversal")); }
         entry.unpack(&canonical_target)?;
     }
-
     Ok(())
 }
 
-/// Validates a custom environment variable key.
-///
-/// Returns `Ok(())` if the key is valid, or an error message if not.
-/// - Keys must only contain `[A-Za-z0-9_]`
-/// - Certain security-sensitive keys are blocked to prevent abuse
 pub(crate) fn validate_env_var_key(key: &str) -> Result<(), String> {
-    if key.is_empty() {
-        return Err("Environment variable key cannot be empty".to_string());
-    }
-
-    if !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-        return Err(format!(
-            "Environment variable key '{}' contains invalid characters (only A-Z, a-z, 0-9, _ allowed)",
-            key
-        ));
-    }
-
-    const BLOCKED_KEYS: &[&str] = &[
-        "PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "HOME", "USER", "SHELL",
-    ];
-
-    if BLOCKED_KEYS.contains(&key) {
-        return Err(format!(
-            "Environment variable '{}' is blocked for security reasons",
-            key
-        ));
-    }
-
+    if key.is_empty() { return Err("Empty".to_string()); }
+    if !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') { return Err("Invalid".to_string()); }
+    const BLOCKED: &[&str] = &["PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "HOME", "USER", "SHELL"];
+    if BLOCKED.contains(&key) { return Err("Blocked".to_string()); }
     Ok(())
 }
