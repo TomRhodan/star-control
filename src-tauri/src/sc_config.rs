@@ -1,3 +1,19 @@
+// Star Control - Star Citizen Linux Manager
+// Copyright (C) 2024-2026 TomRhodan <tomrhodan@gmail.com>
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 //! Star Citizen configuration and profile management.
 //!
 //! This module handles reading and writing Star Citizen configuration files,
@@ -1184,6 +1200,9 @@ pub async fn list_profiles(gp: String, v: String) -> Result<Vec<ScProfile>, Stri
 pub async fn export_profile(gp: String, v: String, dp: String) -> Result<(), String> {
     let src = sc_base_dir(&expand_tilde(&gp), &v).join("user/client/0/Profiles/default");
     let dest = Path::new(&dp);
+    if !dest.is_absolute() {
+        return Err("Destination path must be absolute".into());
+    }
     fs::create_dir_all(dest).map_err(|e| e.to_string())?;
     for f in &["actionmaps.xml", "attributes.xml", "profile.xml"] {
         if src.join(f).exists() {
@@ -1197,6 +1216,9 @@ pub async fn export_profile(gp: String, v: String, dp: String) -> Result<(), Str
 pub async fn import_profile(gp: String, v: String, sp: String) -> Result<(), String> {
     let dest = sc_base_dir(&expand_tilde(&gp), &v).join("user/client/0/Profiles/default");
     let src = Path::new(&sp);
+    if !src.is_absolute() {
+        return Err("Source path must be absolute".into());
+    }
     fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
     for f in &["actionmaps.xml", "attributes.xml", "profile.xml"] {
         if src.join(f).exists() {
