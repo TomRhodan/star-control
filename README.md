@@ -55,18 +55,8 @@
 </p>
 
 <p align="center">
-  <img src="docs/star-control.de/assets/screenshots/system-check.png" alt="System Check" width="720"><br>
-  <em>System Check - Automated system compatibility and performance diagnosis</em>
-</p>
-
-<p align="center">
   <img src="docs/star-control.de/assets/screenshots/installation.png" alt="Installation" width="720"><br>
   <em>Installation - Guided Wine prefix setup and RSI Launcher download</em>
-</p>
-
-<p align="center">
-  <img src="docs/star-control.de/assets/screenshots/installation-progress.png" alt="Installation Progress" width="720"><br>
-  <em>Installation Progress - Real-time feedback during setup</em>
 </p>
 
 <p align="center">
