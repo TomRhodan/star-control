@@ -147,6 +147,8 @@ pub struct AppConfig {
     /// Installation mode: "full" = complete installation with all steps,
     /// "quick" = quick installation without optional steps
     pub install_mode: String,
+    /// UI scale factor (1.0 = 100%, 0.5 = 50%, 2.0 = 200%)
+    pub ui_scale: f64,
 }
 
 /// Defaults: Empty installation path (must be set by the user),
@@ -162,6 +164,7 @@ impl Default for AppConfig {
             auto_backup_on_launch: None,
             runner_sources: vec![],
             install_mode: "full".to_string(),
+            ui_scale: 1.0,
         }
     }
 }
@@ -632,6 +635,7 @@ pub async fn save_config(config: AppConfig) -> Result<(), String> {
                     } else {
                         config.install_mode
                     },
+                    ui_scale: config.ui_scale,
                 }
             };
 

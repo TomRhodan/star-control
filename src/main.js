@@ -32,6 +32,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import { router } from './router.js';
 import { initScreenshotBot } from './utils/screenshot-bot.js';
+import { applyUiScale } from './pages/settings.js';
 
 // Reference to the current Tauri window for minimize/maximize/close
 const appWindow = getCurrentWindow();
@@ -166,6 +167,13 @@ getVersion().then(v => {
 
 // Initialize router - checks setup status and loads the first page
 router.init();
+
+// Apply UI scale from config on startup
+invoke('load_config').then(cfg => {
+  if (cfg?.ui_scale) {
+    applyUiScale(cfg.ui_scale);
+  }
+}).catch(() => {});
 
 // Initialize screenshot bot (only active if --screenshots flag is set)
 initScreenshotBot();

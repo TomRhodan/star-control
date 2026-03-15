@@ -87,6 +87,7 @@ function renderAppSettings() {
   const basePath = config?.install_path || '';
   const logLevel = config?.log_level || 'info';
   const hasToken = !!config?.github_token;
+  const uiScale = config?.ui_scale ?? 1.0;
 
   return `
     <!-- Path settings: Base directory and derived SC path -->
@@ -123,6 +124,16 @@ function renderAppSettings() {
               <option value="warn" ${logLevel === 'warn' ? 'selected' : ''}>Warning</option>
               <option value="error" ${logLevel === 'error' ? 'selected' : ''}>Error</option>
             </select>
+          </div>
+        </div>
+        <!-- UI Scale slider: Controls the overall UI scaling factor -->
+        <div class="setting-row">
+          <label class="setting-label" data-tooltip="Scale the user interface (50% - 200%)" data-tooltip-pos="right">UI Scale</label>
+          <div class="setting-input">
+            <div class="slider-row">
+              <input type="range" class="slider" id="setting-ui-scale" min="0.5" max="2.0" step="0.1" value="${uiScale}" aria-label="UI scale" />
+              <span class="slider-value" id="ui-scale-value">${Math.round(uiScale * 100)}%</span>
+            </div>
           </div>
         </div>
         <!-- GitHub token: Optional, only needed for rate limit issues -->
@@ -210,6 +221,7 @@ function renderAppSettings() {
 async function saveAppSettings() {
   const installPath = document.getElementById('setting-install-path')?.value || '';
   const logLevel = document.getElementById('setting-log-level')?.value || 'info';
+  const uiScale = parseFloat(document.getElementById('setting-ui-scale')?.value) || 1.0;
 
   try {
     // Validate path via the Rust backend (existence, write permissions, disk space)
@@ -220,9 +232,13 @@ async function saveAppSettings() {
     }
 
     // Build configuration with updated values and save
-    const newConfig = { ...config, install_path: installPath, log_level: logLevel };
+    const newConfig = { ...config, install_path: installPath, log_level: logLevel, ui_scale: uiScale };
     await invoke('save_config', { config: newConfig });
     config = newConfig;
+
+    // Apply UI scale immediately
+    applyUiScale(uiScale);
+
     showNotification('Settings saved', 'success');
   } catch (e) {
     showNotification('Failed to save settings', 'error');
@@ -252,6 +268,12 @@ function attachSettingsEventListeners() {
   // Automatically update the derived SC path when the base path changes
   document.getElementById('setting-install-path')?.addEventListener('input', (e) => updateDerivedPaths(e.target.value));
   document.getElementById('btn-save-app-settings')?.addEventListener('click', saveAppSettings);
+
+  // UI Scale slider: Update displayed percentage value in real-time
+  document.getElementById('setting-ui-scale')?.addEventListener('input', (e) => {
+    const value = Math.round(e.target.value * 100);
+    document.getElementById('ui-scale-value').textContent = value + '%';
+  });
 
   // Attach token event listeners separately
   attachTokenListeners();
@@ -416,4 +438,20 @@ function showNotification(message, type = 'info') {
   setTimeout(() => notification.classList.add('show'), 10);
   // Fade out after 3 seconds and remove DOM element
   setTimeout(() => { notification.classList.remove('show'); setTimeout(() => notification.remove(), 300); }, 3000);
+}
+
+/**
+ * Applies UI scale to the application.
+ * Scales the #app element using CSS transform.
+ *
+ * @param {number} scale - The scale factor (e.g. 1.0 = 100%, 1.5 = 150%)
+ */
+export function applyUiScale(scale) {
+  // Use CSS font-size scaling on html element
+  // All sizes use rem units, so this scales everything proportionally
+  if (scale !== 1.0) {
+    document.documentElement.style.fontSize = `${scale * 100}%`;
+  } else {
+    document.documentElement.style.fontSize = '';
+  }
 }

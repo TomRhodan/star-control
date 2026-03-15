@@ -173,7 +173,7 @@ html, body {
   padding: 28px 32px;
   display: flex;
   flex-direction: column;
-  max-width: 1600px;
+  max-width: none;
 }
 
 /* Cards */
