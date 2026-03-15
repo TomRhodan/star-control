@@ -22,7 +22,7 @@ pub fn open_browser(url: String) -> Result<(), String> {
         // This is the modern standard for sandbox escape (Flatpak/AppImage).
         // Syntax: dbus-send [options] <path> <interface.method> <type:value> [type:value...]
         let mut command = std::process::Command::new("dbus-send");
-        command.args(&[
+        command.args([
             "--session",
             "--dest=org.freedesktop.portal.Desktop",
             "--type=method_call",
