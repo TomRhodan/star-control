@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.5] - 2026-03-16
+
+### Fixed
+- Set CLOEXEC on all inherited fds (3-1023) at startup, not just fd 1023, to prevent any child process from keeping the AppImage FUSE mount busy.
+- Use `_exit()` instead of `exit()` to bypass GTK/WebKitGTK atexit handlers that can deadlock during shutdown.
+
 ## [0.3.4] - 2026-03-16
 
 ### Fixed
@@ -179,6 +185,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Prefix Tools** - Winecfg, DPI scaling, PowerShell installation via winetricks
 - **Multi-version Support** - Manage LIVE, PTU, EPTU, and other Star Citizen channels
 
+[0.3.5]: https://github.com/TomRhodan/star-control/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/TomRhodan/star-control/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/TomRhodan/star-control/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/TomRhodan/star-control/compare/v0.3.1...v0.3.2

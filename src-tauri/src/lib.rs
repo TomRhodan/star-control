@@ -396,15 +396,18 @@ pub fn run() {
     // initialization steps can already be logged
     init_logging();
 
-    // AppImage Type 2 keeps fd 1023 as a FUSE mount keepalive.
-    // Without CLOEXEC, child processes (wine, wineserver) inherit this fd,
-    // preventing the FUSE daemon from exiting even after our app closes.
-    // Setting CLOEXEC ensures no child process inherits the keepalive fd.
+    // AppImage Type 2 inherits file descriptors from the runtime (including
+    // the FUSE mount keepalive on fd 1023). Without CLOEXEC, child processes
+    // (wine, wineserver, xdg-open, etc.) inherit these fds, preventing the
+    // FUSE daemon from exiting after our app closes. Set CLOEXEC on ALL
+    // inherited fds so no child process keeps the mount busy.
     #[cfg(target_os = "linux")]
     unsafe {
-        let flags = libc::fcntl(1023, libc::F_GETFD);
-        if flags >= 0 {
-            libc::fcntl(1023, libc::F_SETFD, flags | libc::FD_CLOEXEC);
+        for fd in 3..=1023 {
+            let flags = libc::fcntl(fd, libc::F_GETFD);
+            if flags >= 0 {
+                libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC);
+            }
         }
     }
 
@@ -620,10 +623,10 @@ pub fn run() {
                 }
                 // Kill all child processes (game, wineserver) to prevent orphans
                 installer::cleanup_child_processes();
-                // Force exit to terminate any blocked background threads.
-                // The FUSE keepalive fd (1023) is closed automatically on exit;
-                // child processes can't hold it because CLOEXEC is set at startup.
-                std::process::exit(0);
+                // Use _exit() for immediate termination - bypasses atexit handlers
+                // from GTK/WebKitGTK that can deadlock and prevent clean shutdown.
+                // All fds are closed by the kernel, releasing the FUSE mount.
+                unsafe { libc::_exit(0); }
             }
         })
         .run(tauri::generate_context!())
