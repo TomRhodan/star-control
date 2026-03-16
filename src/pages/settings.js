@@ -236,8 +236,8 @@ async function saveAppSettings() {
     await invoke('save_config', { config: newConfig });
     config = newConfig;
 
-    // Apply UI scale immediately
-    applyUiScale(uiScale);
+    // Apply UI scale immediately (with XWayland compensation if available)
+    applyUiScale(uiScale, window.__xwaylandCompensation || 1.0);
 
     showNotification('Settings saved', 'success');
   } catch (e) {
@@ -442,16 +442,30 @@ function showNotification(message, type = 'info') {
 
 /**
  * Applies UI scale to the application.
- * Scales the #app element using CSS transform.
+ * Scales the html element font-size; all rem-based sizes follow.
  *
  * @param {number} scale - The scale factor (e.g. 1.0 = 100%, 1.5 = 150%)
  */
-export function applyUiScale(scale) {
-  // Use CSS font-size scaling on html element
-  // All sizes use rem units, so this scales everything proportionally
-  if (scale !== 1.0) {
-    document.documentElement.style.fontSize = `${scale * 100}%`;
-  } else {
-    document.documentElement.style.fontSize = '';
-  }
+/**
+ * Applies UI scale to the application.
+ * Scales the html element font-size; all rem-based sizes follow.
+ *
+ * @param {number} scale - The scale factor (e.g. 1.0 = 100%, 1.5 = 150%)
+ * @param {number} [compensation=1.0] - XWayland zoom compensation factor.
+ *   When set_zoom(comp) is active, text appears larger than native because
+ *   zoom scales everything uniformly. This divides the base to compensate.
+ */
+export function applyUiScale(scale, compensation = 1.0) {
+  // 14px is the design base from main.css (html { font-size: 14px })
+  // Direct pixel calculation avoids the browser-default-16px bug with percentages
+  //
+  // Under XWayland, set_zoom(comp) makes text appear larger than native rendering.
+  // Empirically, comp=1.5 needs ~80% font correction to match native appearance.
+  // Formula: lerp between 1.0 (no correction) and 1/comp (full correction) at 60%
+  // -> correction = 1 - (1 - 1/comp) * 0.6
+  // -> comp=1.5: 1 - (1 - 0.667) * 0.6 = 1 - 0.2 = 0.8
+  const correction = compensation > 1.0
+    ? 1 - (1 - 1 / compensation) * 0.6
+    : 1.0;
+  document.documentElement.style.fontSize = `${14 * scale * correction}px`;
 }

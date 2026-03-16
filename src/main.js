@@ -46,10 +46,10 @@ const appWindow = getCurrentWindow();
  */
 (async () => {
   try {
-    // Account for device pixel ratio (e.g. HiDPI/Retina displays)
-    const factor = window.devicePixelRatio || 1;
-    const screenWidth = window.screen.width * factor;
-    const screenHeight = window.screen.height * factor;
+    // screen.width/height are already in CSS pixels (logical), no need to
+    // multiply by devicePixelRatio
+    const screenWidth = window.screen.width;
+    const screenHeight = window.screen.height;
 
     // Maximum window size: 85% of screen
     const maxWidth = Math.floor(screenWidth * 0.85);
@@ -168,12 +168,24 @@ getVersion().then(v => {
 // Initialize router - checks setup status and loads the first page
 router.init();
 
-// Apply UI scale from config on startup
-invoke('load_config').then(cfg => {
-  if (cfg?.ui_scale) {
-    applyUiScale(cfg.ui_scale);
-  }
-}).catch(() => {});
+// Log display info and apply UI scale (combined to share display info)
+(async () => {
+  try {
+    const info = await invoke('get_display_info');
+    const msg = `Display: dPR=${window.devicePixelRatio}, screen=${window.screen.width}x${window.screen.height}, ` +
+      `tauri_scale=${info.tauri_scale_factor}, gdk=${info.gdk_backend}, xwayland=${info.is_xwayland}, ` +
+      `expected_scale=${info.expected_scale}, xft_dpi=${info.xft_dpi}, ` +
+      `monitors=${JSON.stringify(info.monitors)}`;
+    invoke('app_log', { level: 'info', category: 'scaling', message: msg }).catch(() => {});
+
+    // Store compensation for later use (e.g. settings page save)
+    window.__xwaylandCompensation = info.expected_scale || 1.0;
+
+    const cfg = await invoke('load_config').catch(() => null);
+    const userScale = cfg?.ui_scale || 1.0;
+    applyUiScale(userScale, window.__xwaylandCompensation);
+  } catch {}
+})();
 
 // Initialize screenshot bot (only active if --screenshots flag is set)
 initScreenshotBot();

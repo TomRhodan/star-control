@@ -40,9 +40,14 @@
 
 use tauri::Manager;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 
 // Global flag to store if the app was started with --screenshots
 static IS_SCREENSHOT_MODE: AtomicBool = AtomicBool::new(false);
+
+/// XWayland compensation factor, computed once at startup from Xft.dpi.
+/// Used by save/restore_window_state to normalize sizes across environments.
+static XWAYLAND_COMPENSATION: OnceLock<f64> = OnceLock::new();
 
 // ── Module Declarations ──
 // Each module encapsulates a self-contained functional area of the application.
@@ -145,6 +150,51 @@ fn is_screenshot_mode() -> bool {
     IS_SCREENSHOT_MODE.load(Ordering::Relaxed)
 }
 
+/// Returns display and scaling information for debugging scaling issues.
+///
+/// Detects whether the app is running under XWayland (e.g. AppImage with
+/// `GDK_BACKEND=x11` on a Wayland session), reports the Tauri scale factor,
+/// and lists all available monitors with their sizes and scale factors.
+#[tauri::command]
+fn get_display_info(window: tauri::WebviewWindow) -> serde_json::Value {
+    let gdk_backend = std::env::var("GDK_BACKEND").unwrap_or_default();
+    let wayland_display = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
+    let scale_factor = window.scale_factor().unwrap_or(1.0);
+
+    let monitors: Vec<serde_json::Value> = if let Ok(monitors) = window.available_monitors() {
+        monitors.iter().map(|m| {
+            let size = m.size();
+            serde_json::json!({
+                "name": m.name().cloned().unwrap_or_default(),
+                "width": size.width,
+                "height": size.height,
+                "scale_factor": m.scale_factor(),
+            })
+        }).collect()
+    } else {
+        vec![]
+    };
+
+    let is_xwayland = gdk_backend == "x11" && !wayland_display.is_empty();
+
+    let expected_scale = if is_xwayland { query_xft_scale() } else { 1.0 };
+    let xft_dpi: Option<f64> = if is_xwayland {
+        Some(expected_scale * 96.0)
+    } else {
+        None
+    };
+
+    serde_json::json!({
+        "gdk_backend": gdk_backend,
+        "is_wayland_session": !wayland_display.is_empty(),
+        "is_xwayland": is_xwayland,
+        "tauri_scale_factor": scale_factor,
+        "expected_scale": expected_scale,
+        "xft_dpi": xft_dpi,
+        "monitors": monitors,
+    })
+}
+
 /// Simple test command to verify the Tauri command infrastructure.
 /// Can be used to test the IPC connection between frontend and backend.
 #[tauri::command]
@@ -219,10 +269,20 @@ fn save_window_state_from(window: &tauri::WebviewWindow) {
         let maximized = window.is_maximized().unwrap_or(false);
 
         // Convert physical pixels to logical units (division by scale factor)
-        let logical_width = ((size.width as f64) / scale) as u32;
-        let logical_height = ((size.height as f64) / scale) as u32;
+        let mut logical_width = ((size.width as f64) / scale) as u32;
+        let mut logical_height = ((size.height as f64) / scale) as u32;
         let logical_x = ((pos.x as f64) / scale) as i32;
         let logical_y = ((pos.y as f64) / scale) as i32;
+
+        // Under XWayland with compensation, the window is larger than the
+        // "reference" size. Divide by compensation so the saved size is
+        // environment-independent and can be restored in both XWayland
+        // and native Wayland.
+        let comp = *XWAYLAND_COMPENSATION.get().unwrap_or(&1.0);
+        if comp > 1.0 {
+            logical_width = ((logical_width as f64) / comp) as u32;
+            logical_height = ((logical_height as f64) / comp) as u32;
+        }
 
         let state = WindowState {
             width: logical_width,
@@ -251,39 +311,78 @@ fn save_window_state_from(window: &tauri::WebviewWindow) {
 /// (e.g. after a monitor change).
 fn restore_window_state(window: &tauri::WebviewWindow) {
     if let Some(state) = load_window_state() {
+        let comp = *XWAYLAND_COMPENSATION.get().unwrap_or(&1.0);
         let mut width = state.width;
         let mut height = state.height;
 
-        // Clamp window size to monitor size (with 50px buffer for taskbars etc.)
+        // Clamp to monitor size (with 50px buffer for taskbars etc.)
         if let Ok(Some(monitor)) = window.current_monitor() {
             let monitor_scale = monitor.scale_factor();
             let monitor_physical = monitor.size();
             let monitor_logical_w = ((monitor_physical.width as f64) / monitor_scale) as u32;
             let monitor_logical_h = ((monitor_physical.height as f64) / monitor_scale) as u32;
 
-            width = width.min(monitor_logical_w.saturating_sub(50));
-            height = height.min(monitor_logical_h.saturating_sub(50));
+            // Under XWayland with compensation, the window will be larger,
+            // so clamp the compensated size to monitor bounds
+            let max_w = monitor_logical_w.saturating_sub(50);
+            let max_h = monitor_logical_h.saturating_sub(50);
+
+            if comp > 1.0 {
+                // Apply compensation: scale up for XWayland
+                width = ((width as f64 * comp) as u32).min(max_w);
+                height = ((height as f64 * comp) as u32).min(max_h);
+            } else {
+                width = width.min(max_w);
+                height = height.min(max_h);
+            }
+        } else if comp > 1.0 {
+            // No monitor detected - apply compensation with generous 4K fallback limit
+            width = ((width as f64 * comp) as u32).min(3840);
+            height = ((height as f64 * comp) as u32).min(2160);
         }
 
-        // Use LogicalSize – works better on Wayland than PhysicalSize
+        // Use LogicalSize - works better on Wayland than PhysicalSize
         let _ = window.set_size(tauri::LogicalSize::new(width, height));
 
-        // Set position: convert logical to physical coordinates.
-        // On Wayland the position is ignored by the compositor (security policy),
-        // on X11 it works as expected.
-        let current_scale = window.scale_factor().unwrap_or(1.0);
-        let _ = window.set_position(
-            tauri::PhysicalPosition::new(
-                ((state.x as f64) * current_scale) as i32,
-                ((state.y as f64) * current_scale) as i32
-            )
-        );
+        // Set position only on X11 (Wayland ignores set_position anyway due
+        // to compositor security policy). This avoids misinterpretation of
+        // saved coordinates when switching between XWayland and native Wayland.
+        if std::env::var("GDK_BACKEND").unwrap_or_default() == "x11"
+            || std::env::var("WAYLAND_DISPLAY").unwrap_or_default().is_empty()
+        {
+            let current_scale = window.scale_factor().unwrap_or(1.0);
+            let _ = window.set_position(
+                tauri::PhysicalPosition::new(
+                    ((state.x as f64) * current_scale) as i32,
+                    ((state.y as f64) * current_scale) as i32,
+                )
+            );
+        }
 
         // If the window was maximized when last closed, maximize again
         if state.maximized {
             let _ = window.maximize();
         }
     }
+}
+
+/// Queries `Xft.dpi` from X resources via `xrdb -query` and returns the
+/// expected scale factor (`Xft.dpi / 96.0`). Returns 1.0 on failure or
+/// when the value is not set.
+fn query_xft_scale() -> f64 {
+    std::process::Command::new("xrdb")
+        .args(["-query"])
+        .output()
+        .ok()
+        .and_then(|out| {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            stdout.lines()
+                .find(|l| l.starts_with("Xft.dpi:"))
+                .and_then(|l| l.split(':').nth(1))
+                .and_then(|v| v.trim().parse::<f64>().ok())
+        })
+        .map(|dpi| dpi / 96.0)
+        .unwrap_or(1.0)
 }
 
 /// Main entry point of the Tauri application.
@@ -297,6 +396,25 @@ pub fn run() {
     // initialization steps can already be logged
     init_logging();
 
+    // When running under XWayland (AppImage with GDK_BACKEND=x11 on a Wayland
+    // session), GTK/WebKit reports scale_factor=1 even on HiDPI monitors.
+    // We detect the expected scale from Xft.dpi (set by all major Wayland
+    // compositors for XWayland) and apply it via WebView zoom + window resize.
+    // GDK_SCALE is NOT used because it only supports integers.
+    let gdk_backend = std::env::var("GDK_BACKEND").unwrap_or_default();
+    let wayland_display = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
+    let is_xwayland = gdk_backend == "x11" && !wayland_display.is_empty();
+    let compensation = if is_xwayland {
+        let scale = query_xft_scale();
+        if scale > 1.0 { scale } else { 1.0 }
+    } else {
+        1.0
+    };
+    let _ = XWAYLAND_COMPENSATION.set(compensation);
+    if compensation > 1.0 {
+        log::info!("XWayland detected: applying compensation={:.2}", compensation);
+    }
+
     // Check for screenshot mode via environment variable
     if std::env::var("STAR_CONTROL_SCREENSHOTS").map(|v| v == "1").unwrap_or(false) {
         IS_SCREENSHOT_MODE.store(true, Ordering::Relaxed);
@@ -309,7 +427,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         // Opener plugin: enables opening URLs in the default browser
         .plugin(tauri_plugin_opener::init())
-        .setup(|app| {
+        .setup(move |app| {
             // Restore window state in a separate thread.
             // The short delay (200ms) is needed so the window is fully
             // created before size and position are set.
@@ -318,6 +436,15 @@ pub fn run() {
                 std::thread::sleep(std::time::Duration::from_millis(200));
                 if let Some(window) = handle.get_webview_window("main") {
                     restore_window_state(&window);
+
+                    // Apply XWayland compensation via WebView zoom.
+                    // This uniformly scales all content (px, rem, borders,
+                    // icons) without requiring any JS-side hacks.
+                    if compensation > 1.0 {
+                        if let Err(e) = window.set_zoom(compensation) {
+                            log::warn!("Failed to set WebView zoom: {}", e);
+                        }
+                    }
                 }
             });
             Ok(())
@@ -331,6 +458,7 @@ pub fn run() {
                 greet,
                 app_log,
                 get_log_file_path,
+                get_display_info,
 
                 // System checks (vm.max_map_count, file limits, monitor detection)
                 system_check::run_system_check,
