@@ -30,7 +30,6 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { openPath } from '@tauri-apps/plugin-opener';
 import { router } from '../router.js';
 import { requestAutoLaunch } from './launch.js';
 import { escapeHtml } from '../utils.js';
@@ -386,7 +385,7 @@ function bindStatusCardEvents({ installed, installPath }) {
   // Open folder in file manager
   const folderBtn = document.getElementById('dash-open-folder');
   if (folderBtn && installPath) {
-    folderBtn.addEventListener('click', () => openPath(installPath));
+    folderBtn.addEventListener('click', () => invoke('open_browser', { url: installPath }));
   }
 
   // Navigate to runner management page

@@ -92,17 +92,110 @@ pub async fn save_screenshot(base64_data: String, filename: String) -> Result<()
     Ok(())
 }
 
-/// Opens a URL in the default browser robustly.
-#[tauri::command]
-pub fn open_browser(url: String) -> Result<(), String> {
-    if !url.starts_with("http://") && !url.starts_with("https://") && !url.starts_with("mailto:") {
-        return Err("Invalid URL. Only http://, https:// and mailto: are allowed.".into());
+/// Detects the default browser binary on Linux.
+/// Reads the .desktop file's Exec= line to find the actual binary name.
+#[cfg(target_os = "linux")]
+fn detect_default_browser() -> Option<String> {
+    let output = std::process::Command::new("xdg-settings")
+        .args(["get", "default-web-browser"])
+        .output()
+        .ok()?;
+    if !output.status.success() { return None; }
+    let desktop_name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if desktop_name.is_empty() { return None; }
+
+    // Search for the .desktop file in standard locations
+    let data_dirs = std::env::var("XDG_DATA_DIRS")
+        .unwrap_or_else(|_| "/usr/local/share:/usr/share".to_string());
+    let home = dirs::home_dir().unwrap_or_default();
+    let mut search_dirs: Vec<std::path::PathBuf> = vec![home.join(".local/share/applications")];
+    for dir in data_dirs.split(':') {
+        search_dirs.push(std::path::PathBuf::from(dir).join("applications"));
     }
 
-    log::info!("Opening URL via XDG Portal (D-Bus): {}", url);
+    for dir in &search_dirs {
+        let path = dir.join(&desktop_name);
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            for line in content.lines() {
+                if let Some(exec) = line.strip_prefix("Exec=") {
+                    // Exec line is e.g. "/usr/bin/google-chrome-stable %U"
+                    // Take the first token as the binary
+                    let binary = exec.split_whitespace().next()?;
+                    // Could be a full path or just a name
+                    let bin_name = std::path::Path::new(binary)
+                        .file_name()?
+                        .to_str()?
+                        .to_string();
+                    if std::process::Command::new("which")
+                        .arg(&bin_name)
+                        .output()
+                        .map(|o| o.status.success())
+                        .unwrap_or(false)
+                    {
+                        return Some(bin_name);
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback: try the desktop file name without .desktop suffix
+    let name = desktop_name.strip_suffix(".desktop")?;
+    if std::process::Command::new("which")
+        .arg(name)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        Some(name.to_string())
+    } else {
+        None
+    }
+}
+
+/// Opens a URL in the default browser or a path in the file manager, robustly.
+#[tauri::command]
+pub fn open_browser(url: String) -> Result<(), String> {
+    let is_url = url.starts_with("http://") || url.starts_with("https://") || url.starts_with("mailto:");
+    let is_path = url.starts_with('/') || url.starts_with('~');
+
+    if !is_url && !is_path {
+        return Err("Invalid target. Only URLs (http/https/mailto) and absolute paths are allowed.".into());
+    }
+
+    let target = if is_path { expand_tilde(&url) } else { url.clone() };
+
+    log::info!("Opening via XDG Portal (D-Bus): {}", target);
 
     #[cfg(target_os = "linux")]
     {
+        // For URLs, try launching the default browser directly with --new-window
+        if is_url {
+            if let Some(browser) = detect_default_browser() {
+                log::info!("Trying direct browser launch: {} --new-window {}", browser, target);
+                let mut cmd = std::process::Command::new(&browser);
+                cmd.arg("--new-window").arg(&target);
+                cmd.env_remove("LD_LIBRARY_PATH");
+                cmd.env_remove("LD_PRELOAD");
+                cmd.env_remove("APPDIR");
+                cmd.env_remove("APPIMAGE");
+                if let Ok(mut child) = cmd.spawn() {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    if let Ok(Some(status)) = child.try_wait() {
+                        if status.success() { return Ok(()); }
+                    } else {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        let dbus_uri = if is_path {
+            format!("file://{}", target)
+        } else {
+            target.clone()
+        };
+
         let mut command = std::process::Command::new("dbus-send");
         command.args([
             "--session",
@@ -112,7 +205,7 @@ pub fn open_browser(url: String) -> Result<(), String> {
             "/org/freedesktop/portal/desktop",
             "org.freedesktop.portal.OpenURI.OpenURI",
             "string:",
-            &format!("string:{}", url),
+            &format!("string:{}", dbus_uri),
             "array:dict:string:variant:handle_token,string:starcontrol"
         ]);
 
@@ -137,7 +230,7 @@ pub fn open_browser(url: String) -> Result<(), String> {
         }
 
         let mut gio_cmd = std::process::Command::new("gio");
-        gio_cmd.arg("open").arg(&url);
+        gio_cmd.arg("open").arg(&target);
         gio_cmd.env_remove("LD_LIBRARY_PATH");
         gio_cmd.env_remove("LD_PRELOAD");
         gio_cmd.env_remove("APPDIR");
@@ -152,7 +245,7 @@ pub fn open_browser(url: String) -> Result<(), String> {
         }
 
         let mut xdg_cmd = std::process::Command::new("xdg-open");
-        xdg_cmd.arg(&url);
+        xdg_cmd.arg(&target);
         xdg_cmd.env_remove("LD_LIBRARY_PATH");
         xdg_cmd.env_remove("LD_PRELOAD");
         xdg_cmd.env_remove("APPDIR");
