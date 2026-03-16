@@ -570,6 +570,33 @@ pub async fn stop_game(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Cleans up all child processes spawned by this application.
+/// Called synchronously during app shutdown to prevent orphaned processes.
+///
+/// Kills the game process (if running) via SIGKILL and shuts down all
+/// wineservers in the runner directory.
+pub fn cleanup_child_processes() {
+    let game_info = GAME_PID.lock().ok().and_then(|guard| guard.clone());
+
+    if let Some((pid, install_path)) = game_info {
+        // SIGKILL - no graceful shutdown needed during app exit
+        let _ = Command::new("kill").arg("-9").arg(pid.to_string()).output();
+
+        // Kill all wineservers to clean up Wine process trees
+        if let Ok(dirs) = std::fs::read_dir(Path::new(&install_path).join("runners")) {
+            for entry in dirs.flatten() {
+                let wineserver = entry.path().join("bin").join("wineserver");
+                if wineserver.exists() {
+                    let _ = Command::new(wineserver.to_string_lossy().as_ref())
+                        .arg("-k")
+                        .env("WINEPREFIX", &install_path)
+                        .output();
+                }
+            }
+        }
+    }
+}
+
 /// Performs the full installation of Star Citizen.
 ///
 /// The installation process consists of six phases:
@@ -648,7 +675,7 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
     // HTTP client with custom User-Agent for GitHub API requests
     let client = reqwest::Client
         ::builder()
-        .user_agent("star-control/0.3.2")
+        .user_agent("star-control/0.3.3")
         .connect_timeout(std::time::Duration::from_secs(10))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());

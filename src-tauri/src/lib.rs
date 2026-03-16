@@ -606,6 +606,18 @@ pub fn run() {
                 if let Some(ww) = window.app_handle().get_webview_window(window.label()) {
                     save_window_state_from(&ww);
                 }
+                // Kill all child processes (game, wineserver) to prevent orphans
+                installer::cleanup_child_processes();
+
+                // AppImage Type 2 forks a FUSE daemon that serves the squashfs mount.
+                // The runtime keeps fd 1023 as a keepalive - closing it signals the
+                // FUSE daemon to unmount and exit. Without this, the AppImage process
+                // lingers in the process list after the window is closed.
+                #[cfg(target_os = "linux")]
+                unsafe { libc::close(1023); }
+
+                // Force exit to terminate any blocked background threads
+                std::process::exit(0);
             }
         })
         .run(tauri::generate_context!())

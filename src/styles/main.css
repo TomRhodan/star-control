@@ -161,7 +161,7 @@ html, body {
 }
 
 .version {
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-muted);
   font-family: var(--font-mono);
 }
@@ -200,7 +200,7 @@ html, body {
 }
 
 .card-icon {
-  font-size: 28px;
+  font-size: 2rem;
   margin-bottom: 8px;
 }
 
@@ -215,7 +215,7 @@ html, body {
   display: inline-block;
   padding: 6px 14px;
   border-radius: 10px;
-  font-size: 12px;
+  font-size: 0.857rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -312,7 +312,7 @@ select.input option {
 }
 
 .page-header h1 {
-  font-size: 22px;
+  font-size: 1.571rem;
   font-weight: 600;
 }
 

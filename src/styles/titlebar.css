@@ -25,7 +25,7 @@
 }
 
 .titlebar-title {
-  font-size: 12px;
+  font-size: 0.857rem;
   font-weight: 600;
   color: var(--text-secondary);
   letter-spacing: 0.5px;
