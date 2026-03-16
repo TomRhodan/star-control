@@ -396,6 +396,18 @@ pub fn run() {
     // initialization steps can already be logged
     init_logging();
 
+    // AppImage Type 2 keeps fd 1023 as a FUSE mount keepalive.
+    // Without CLOEXEC, child processes (wine, wineserver) inherit this fd,
+    // preventing the FUSE daemon from exiting even after our app closes.
+    // Setting CLOEXEC ensures no child process inherits the keepalive fd.
+    #[cfg(target_os = "linux")]
+    unsafe {
+        let flags = libc::fcntl(1023, libc::F_GETFD);
+        if flags >= 0 {
+            libc::fcntl(1023, libc::F_SETFD, flags | libc::FD_CLOEXEC);
+        }
+    }
+
     // When running under XWayland (AppImage with GDK_BACKEND=x11 on a Wayland
     // session), GTK/WebKit reports scale_factor=1 even on HiDPI monitors.
     // We detect the expected scale from Xft.dpi (set by all major Wayland
@@ -608,15 +620,9 @@ pub fn run() {
                 }
                 // Kill all child processes (game, wineserver) to prevent orphans
                 installer::cleanup_child_processes();
-
-                // AppImage Type 2 forks a FUSE daemon that serves the squashfs mount.
-                // The runtime keeps fd 1023 as a keepalive - closing it signals the
-                // FUSE daemon to unmount and exit. Without this, the AppImage process
-                // lingers in the process list after the window is closed.
-                #[cfg(target_os = "linux")]
-                unsafe { libc::close(1023); }
-
-                // Force exit to terminate any blocked background threads
+                // Force exit to terminate any blocked background threads.
+                // The FUSE keepalive fd (1023) is closed automatically on exit;
+                // child processes can't hold it because CLOEXEC is set at startup.
                 std::process::exit(0);
             }
         })
