@@ -33,6 +33,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { router } from './router.js';
 import { initScreenshotBot } from './utils/screenshot-bot.js';
 import { applyUiScale } from './pages/settings.js';
+import { initI18n, translateStaticHtml } from './i18n.js';
 
 // Reference to the current Tauri window for minimize/maximize/close
 const appWindow = getCurrentWindow();
@@ -165,8 +166,12 @@ getVersion().then(v => {
   if (el) el.textContent = 'v' + v;
 });
 
-// Initialize router - checks setup status and loads the first page
-router.init();
+// Initialize i18n before router so all pages can use t()
+initI18n().then(() => {
+  translateStaticHtml();
+  // Initialize router - checks setup status and loads the first page
+  router.init();
+});
 
 // Log display info and apply UI scale (combined to share display info)
 (async () => {

@@ -675,7 +675,7 @@ pub async fn run_installation(app: AppHandle, config: AppConfig) -> Result<(), S
     // HTTP client with custom User-Agent for GitHub API requests
     let client = reqwest::Client
         ::builder()
-        .user_agent("star-control/0.3.6")
+        .user_agent("star-control/0.4.0")
         .connect_timeout(std::time::Duration::from_secs(10))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());

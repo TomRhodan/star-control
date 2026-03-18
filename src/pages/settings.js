@@ -32,6 +32,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { confirm } from '../utils/dialogs.js';
 import { escapeHtml } from '../utils.js';
+import { t, changeLanguage, getCurrentLanguage, SUPPORTED_LANGUAGES, translateStaticHtml } from '../i18n.js';
 
 /** @type {Object|null} Current application configuration, loaded during rendering */
 let config = null;
@@ -53,8 +54,8 @@ export async function renderSettings(container) {
 
   container.innerHTML = `
     <div class="page-header">
-      <h1>Settings</h1>
-      <p class="page-subtitle">Configure application paths and preferences</p>
+      <h1>${t('settings:title')}</h1>
+      <p class="page-subtitle">${t('settings:subtitle')}</p>
     </div>
     ${renderAppSettings()}
   `;
@@ -92,18 +93,18 @@ function renderAppSettings() {
   return `
     <!-- Path settings: Base directory and derived SC path -->
     <div class="card">
-      <h3>Paths</h3>
+      <h3>${t('settings:section.paths')}</h3>
       <div class="settings-group">
         <div class="setting-row">
-          <label class="setting-label" data-tooltip="Root directory for Star Citizen Wine prefix and runners" data-tooltip-pos="right">Base Directory</label>
+          <label class="setting-label" data-tooltip="${t('settings:label.baseDirTooltip')}" data-tooltip-pos="right">${t('settings:label.baseDir')}</label>
           <div class="setting-input path-input-row">
-            <input type="text" class="input" id="setting-install-path" value="${escapeHtml(basePath)}" placeholder="~/Games/star-citizen" aria-label="Base directory path" />
-            <button class="btn btn-secondary" id="btn-browse-path">Browse</button>
+            <input type="text" class="input" id="setting-install-path" value="${escapeHtml(basePath)}" placeholder="${t('settings:label.baseDirPlaceholder')}" aria-label="${t('settings:label.baseDir')}" />
+            <button class="btn btn-secondary" id="btn-browse-path">${t('settings:button.browse')}</button>
           </div>
         </div>
         <!-- Automatically calculated path to the Star Citizen directory within the Wine prefix -->
         <div class="setting-row">
-          <label class="setting-label">Star Citizen</label>
+          <label class="setting-label">${t('settings:label.starCitizen')}</label>
           <div class="setting-input">
             <input type="text" class="input" id="setting-wine-prefix" value="${escapeHtml(basePath)}/drive_c/Program Files/Roberts Space Industries/StarCitizen" readonly aria-label="Star Citizen install path" />
           </div>
@@ -112,33 +113,43 @@ function renderAppSettings() {
     </div>
     <!-- Application settings: Log level and GitHub token -->
     <div class="card">
-      <h3>Application</h3>
+      <h3>${t('settings:section.application')}</h3>
       <div class="settings-group">
         <!-- Log level selection controls the verbosity of log output -->
         <div class="setting-row">
-          <label class="setting-label" data-tooltip="Controls verbosity of application log output" data-tooltip-pos="right">Log Level</label>
+          <label class="setting-label" data-tooltip="${t('settings:label.logLevelTooltip')}" data-tooltip-pos="right">${t('settings:label.logLevel')}</label>
           <div class="setting-input">
-            <select class="input" id="setting-log-level" aria-label="Log level">
-              <option value="debug" ${logLevel === 'debug' ? 'selected' : ''}>Debug</option>
-              <option value="info" ${logLevel === 'info' ? 'selected' : ''}>Info</option>
-              <option value="warn" ${logLevel === 'warn' ? 'selected' : ''}>Warning</option>
-              <option value="error" ${logLevel === 'error' ? 'selected' : ''}>Error</option>
+            <select class="input" id="setting-log-level" aria-label="${t('settings:label.logLevel')}">
+              <option value="debug" ${logLevel === 'debug' ? 'selected' : ''}>${t('settings:logLevel.debug')}</option>
+              <option value="info" ${logLevel === 'info' ? 'selected' : ''}>${t('settings:logLevel.info')}</option>
+              <option value="warn" ${logLevel === 'warn' ? 'selected' : ''}>${t('settings:logLevel.warn')}</option>
+              <option value="error" ${logLevel === 'error' ? 'selected' : ''}>${t('settings:logLevel.error')}</option>
             </select>
           </div>
         </div>
         <!-- UI Scale slider: Controls the overall UI scaling factor -->
         <div class="setting-row">
-          <label class="setting-label" data-tooltip="Scale the user interface (50% - 200%)" data-tooltip-pos="right">UI Scale</label>
+          <label class="setting-label" data-tooltip="${t('settings:label.uiScaleTooltip')}" data-tooltip-pos="right">${t('settings:label.uiScale')}</label>
           <div class="setting-input">
             <div class="slider-row">
-              <input type="range" class="slider" id="setting-ui-scale" min="0.5" max="2.0" step="0.1" value="${uiScale}" aria-label="UI scale" />
+              <input type="range" class="slider" id="setting-ui-scale" min="0.5" max="2.0" step="0.1" value="${uiScale}" aria-label="${t('settings:label.uiScale')}" />
               <span class="slider-value" id="ui-scale-value">${Math.round(uiScale * 100)}%</span>
             </div>
           </div>
         </div>
+        <!-- Language selector -->
+        <div class="setting-row">
+          <label class="setting-label" data-tooltip="${t('settings:label.languageTooltip')}" data-tooltip-pos="right">${t('settings:label.language')}</label>
+          <div class="setting-input">
+            <select class="input" id="setting-language" aria-label="${t('settings:label.language')}">
+              <option value="">${t('settings:label.languageAuto')}</option>
+              ${SUPPORTED_LANGUAGES.map(l => `<option value="${l.code}" ${(config?.language || '') === l.code ? 'selected' : ''}>${l.name}</option>`).join('')}
+            </select>
+          </div>
+        </div>
         <!-- GitHub token: Optional, only needed for rate limit issues -->
         <div class="setting-row">
-          <label class="setting-label" data-tooltip="Star Control downloads Wine runners and DXVK from GitHub. Without a token, GitHub allows 60 requests/hour per IP. This is enough for normal use - you only need a token if you hit rate limits, e.g. during development or when many users share one IP." data-tooltip-pos="right">GitHub Token</label>
+          <label class="setting-label" data-tooltip="${t('settings:label.githubTokenTooltip')}" data-tooltip-pos="right">${t('settings:label.githubToken')}</label>
           <div class="setting-input">
             <div class="token-field" id="token-field">
               ${hasToken ? `
@@ -146,10 +157,10 @@ function renderAppSettings() {
                 <div class="token-display">
                   <code class="token-value">${obfuscateToken(config.github_token)}</code>
                   <div class="token-actions">
-                    <button class="btn btn-secondary btn-sm" id="btn-token-edit" title="Replace token">
+                    <button class="btn btn-secondary btn-sm" id="btn-token-edit" title="${t('settings:token.replaceTitle')}">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                     </button>
-                    <button class="btn btn-secondary btn-sm" id="btn-token-delete" title="Remove token">
+                    <button class="btn btn-secondary btn-sm" id="btn-token-delete" title="${t('settings:token.removeTitle')}">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                     </button>
                   </div>
@@ -157,10 +168,10 @@ function renderAppSettings() {
               ` : `
                 <!-- No token present: Input field for saving a new token -->
                 <div class="token-input-row">
-                  <input type="password" class="input" id="token-input" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off" aria-label="GitHub token" />
-                  <button class="btn btn-primary btn-sm" id="btn-token-save">Save</button>
+                  <input type="password" class="input" id="token-input" placeholder="${t('settings:token.placeholder')}" autocomplete="off" aria-label="${t('settings:label.githubToken')}" />
+                  <button class="btn btn-primary btn-sm" id="btn-token-save">${t('settings:token.save')}</button>
                 </div>
-                <p class="setting-hint">Optional. Only needed if you exceed GitHub's 60 requests/hour limit.</p>
+                <p class="setting-hint">${t('settings:label.githubTokenHint')}</p>
               `}
             </div>
           </div>
@@ -169,7 +180,7 @@ function renderAppSettings() {
     </div>
     <!-- Save button for path and log level changes -->
     <div class="settings-actions">
-      <button class="btn btn-primary" id="btn-save-app-settings">Save Settings</button>
+      <button class="btn btn-primary" id="btn-save-app-settings">${t('settings:button.saveSettings')}</button>
     </div>
 
     <!-- Danger zone: Complete reset of the application and all data -->
@@ -180,35 +191,33 @@ function renderAppSettings() {
           <line x1="12" y1="9" x2="12" y2="13"/>
           <line x1="12" y1="17" x2="12.01" y2="17"/>
         </svg>
-        Reset Application
+        ${t('settings:section.resetApp')}
       </h3>
       <p class="danger-description">
-        This will permanently delete the entire Star Citizen installation, including the Wine prefix,
-        runners, and all game files. The app configuration and cache will be removed.
-        Star Control will restart and return to the initial setup.
+        ${t('settings:reset.description')}
       </p>
       <!-- Checklist of what happens during reset -->
       <ul class="danger-checklist">
         <li>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-          Delete installation directory <span class="text-muted">(${escapeHtml(basePath)})</span>
+          ${t('settings:reset.deleteInstall')} <span class="text-muted">(${escapeHtml(basePath)})</span>
         </li>
         <li>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
-          Remove app config and cache
+          ${t('settings:reset.removeConfig')}
         </li>
         <li>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
-          Restart Star Control (setup wizard)
+          ${t('settings:reset.restartApp')}
         </li>
         <!-- Positive point: Token will be preserved -->
         <li class="danger-keep-item">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-          GitHub token will be preserved
+          ${t('settings:reset.keepToken')}
         </li>
       </ul>
       <div id="reset-confirm-area">
-        <button class="btn btn-danger" id="btn-reset-app">Reset &amp; Restart</button>
+        <button class="btn btn-danger" id="btn-reset-app">${t('settings:button.resetRestart')}</button>
       </div>
     </div>
   `;
@@ -222,7 +231,6 @@ async function saveAppSettings() {
   const installPath = document.getElementById('setting-install-path')?.value || '';
   const logLevel = document.getElementById('setting-log-level')?.value || 'info';
   const uiScale = parseFloat(document.getElementById('setting-ui-scale')?.value) || 1.0;
-
   try {
     // Validate path via the Rust backend (existence, write permissions, disk space)
     const validation = await invoke('validate_install_path', { path: installPath });
@@ -231,7 +239,7 @@ async function saveAppSettings() {
       return;
     }
 
-    // Build configuration with updated values and save
+    // Build configuration with updated values and save (language is saved separately via dropdown)
     const newConfig = { ...config, install_path: installPath, log_level: logLevel, ui_scale: uiScale };
     await invoke('save_config', { config: newConfig });
     config = newConfig;
@@ -239,9 +247,9 @@ async function saveAppSettings() {
     // Apply UI scale immediately (with XWayland compensation if available)
     applyUiScale(uiScale, window.__xwaylandCompensation || 1.0);
 
-    showNotification('Settings saved', 'success');
+    showNotification(t('settings:notification.saved'), 'success');
   } catch (e) {
-    showNotification('Failed to save settings', 'error');
+    showNotification(t('settings:notification.saveFailed'), 'error');
   }
 }
 
@@ -257,7 +265,7 @@ function attachSettingsEventListeners() {
   // Open directory selection dialog via the Tauri dialog plugin
   document.getElementById('btn-browse-path')?.addEventListener('click', async () => {
     try {
-      const selected = await open({ directory: true, title: 'Select Star Citizen Base Directory' });
+      const selected = await open({ directory: true, title: t('settings:label.selectDirDialog') });
       if (selected) {
         document.getElementById('setting-install-path').value = selected;
         updateDerivedPaths(selected);
@@ -275,21 +283,38 @@ function attachSettingsEventListeners() {
     document.getElementById('ui-scale-value').textContent = value + '%';
   });
 
+  // Language selector: switch immediately on change
+  document.getElementById('setting-language')?.addEventListener('change', async (e) => {
+    const newLang = e.target.value || null;
+    try {
+      const newConfig = { ...config, language: newLang };
+      await invoke('save_config', { config: newConfig });
+      config = newConfig;
+      const effectiveLang = newLang || await invoke('get_system_locale').catch(() => 'en');
+      await changeLanguage(effectiveLang);
+      translateStaticHtml();
+      const container = document.getElementById('content');
+      if (container) await renderSettings(container);
+    } catch (err) {
+      console.error('Language switch failed:', err);
+    }
+  });
+
   // Attach token event listeners separately
   attachTokenListeners();
 
   // Reset button: Shows confirmation dialog, then deletes everything and reloads the page
   document.getElementById('btn-reset-app')?.addEventListener('click', async () => {
     const confirmed = await confirm(
-      'Are you sure? This will delete the entire installation, Wine prefix, and game files. This cannot be undone.',
-      { title: 'Reset Application', kind: 'danger', okLabel: 'Yes, delete everything' }
+      t('settings:reset.confirmMsg'),
+      { title: t('settings:reset.confirmTitle'), kind: 'danger', okLabel: t('settings:reset.confirmOk') }
     );
 
     if (!confirmed) return;
 
     const btn = document.getElementById('btn-reset-app');
     btn.disabled = true;
-    btn.textContent = 'Resetting...';
+    btn.textContent = t('settings:notification.resetting');
 
     try {
       // Rust backend performs the reset (delete directories, remove config)
@@ -297,9 +322,9 @@ function attachSettingsEventListeners() {
       // Fully reload the page to start the setup wizard
       window.location.reload();
     } catch (e) {
-      showNotification('Reset failed: ' + e, 'error');
+      showNotification(t('settings:notification.resetFailed', { error: e }), 'error');
       btn.disabled = false;
-      btn.textContent = 'Reset & Restart';
+      btn.textContent = t('settings:button.resetRestart');
     }
   });
 }
@@ -324,9 +349,9 @@ function attachTokenListeners() {
   document.getElementById('btn-token-edit')?.addEventListener('click', () => {
     field.innerHTML = `
       <div class="token-input-row">
-        <input type="password" class="input" id="token-input" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off" aria-label="GitHub token" />
-        <button class="btn btn-primary btn-sm" id="btn-token-save">Save</button>
-        <button class="btn btn-secondary btn-sm" id="btn-token-cancel">Cancel</button>
+        <input type="password" class="input" id="token-input" placeholder="${t('settings:token.placeholder')}" autocomplete="off" aria-label="${t('settings:label.githubToken')}" />
+        <button class="btn btn-primary btn-sm" id="btn-token-save">${t('settings:token.save')}</button>
+        <button class="btn btn-secondary btn-sm" id="btn-token-cancel">${t('settings:token.cancel')}</button>
       </div>
     `;
     document.getElementById('token-input').focus();
@@ -343,10 +368,10 @@ function attachTokenListeners() {
     try {
       await invoke('save_config', { config: { ...config, github_token: '' } });
       config = { ...config, github_token: null };
-      showNotification('GitHub token removed', 'success');
+      showNotification(t('settings:notification.tokenRemoved'), 'success');
       refreshTokenField();
     } catch (e) {
-      showNotification('Failed to remove token', 'error');
+      showNotification(t('settings:notification.tokenRemoveFailed'), 'error');
     }
   });
 }
@@ -360,17 +385,17 @@ async function saveToken() {
   const input = document.getElementById('token-input');
   const token = input?.value.trim();
   if (!token) {
-    showNotification('Please enter a token', 'error');
+    showNotification(t('settings:notification.enterToken'), 'error');
     return;
   }
 
   try {
     config = { ...config, github_token: token };
     await invoke('save_config', { config });
-    showNotification('GitHub token saved', 'success');
+    showNotification(t('settings:notification.tokenSaved'), 'success');
     refreshTokenField();
   } catch (e) {
-    showNotification('Failed to save token', 'error');
+    showNotification(t('settings:notification.tokenSaveFailed'), 'error');
   }
 }
 
@@ -388,20 +413,20 @@ function refreshTokenField() {
     <div class="token-display">
       <code class="token-value">${obfuscateToken(config.github_token)}</code>
       <div class="token-actions">
-        <button class="btn btn-secondary btn-sm" id="btn-token-edit" title="Replace token">
+        <button class="btn btn-secondary btn-sm" id="btn-token-edit" title="${t('settings:token.replaceTitle')}">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </button>
-        <button class="btn btn-secondary btn-sm" id="btn-token-delete" title="Remove token">
+        <button class="btn btn-secondary btn-sm" id="btn-token-delete" title="${t('settings:token.removeTitle')}">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
         </button>
       </div>
     </div>
   ` : `
     <div class="token-input-row">
-      <input type="password" class="input" id="token-input" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off" aria-label="GitHub token" />
-      <button class="btn btn-primary btn-sm" id="btn-token-save">Save</button>
+      <input type="password" class="input" id="token-input" placeholder="${t('settings:token.placeholder')}" autocomplete="off" aria-label="${t('settings:label.githubToken')}" />
+      <button class="btn btn-primary btn-sm" id="btn-token-save">${t('settings:token.save')}</button>
     </div>
-    <p class="setting-hint">Optional. Only needed if you exceed GitHub's 60 requests/hour limit.</p>
+    <p class="setting-hint">${t('settings:label.githubTokenHint')}</p>
   `;
 
   // Event listeners must be re-attached after every innerHTML replacement

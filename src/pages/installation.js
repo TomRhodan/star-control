@@ -36,19 +36,22 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { confirm } from '../utils/dialogs.js';
 import { router } from '../router.js';
 import { escapeHtml } from '../utils.js';
+import { t } from '../i18n.js';
 
 /**
  * System check items: Each entry defines a test performed in Step 1.
- * @constant {Array<{id: string, name: string, icon: string, tooltip: string}>}
+ * @returns {Array<{id: string, name: string, icon: string, tooltip: string}>}
  */
-const CHECK_ITEMS = [
-  { id: 'memory', name: 'Memory', icon: '', tooltip: 'Star Citizen requires at least 16 GB RAM' },
-  { id: 'avx', name: 'AVX Support', icon: '', tooltip: 'Advanced Vector Extensions - required by CryEngine' },
-  { id: 'mapcount', name: 'vm.max_map_count', icon: '', tooltip: 'Kernel parameter for memory-mapped files - Wine needs a high value' },
-  { id: 'filelimit', name: 'File Descriptor Limit', icon: '', tooltip: 'Maximum number of open file descriptors per process' },
-  { id: 'vulkan', name: 'Vulkan Support', icon: '', tooltip: 'Vulkan graphics API - required for DXVK translation' },
-  { id: 'diskspace', name: 'Disk Space', icon: '', tooltip: 'At least 100 GB free space recommended' },
-];
+function getCheckItems() {
+  return [
+    { id: 'memory', name: t('installation:check.memory.name'), icon: '', tooltip: t('installation:check.memory.tooltip') },
+    { id: 'avx', name: t('installation:check.avx.name'), icon: '', tooltip: t('installation:check.avx.tooltip') },
+    { id: 'mapcount', name: t('installation:check.mapcount.name'), icon: '', tooltip: t('installation:check.mapcount.tooltip') },
+    { id: 'filelimit', name: t('installation:check.filelimit.name'), icon: '', tooltip: t('installation:check.filelimit.tooltip') },
+    { id: 'vulkan', name: t('installation:check.vulkan.name'), icon: '', tooltip: t('installation:check.vulkan.tooltip') },
+    { id: 'diskspace', name: t('installation:check.diskspace.name'), icon: '', tooltip: t('installation:check.diskspace.tooltip') },
+  ];
+}
 
 // --- Wizard state ---
 
@@ -104,7 +107,9 @@ let isLoadingRunners = true;
 let unlistenProgress = null;
 
 // Loading spinner HTML snippet
-const spinnerHtml = '<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>Loading...</span></div>';
+function getSpinnerHtml() {
+  return `<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>${t('installation:status.loading')}</span></div>`;
+}
 
 // --- Installation state ---
 
@@ -124,16 +129,19 @@ let logRafPending = false;
 /**
  * Installation phase definitions: Each phase has an ID and a label.
  * These are displayed as a progress list in Step 3.
+ * @returns {Array<{id: string, label: string}>}
  */
-const INSTALL_PHASES = [
-  { id: 'prepare', label: 'Prepare environment' },
-  { id: 'winetricks', label: 'Install Wine components' },
-  { id: 'dxvk', label: 'Install DXVK' },
-  { id: 'registry', label: 'Configure registry' },
-  { id: 'download', label: 'Download RSI Launcher' },
-  { id: 'install', label: 'Install RSI Launcher' },
-  { id: 'launch', label: 'Launch RSI Launcher' },
-];
+function getInstallPhases() {
+  return [
+    { id: 'prepare', label: t('installation:phase.prepare') },
+    { id: 'winetricks', label: t('installation:phase.winetricks') },
+    { id: 'dxvk', label: t('installation:phase.dxvk') },
+    { id: 'registry', label: t('installation:phase.registry') },
+    { id: 'download', label: t('installation:phase.download') },
+    { id: 'install', label: t('installation:phase.install') },
+    { id: 'launch', label: t('installation:phase.launch') },
+  ];
+}
 
 // --- Main rendering ---
 
@@ -195,8 +203,8 @@ export async function renderInstallation(container) {
 function renderCurrentStep(container) {
   container.innerHTML = `
     <div class="page-header">
-      <h1>Installation</h1>
-      <p class="page-subtitle">Set up Star Citizen on your system</p>
+      <h1>${t('installation:title')}</h1>
+      <p class="page-subtitle">${t('installation:subtitle')}</p>
     </div>
     <div class="wizard">
       ${renderWizardSteps()}
@@ -223,9 +231,9 @@ function renderCurrentStep(container) {
  */
 function renderWizardSteps() {
   const steps = [
-    { num: 1, label: 'System Check', tooltip: 'Verify hardware and kernel requirements' },
-    { num: 2, label: 'Configuration', tooltip: 'Set install path, runner, and performance options' },
-    { num: 3, label: 'Installation', tooltip: 'Install Wine prefix and RSI Launcher' },
+    { num: 1, label: t('installation:step.systemCheck'), tooltip: t('installation:step.systemCheckTooltip') },
+    { num: 2, label: t('installation:step.configuration'), tooltip: t('installation:step.configurationTooltip') },
+    { num: 3, label: t('installation:step.installation'), tooltip: t('installation:step.installationTooltip') },
   ];
 
   return `
@@ -264,14 +272,14 @@ function renderWizardSteps() {
  */
 function renderStep1(body) {
   body.innerHTML = `
-    <h3>System Compatibility Check</h3>
+    <h3>${t('installation:section.systemCheck')}</h3>
     <div class="check-list" id="check-list">
-      ${CHECK_ITEMS.map(item => renderCheckItem(item.id, item.name, item.tooltip)).join('')}
+      ${getCheckItems().map(item => renderCheckItem(item.id, item.name, item.tooltip)).join('')}
     </div>
     <div id="summary-bar"></div>
     <div class="wizard-actions">
-      <button class="btn btn-primary" id="btn-run-check">${hasRun ? 'Re-run Check' : 'Run System Check'}</button>
-      <button class="btn btn-secondary" id="btn-next-step" ${!systemCheckPassed ? 'disabled' : ''}>Next Step</button>
+      <button class="btn btn-primary" id="btn-run-check">${hasRun ? t('installation:button.rerunCheck') : t('installation:button.runCheck')}</button>
+      <button class="btn btn-secondary" id="btn-next-step" ${!systemCheckPassed ? 'disabled' : ''}>${t('installation:button.nextStep')}</button>
     </div>
   `;
 
@@ -313,7 +321,7 @@ function renderCheckItem(id, name, tooltip) {
       </div>
       <div class="check-info">
         <span class="check-name" ${tooltip ? `data-tooltip="${tooltip}" data-tooltip-pos="right"` : ''}>${name}</span>
-        <span class="check-detail">Waiting...</span>
+        <span class="check-detail">${t('installation:check.status.waiting')}</span>
       </div>
     </div>
   `;
@@ -330,11 +338,11 @@ async function runChecks(body) {
   const btn = document.getElementById('btn-run-check');
   const nextBtn = document.getElementById('btn-next-step');
   btn.disabled = true;
-  btn.textContent = 'Checking...';
+  btn.textContent = t('installation:status.checking');
   nextBtn.disabled = true;
 
   // Reset all check items to "running"
-  CHECK_ITEMS.forEach(item => {
+  getCheckItems().forEach(item => {
     const el = document.getElementById(`check-${item.id}`);
     if (el) {
       el.dataset.status = 'running';
@@ -342,7 +350,7 @@ async function runChecks(body) {
       const icon = el.querySelector('.check-icon');
       icon.className = 'check-icon running';
       icon.innerHTML = '';
-      el.querySelector('.check-detail').textContent = 'Checking...';
+      el.querySelector('.check-detail').textContent = t('installation:check.status.checking');
       // Remove previous fix buttons
       const existingFix = el.querySelector('.btn-fix');
       if (existingFix) existingFix.remove();
@@ -378,7 +386,7 @@ async function runChecks(body) {
 
   hasRun = true;
   btn.disabled = false;
-  btn.textContent = 'Re-run Check';
+  btn.textContent = t('installation:button.rerunCheck');
 }
 
 /**
@@ -414,7 +422,7 @@ function updateCheckItem(check) {
     if (!existing) {
       const fixBtn = document.createElement('button');
       fixBtn.className = 'btn btn-fix';
-      fixBtn.textContent = 'Fix';
+      fixBtn.textContent = t('installation:button.fix');
       fixBtn.addEventListener('click', () => applyFix(check.id, fixBtn));
       el.appendChild(fixBtn);
     }
@@ -444,30 +452,30 @@ async function applyFix(checkId, btn) {
 
   // Descriptions for the confirmation dialog
   const descriptions = {
-    mapcount: 'This will set vm.max_map_count=16777216 system-wide (requires root via pkexec).',
-    filelimit: 'This will increase the system file descriptor limit (requires root via pkexec).',
+    mapcount: t('installation:fix.mapcount.desc'),
+    filelimit: t('installation:fix.filelimit.desc'),
   };
 
   const confirmed = await confirm(
-    descriptions[checkId] || 'This will modify system settings (requires root).',
-    { title: 'Apply System Fix?', kind: 'warning' }
+    descriptions[checkId] || t('installation:fix.default.desc'),
+    { title: t('installation:fix.confirmTitle'), kind: 'warning' }
   );
   if (!confirmed) return;
 
   btn.disabled = true;
-  btn.textContent = 'Fixing...';
+  btn.textContent = t('installation:status.fixing');
 
   try {
     const result = await invoke(command);
     if (result.success) {
-      btn.textContent = 'Fixed!';
+      btn.textContent = t('installation:status.fixed');
       btn.classList.add('fixed');
       // After a short delay, automatically re-run all checks
       await delay(500);
       const body = document.getElementById('wizard-body');
       if (body) runChecks(body);
     } else {
-      btn.textContent = 'Failed';
+      btn.textContent = t('installation:status.failed');
       btn.title = result.message;
       const el = document.getElementById(`check-${checkId}`);
       if (el) {
@@ -476,13 +484,13 @@ async function applyFix(checkId, btn) {
       // Re-enable button after 2 seconds
       setTimeout(() => {
         btn.disabled = false;
-        btn.textContent = 'Retry Fix';
+        btn.textContent = t('installation:button.retryFix');
       }, 2000);
     }
   } catch (err) {
-    btn.textContent = 'Error';
+    btn.textContent = t('installation:status.error');
     btn.disabled = false;
-    setTimeout(() => { btn.textContent = 'Retry Fix'; }, 2000);
+    setTimeout(() => { btn.textContent = t('installation:button.retryFix'); }, 2000);
   }
 }
 
@@ -499,14 +507,14 @@ function showSummary(result) {
   let cls, text;
   if (result.all_passed && !result.has_warnings) {
     cls = 'summary-pass';
-    text = 'All checks passed \u2014 your system is ready!';
+    text = t('installation:summary.allPassed');
   } else if (result.all_passed && result.has_warnings) {
     cls = 'summary-warn';
-    text = 'Checks passed with warnings \u2014 Star Citizen should work, but performance may be affected.';
+    text = t('installation:summary.passedWithWarnings');
   } else {
     const failCount = result.checks.filter(c => c.status === 'fail').length;
     cls = 'summary-fail';
-    text = `${failCount} check${failCount !== 1 ? 's' : ''} failed \u2014 please resolve before continuing.`;
+    text = t('installation:summary.failed', { count: failCount });
   }
 
   bar.innerHTML = `<div class="summary-bar ${cls}">${text}</div>`;
@@ -525,58 +533,58 @@ function showSummary(result) {
  */
 function renderStep2(body) {
   body.innerHTML = `
-    <h3>Configuration</h3>
+    <h3>${t('installation:section.configuration')}</h3>
 
     <!-- Installation path with browse dialog and validation -->
     <div class="config-section">
-      <h4 class="config-section-title">Install Directory</h4>
+      <h4 class="config-section-title">${t('installation:section.installDir')}</h4>
       <div class="path-input-row">
         <input type="text" class="input" id="install-path-input"
                value="${escapeHtml(configState.installPath)}"
-               placeholder="~/Games/star-citizen"
-               aria-label="Install directory path" />
-        <button class="btn btn-secondary" id="btn-browse">Browse</button>
+               placeholder="${t('installation:label.installPathPlaceholder')}"
+               aria-label="${t('installation:label.installPath')}" />
+        <button class="btn btn-secondary" id="btn-browse">${t('installation:button.browse')}</button>
       </div>
       <div id="path-validation" class="path-validation-msg"></div>
     </div>
 
     <!-- Runner selection: Dropdown for local runners + download panel -->
     <div class="config-section">
-      <h4 class="config-section-title">Wine Runner</h4>
+      <h4 class="config-section-title">${t('installation:section.wineRunner')}</h4>
       <div id="runner-section">
-        <div class="runner-loading">Scanning for runners...</div>
+        <div class="runner-loading">${t('installation:status.scanningRunners')}</div>
       </div>
     </div>
 
     <!-- Performance options: Grouped into Performance, Display, and Overlays -->
     <div class="config-section config-section-last">
-      <h4 class="config-section-title">Performance Options</h4>
+      <h4 class="config-section-title">${t('installation:section.perfOptions')}</h4>
       <div class="perf-options">
-        ${renderPerfGroup('Performance', [
-          renderToggle('esync', 'ESync', 'Eventfd-based synchronization - reduces CPU overhead in Wine', configState.performance.esync),
-          renderToggle('fsync', 'FSync', 'Futex-based synchronization - faster than ESync on supported kernels', configState.performance.fsync),
-          renderToggle('dxvk_async', 'DXVK Async', 'Asynchronous shader compilation - reduces stutter', configState.performance.dxvk_async),
+        ${renderPerfGroup(t('installation:perfGroup.performance'), [
+          renderToggle('esync', t('installation:label.esync'), t('installation:tooltip.esync'), configState.performance.esync),
+          renderToggle('fsync', t('installation:label.fsync'), t('installation:tooltip.fsync'), configState.performance.fsync),
+          renderToggle('dxvk_async', t('installation:label.dxvkAsync'), t('installation:tooltip.dxvkAsync'), configState.performance.dxvk_async),
         ])}
-        ${renderPerfGroup('Display', [
+        ${renderPerfGroup(t('installation:perfGroup.display'), [
           // Wayland is blocked when fractional scaling is detected
           fractionalScaling
-            ? renderBlockedToggle('wayland', 'Wayland', 'Fractional scaling detected - Wayland mode is not compatible. Set all monitors to 100% scale to use this option.')
-            : renderToggle('wayland', 'Wayland', 'Enable Wayland protocol support in Wine', configState.performance.wayland),
-          renderToggle('hdr', 'HDR', 'High Dynamic Range rendering (PROTON_ENABLE_HDR + DXVK_HDR)', configState.performance.hdr),
-          renderToggle('fsr', 'FSR', 'AMD FidelityFX Super Resolution 4 upscaling', configState.performance.fsr),
+            ? renderBlockedToggle('wayland', t('installation:label.wayland'), t('installation:tooltip.waylandBlocked'))
+            : renderToggle('wayland', t('installation:label.wayland'), t('installation:tooltip.wayland'), configState.performance.wayland),
+          renderToggle('hdr', t('installation:label.hdr'), t('installation:tooltip.hdr'), configState.performance.hdr),
+          renderToggle('fsr', t('installation:label.fsr'), t('installation:tooltip.fsr'), configState.performance.fsr),
           // Only show monitor dropdown when no fractional scaling is present
           fractionalScaling ? '' : renderMonitorDropdown(),
         ])}
-        ${renderPerfGroup('Overlays', [
-          renderToggle('mangohud', 'MangoHUD', 'On-screen performance overlay (FPS, CPU, GPU, RAM)', configState.performance.mangohud),
-          renderToggle('dxvk_hud', 'DXVK HUD', 'DXVK-specific overlay showing draw calls and compiler activity', configState.performance.dxvk_hud),
+        ${renderPerfGroup(t('installation:perfGroup.overlays'), [
+          renderToggle('mangohud', t('installation:label.mangohud'), t('installation:tooltip.mangohud'), configState.performance.mangohud),
+          renderToggle('dxvk_hud', t('installation:label.dxvkHud'), t('installation:tooltip.dxvkHud'), configState.performance.dxvk_hud),
         ])}
       </div>
     </div>
 
     <div class="wizard-actions">
-      <button class="btn btn-secondary" id="btn-back">Back</button>
-      <button class="btn btn-primary" id="btn-next-step2" disabled>Next Step</button>
+      <button class="btn btn-secondary" id="btn-back">${t('installation:button.back')}</button>
+      <button class="btn btn-primary" id="btn-next-step2" disabled>${t('installation:button.nextStep')}</button>
     </div>
   `;
 
@@ -592,7 +600,7 @@ function renderStep2(body) {
   // Directory browser dialog
   document.getElementById('btn-browse').addEventListener('click', async () => {
     try {
-      const selected = await open({ directory: true, title: 'Select Install Directory' });
+      const selected = await open({ directory: true, title: t('installation:runner.selectDialog') });
       if (selected) {
         pathInput.value = selected;
         configState.installPath = selected;
@@ -753,12 +761,12 @@ function renderMonitorDropdown() {
   return `
     <label class="perf-toggle" id="monitor-select-row" ${hidden}>
       <input type="checkbox" id="monitor-enabled" ${enabled ? 'checked' : ''} />
-      <span class="toggle-label">Wayland Monitor</span>
+      <span class="toggle-label">${t('installation:label.waylandMonitor')}</span>
       <span class="toggle-hint monitor-hint-row">
         <span class="monitor-env-name">WAYLANDDRV_PRIMARY_MONITOR</span>
         <span class="monitor-select-container ${!enabled ? 'disabled' : ''}" id="monitor-select-container">
           <select class="input monitor-select-input" id="monitor-select" ${!enabled ? 'disabled' : ''} aria-label="Wayland monitor">
-            <option value="">Detecting...</option>
+            <option value="">${t('installation:label.detecting')}</option>
           </select>
         </span>
       </span>
@@ -796,7 +804,7 @@ function updateMonitorDropdown() {
     container.innerHTML = `
       <input type="text" class="input monitor-select-input" id="monitor-input"
              value="${escapeHtml(currentValue)}"
-             placeholder="e.g. DP-1 (xrandr n/a)"
+             placeholder="${t('installation:label.monitorPlaceholder')}"
              ${!enabled ? 'disabled' : ''}
              aria-label="Wayland monitor name" />
     `;
@@ -852,14 +860,14 @@ async function validatePath(path) {
 
   if (!path.trim()) {
     msgEl.className = 'path-validation-msg validation-fail';
-    msgEl.textContent = 'Please enter an install path';
+    msgEl.textContent = t('installation:error.pleaseEnterPath');
     configState.pathValidation = null;
     updateNextButton();
     return;
   }
 
   msgEl.className = 'path-validation-msg';
-  msgEl.textContent = 'Validating...';
+  msgEl.textContent = t('installation:status.validating');
 
   try {
     const result = await invoke('validate_install_path', { path });
@@ -880,7 +888,7 @@ async function validatePath(path) {
     if (result.valid) saveCurrentConfig();
   } catch (err) {
     msgEl.className = 'path-validation-msg validation-fail';
-    msgEl.textContent = 'Validation failed';
+    msgEl.textContent = t('installation:status.validationFailed');
     configState.pathValidation = null;
     updateNextButton();
   }
@@ -896,11 +904,11 @@ async function renderRunnerSection() {
   if (!section) return;
 
   if (!configState.installPath.trim()) {
-    section.innerHTML = '<div class="runner-empty-notice">Set an install path first to scan for runners.</div>';
+    section.innerHTML = `<div class="runner-empty-notice">${t('installation:runner.setPathFirst')}</div>`;
     return;
   }
 
-  section.innerHTML = '<div class="runner-loading">Scanning for runners...</div>';
+  section.innerHTML = `<div class="runner-loading">${t('installation:status.scanningRunners')}</div>`;
 
   // Scan local runners in the installation directory
   let localRunners = [];
@@ -923,7 +931,7 @@ async function renderRunnerSection() {
 
     html += `
       <select class="input" id="runner-select" aria-label="Wine runner">
-        <option value="">-- Select a runner --</option>
+        <option value="">${t('installation:label.selectRunner')}</option>
         ${options}
       </select>
     `;
@@ -933,14 +941,14 @@ async function renderRunnerSection() {
   // otherwise directly visible (so the user can download one)
   html += `
     <div class="runner-download-panel ${localRunners.length > 0 ? 'has-local' : ''}">
-      ${localRunners.length > 0 ? '<div class="runner-download-toggle" id="toggle-download-panel">Download more runners...</div>' : ''}
+      ${localRunners.length > 0 ? `<div class="runner-download-toggle" id="toggle-download-panel">${t('installation:runner.downloadMore')}</div>` : ''}
       <div class="runner-download-content" id="runner-download-content" ${localRunners.length > 0 ? 'style="display:none"' : ''}>
         <div class="runner-source-tabs" id="source-tabs">
           ${availableSources.map(s => `<button class="source-tab ${selectedSource === s ? 'active' : ''}" data-source="${s}">${s}</button>`).join('')}
         </div>
         <div id="fetch-errors"></div>
         <div class="runner-available-list" id="runner-available-list">
-          <div class="runner-loading">Fetching available runners...</div>
+          <div class="runner-loading">${t('installation:status.fetchingRunners')}</div>
         </div>
       </div>
     </div>
@@ -951,8 +959,8 @@ async function renderRunnerSection() {
       <div class="progress-bar-track">
         <div class="progress-bar-fill" id="install-progress-fill"></div>
       </div>
-      <div class="runner-install-status" id="install-status">Preparing...</div>
-      <button class="btn btn-sm btn-secondary" id="btn-cancel-install">Cancel</button>
+      <div class="runner-install-status" id="install-status">${t('installation:status.preparing')}</div>
+      <button class="btn btn-sm btn-secondary" id="btn-cancel-install">${t('installation:button.cancel')}</button>
     </div>
   `;
 
@@ -975,7 +983,7 @@ async function renderRunnerSection() {
       if (content) {
         const visible = content.style.display !== 'none';
         content.style.display = visible ? 'none' : '';
-        toggleEl.textContent = visible ? 'Download more runners...' : 'Hide download panel';
+        toggleEl.textContent = visible ? t('installation:runner.downloadMore') : t('installation:runner.hideDownload');
       }
     });
   }
@@ -1010,7 +1018,7 @@ async function fetchAvailableRunners() {
   isLoadingRunners = true;
 
   const list = document.getElementById('runner-available-list');
-  if (list) list.innerHTML = spinnerHtml;
+  if (list) list.innerHTML = getSpinnerHtml();
 
   try {
     const result = await invoke('fetch_available_runners', { basePath: configState.installPath });
@@ -1049,7 +1057,7 @@ function renderAvailableRunnersList() {
   const filtered = availableRunners.filter(r => r.source === selectedSource);
 
   if (filtered.length === 0) {
-    list.innerHTML = '<div class="runner-empty-notice">No runners available from this source.</div>';
+    list.innerHTML = `<div class="runner-empty-notice">${t('installation:runner.noRunnersAvailable')}</div>`;
     return;
   }
 
@@ -1063,8 +1071,8 @@ function renderAvailableRunnersList() {
         </span>
       </div>
       ${r.installed
-        ? '<span class="runner-installed-badge">Installed</span>'
-        : `<button class="btn btn-sm btn-install" data-url="${escapeHtml(r.download_url)}" data-file="${escapeHtml(r.file_name)}" data-name="${escapeHtml(r.name)}">Install</button>`
+        ? `<span class="runner-installed-badge">${t('installation:runner.installedBadge')}</span>`
+        : `<button class="btn btn-sm btn-install" data-url="${escapeHtml(r.download_url)}" data-file="${escapeHtml(r.file_name)}" data-name="${escapeHtml(r.name)}">${t('installation:button.install')}</button>`
       }
     </div>
   `).join('');
@@ -1099,7 +1107,7 @@ async function installRunner(downloadUrl, fileName, displayName) {
   if (overlay) overlay.style.display = '';
   if (nameEl) nameEl.textContent = displayName;
   if (fillEl) { fillEl.style.width = '0%'; fillEl.classList.remove('extracting'); }
-  if (statusEl) statusEl.textContent = 'Starting download...';
+  if (statusEl) statusEl.textContent = t('installation:status.startingDownload');
 
   // Clean up previous progress listener
   if (unlistenProgress) { unlistenProgress(); unlistenProgress = null; }
@@ -1115,15 +1123,15 @@ async function installRunner(downloadUrl, fileName, displayName) {
       if (p.phase === 'downloading') {
         fill.classList.remove('extracting');
         fill.style.width = `${p.percent.toFixed(1)}%`;
-        status.textContent = `Downloading... ${formatSize(p.bytes_downloaded)} / ${formatSize(p.total_bytes)}`;
+        status.textContent = t('installation:status.downloading', { downloaded: formatSize(p.bytes_downloaded), total: formatSize(p.total_bytes) });
       } else if (p.phase === 'extracting') {
         fill.style.width = '100%';
         fill.classList.add('extracting');
-        status.textContent = 'Extracting archive...';
+        status.textContent = t('installation:status.extracting');
       } else if (p.phase === 'complete') {
         fill.style.width = '100%';
         fill.classList.remove('extracting');
-        status.textContent = 'Installation complete!';
+        status.textContent = t('installation:status.installComplete');
       } else if (p.phase === 'error') {
         fill.classList.remove('extracting');
         status.textContent = p.message;
@@ -1140,7 +1148,7 @@ async function installRunner(downloadUrl, fileName, displayName) {
       basePath: configState.installPath,
     });
   } catch (err) {
-    if (statusEl) statusEl.textContent = `Error: ${err}`;
+    if (statusEl) statusEl.textContent = t('installation:status.installError', { error: String(err) });
   }
 
   // Clean up
@@ -1221,12 +1229,12 @@ function renderStep3(body) {
   // Cannot install without a selected runner
   if (!configState.selectedRunner) {
     body.innerHTML = `
-      <h3>Installation</h3>
+      <h3>${t('installation:step.installation')}</h3>
       <div class="step3-placeholder">
-        <p>No runner selected. Please go back and select a Wine runner first.</p>
+        <p>${t('installation:error.noRunner')}</p>
       </div>
       <div class="wizard-actions">
-        <button class="btn btn-secondary" id="btn-back3">Back</button>
+        <button class="btn btn-secondary" id="btn-back3">${t('installation:button.back')}</button>
       </div>
     `;
     document.getElementById('btn-back3').addEventListener('click', () => {
@@ -1255,42 +1263,41 @@ function renderStep3(body) {
   if (perf.dxvk_hud) enabledOptions.push('DXVK HUD');
 
   body.innerHTML = `
-    <h3>Installation</h3>
+    <h3>${t('installation:step.installation')}</h3>
 
     <!-- Summary of selected settings -->
     <div class="install-summary">
       <div class="install-summary-row">
-        <span class="install-summary-label">Install Path</span>
+        <span class="install-summary-label">${t('installation:label.installPathSummary')}</span>
         <span class="install-summary-value mono">${escapeHtml(configState.installPath)}</span>
       </div>
       <div class="install-summary-row">
-        <span class="install-summary-label">Wine Runner</span>
+        <span class="install-summary-label">${t('installation:label.wineRunnerSummary')}</span>
         <span class="install-summary-value">${escapeHtml(configState.selectedRunner)}</span>
       </div>
       <div class="install-summary-row">
-        <span class="install-summary-label">Performance</span>
+        <span class="install-summary-label">${t('installation:label.performanceSummary')}</span>
         <span class="install-summary-value">
           ${enabledOptions.length > 0
             ? enabledOptions.map(o => `<span class="install-summary-badge">${o}</span>`).join('')
-            : '<span class="text-muted">None</span>'}
+            : `<span class="text-muted">${t('installation:label.performanceNone')}</span>`}
         </span>
       </div>
       ${perf.primary_monitor ? `
       <div class="install-summary-row">
-        <span class="install-summary-label">Primary Monitor</span>
+        <span class="install-summary-label">${t('installation:label.primaryMonitorSummary')}</span>
         <span class="install-summary-value mono">${escapeHtml(perf.primary_monitor)}</span>
       </div>
       ` : ''}
     </div>
 
     <div class="install-summary-hint">
-      This will create a Wine prefix, install required components (winetricks, DXVK, PowerShell),
-      download and install the RSI Launcher.
+      ${t('installation:desc.installHint')}
     </div>
 
     <div class="wizard-actions">
-      <button class="btn btn-secondary" id="btn-back3">Back</button>
-      <button class="btn btn-primary" id="btn-start-install">Start Installation</button>
+      <button class="btn btn-secondary" id="btn-back3">${t('installation:button.back')}</button>
+      <button class="btn btn-primary" id="btn-start-install">${t('installation:button.startInstall')}</button>
     </div>
   `;
 
@@ -1316,11 +1323,11 @@ function renderStep3(body) {
  */
 function renderStep3Process(body) {
   body.innerHTML = `
-    <h3>Installation</h3>
+    <h3>${t('installation:step.installation')}</h3>
 
     <!-- Phase list: Shows progress through the installation steps -->
     <div class="install-phases" id="install-phases">
-      ${INSTALL_PHASES.map(p => `
+      ${getInstallPhases().map(p => `
         <div class="install-phase" id="phase-${p.id}" data-phase="${p.id}">
           <span class="install-phase-icon">\u25CB</span>
           <span class="install-phase-label">${p.label}</span>
@@ -1338,15 +1345,15 @@ function renderStep3Process(body) {
 
     <!-- Action bar: Back, Progress, Cancel, Retry -->
     <div class="wizard-actions">
-      <button class="btn btn-secondary" id="btn-back3" disabled>Back</button>
+      <button class="btn btn-secondary" id="btn-back3" disabled>${t('installation:button.back')}</button>
       <div class="install-progress-wrapper" id="install-progress-wrapper">
         <div class="progress-bar-track">
           <div class="progress-bar-fill" id="install-progress-fill"></div>
         </div>
         <span class="install-percent" id="install-percent">0%</span>
       </div>
-      <button class="btn btn-secondary" id="btn-cancel-install">Cancel</button>
-      <button class="btn btn-primary" id="btn-retry-install" style="display:none">Retry</button>
+      <button class="btn btn-secondary" id="btn-cancel-install">${t('installation:button.cancel')}</button>
+      <button class="btn btn-primary" id="btn-retry-install" style="display:none">${t('installation:button.retry')}</button>
     </div>
   `;
 
@@ -1516,7 +1523,7 @@ function flushPendingLogLines() {
  * active (spinner), or pending (empty circle).
  */
 function updatePhaseList() {
-  INSTALL_PHASES.forEach(p => {
+  getInstallPhases().forEach(p => {
     const el = document.getElementById(`phase-${p.id}`);
     if (!el) return;
 
@@ -1547,7 +1554,7 @@ function onInstallComplete() {
   installPhase = 'complete';
   if (currentPhaseId) completedPhases.add(currentPhaseId);
   // Mark all phases as completed
-  INSTALL_PHASES.forEach(p => completedPhases.add(p.id));
+  getInstallPhases().forEach(p => completedPhases.add(p.id));
   currentPhaseId = null;
 
   // Update sidebar (now shows full navigation)

@@ -36,6 +36,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { escapeHtml } from '../utils.js';
+import { t } from '../i18n.js';
 
 /**
  * Sorts runner sources: LUG sources first (sorted by name length),
@@ -130,13 +131,13 @@ export function renderRunners(container) {
   // Immediately render a loading skeleton so the user gets feedback
   container.innerHTML = `
     <div class="page-header">
-      <h1>Wine Runners</h1>
-      <p class="page-subtitle">Manage Wine/Proton compatibility layers</p>
+      <h1>${t('runners:title')}</h1>
+      <p class="page-subtitle">${t('runners:subtitle')}</p>
     </div>
     <div class="card">
       <div class="runners-loading-state">
         <div class="runners-loading-spinner"></div>
-        <span>Loading configuration...</span>
+        <span>${t('runners:status.loadingConfig')}</span>
       </div>
     </div>
   `;
@@ -252,7 +253,7 @@ function syncAvailableRunners(container, forceRefresh) {
       // Update cache time display in the header
       const cacheTimeEl = container.querySelector('.card-header-info');
       if (cacheTimeEl) {
-        cacheTimeEl.textContent = `Cached: ${formatCacheTime(nowCached)}`;
+        cacheTimeEl.textContent = t('runners:label.cached', { time: formatCacheTime(nowCached) });
       }
 
       // Update download section with new data
@@ -263,7 +264,7 @@ function syncAvailableRunners(container, forceRefresh) {
       const refreshAvailableBtn = document.getElementById('btn-refresh-available');
       if (refreshAvailableBtn) {
         refreshAvailableBtn.disabled = false;
-        refreshAvailableBtn.textContent = 'Refresh';
+        refreshAvailableBtn.textContent = t('runners:button.refresh');
       }
     }).catch(err => {
       fetchErrors = [String(err)];
@@ -273,7 +274,7 @@ function syncAvailableRunners(container, forceRefresh) {
       const refreshAvailableBtn = document.getElementById('btn-refresh-available');
       if (refreshAvailableBtn) {
         refreshAvailableBtn.disabled = false;
-        refreshAvailableBtn.textContent = 'Refresh';
+        refreshAvailableBtn.textContent = t('runners:button.refresh');
       }
 
       // Fall back to cache data on error, if available
@@ -337,7 +338,7 @@ function fireDataFetches(container, forceRefresh = false) {
     const refreshInstalledBtn = document.getElementById('btn-refresh-installed');
     if (refreshInstalledBtn) {
       refreshInstalledBtn.disabled = false;
-      refreshInstalledBtn.textContent = 'Refresh';
+      refreshInstalledBtn.textContent = t('runners:button.refresh');
     }
 
     // Display installed runners
@@ -360,7 +361,7 @@ function fireDataFetches(container, forceRefresh = false) {
     const refreshInstalledBtn = document.getElementById('btn-refresh-installed');
     if (refreshInstalledBtn) {
       refreshInstalledBtn.disabled = false;
-      refreshInstalledBtn.textContent = 'Refresh';
+      refreshInstalledBtn.textContent = t('runners:button.refresh');
     }
 
     patchSection('installed-runners-slot', renderInstalledRunnersContent());
@@ -466,15 +467,15 @@ function patchSection(slotId, html) {
 function renderNoConfig(container) {
   container.innerHTML = `
     <div class="page-header">
-      <h1>Wine Runners</h1>
-      <p class="page-subtitle">Manage Wine/Proton compatibility layers</p>
+      <h1>${t('runners:title')}</h1>
+      <p class="page-subtitle">${t('runners:subtitle')}</p>
     </div>
     <div class="card">
       <div class="runners-guard-notice">
         <div class="runners-guard-icon">\u2699</div>
-        <h3>Configuration Required</h3>
-        <p>Please run the Installation wizard first to set up your install path.</p>
-        <button class="btn btn-primary" id="btn-goto-install">Go to Installation</button>
+        <h3>${t('runners:notification.configRequired')}</h3>
+        <p>${t('runners:notification.configRequiredDesc')}</p>
+        <button class="btn btn-primary" id="btn-goto-install">${t('runners:button.goToInstallation')}</button>
       </div>
     </div>
   `;
@@ -497,20 +498,20 @@ function renderNoConfig(container) {
 function renderPageSkeleton(container) {
   const hasRunner = !!config.selected_runner;
   const hasPrefix = !!config.install_path;
-  const spinner = `<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>Loading...</span></div>`;
+  const spinner = `<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>${t('runners:status.loading')}</span></div>`;
 
   container.innerHTML = `
     <div class="page-header">
-      <h1>Wine Runners</h1>
-      <p class="page-subtitle">Manage Wine/Proton compatibility layers</p>
+      <h1>${t('runners:title')}</h1>
+      <p class="page-subtitle">${t('runners:subtitle')}</p>
     </div>
 
     <!-- Section: Installed runners with selection and deletion actions -->
     <div class="card">
       <div class="card-header-row">
-        <h3 data-tooltip="Wine/Proton runners available on your system. Click Refresh to scan for installed runners." data-tooltip-pos="right">Installed Runners</h3>
+        <h3 data-tooltip="${t('runners:tooltip.installedRunners')}" data-tooltip-pos="right">${t('runners:section.installedRunners')}</h3>
         <div class="card-header-actions">
-          <button class="btn-sm" id="btn-refresh-installed" data-tooltip="Scan for installed runners" data-tooltip-pos="left">Refresh</button>
+          <button class="btn-sm" id="btn-refresh-installed" data-tooltip="${t('runners:tooltip.refreshInstalled')}" data-tooltip-pos="left">${t('runners:button.refresh')}</button>
         </div>
       </div>
       <div id="installed-runners-slot">${spinner}</div>
@@ -519,11 +520,11 @@ function renderPageSkeleton(container) {
     <!-- Section: Download runners with source tabs and installation overlay -->
     <div class="card">
       <div class="card-header-row">
-        <h3 data-tooltip="Download Wine/Proton runners from community sources" data-tooltip-pos="right">Download Runners</h3>
+        <h3 data-tooltip="${t('runners:tooltip.downloadRunners')}" data-tooltip-pos="right">${t('runners:section.downloadRunners')}</h3>
         <div class="card-header-actions">
-          <span class="card-header-info">Cached: ${formatCacheTime(runnerCache.cached_at)}</span>
-          <button class="btn-sm" id="btn-get-lug-sources" data-tooltip="Import latest runner sources from LUG-Helper GitHub repo" data-tooltip-pos="left">Get LUG Sources</button>
-          <button class="btn-sm" id="btn-refresh-available" data-tooltip="Fetch latest runners from all configured sources" data-tooltip-pos="left">Refresh</button>
+          <span class="card-header-info">${t('runners:label.cached', { time: formatCacheTime(runnerCache.cached_at) })}</span>
+          <button class="btn-sm" id="btn-get-lug-sources" data-tooltip="${t('runners:tooltip.getLugSources')}" data-tooltip-pos="left">${t('runners:button.getLugSources')}</button>
+          <button class="btn-sm" id="btn-refresh-available" data-tooltip="${t('runners:tooltip.refreshAvailable')}" data-tooltip-pos="left">${t('runners:button.refresh')}</button>
         </div>
       </div>
       <!-- Source tabs: Each source has its own tab -->
@@ -533,7 +534,7 @@ function renderPageSkeleton(container) {
             <button class="source-tab ${selectedSource === s ? 'active' : ''}" data-source="${s}">${s}</button>
           `).join('')}
         </div>
-        <button class="btn-sm" id="btn-add-source" title="Add new runner source">+</button>
+        <button class="btn-sm" id="btn-add-source" title="${t('runners:tooltip.addSource')}">${t('runners:button.addSource')}</button>
       </div>
       <div id="download-runners-slot">${spinner}</div>
       <!-- Progress overlay: Shown during a runner installation -->
@@ -542,8 +543,8 @@ function renderPageSkeleton(container) {
         <div class="progress-bar-track">
           <div class="progress-bar-fill" id="install-progress-fill"></div>
         </div>
-        <div class="runner-install-status" id="install-status">Preparing...</div>
-        <button class="btn-sm" id="btn-cancel-runner-install">Cancel</button>
+        <div class="runner-install-status" id="install-status">${t('runners:status.preparing')}</div>
+        <button class="btn-sm" id="btn-cancel-runner-install">${t('runners:button.cancel')}</button>
       </div>
     </div>
 
@@ -552,9 +553,9 @@ function renderPageSkeleton(container) {
       <!-- DXVK section: Version detection and release list -->
       <div class="card">
         <div class="card-header-row">
-          <h3 data-tooltip="DirectX to Vulkan translation layer for better performance" data-tooltip-pos="right">DXVK</h3>
+          <h3 data-tooltip="${t('runners:tooltip.dxvk')}" data-tooltip-pos="right">${t('runners:section.dxvk')}</h3>
           <div class="card-header-actions">
-            <button class="btn-sm" id="btn-refresh-dxvk" data-tooltip="Fetch latest DXVK releases" data-tooltip-pos="left">Refresh</button>
+            <button class="btn-sm" id="btn-refresh-dxvk" data-tooltip="${t('runners:tooltip.refreshDxvk')}" data-tooltip-pos="left">${t('runners:button.refresh')}</button>
           </div>
         </div>
         ${hasPrefix
@@ -565,19 +566,19 @@ function renderPageSkeleton(container) {
                <div class="progress-bar-track">
                  <div class="progress-bar-fill" id="dxvk-progress-fill"></div>
                </div>
-               <div class="runner-install-status" id="dxvk-install-status">Preparing...</div>
+               <div class="runner-install-status" id="dxvk-install-status">${t('runners:status.preparing')}</div>
              </div>`
-          : '<div class="runners-guard-notice-inline">Run Installation first to manage DXVK.</div>'
+          : `<div class="runners-guard-notice-inline">${t('runners:notification.runInstallationDxvk')}</div>`
         }
       </div>
 
       <!-- Prefix tools: Winecfg, Wine Shell, PowerShell -->
       <div class="card">
-        <h3 data-tooltip="Wine prefix configuration and utility tools" data-tooltip-pos="right">Prefix Tools</h3>
+        <h3 data-tooltip="${t('runners:tooltip.prefixTools')}" data-tooltip-pos="right">${t('runners:section.prefixTools')}</h3>
         <div id="prefix-tools-slot">
           ${hasRunner && hasPrefix
             ? spinner
-            : `<div class="runners-guard-notice-inline">${!hasRunner ? 'Select a runner first to use prefix tools.' : 'Run Installation first to use prefix tools.'}</div>`
+            : `<div class="runners-guard-notice-inline">${!hasRunner ? t('runners:notification.selectRunnerFirst') : t('runners:notification.runInstallationPrefix')}</div>`
           }
         </div>
       </div>
@@ -599,7 +600,7 @@ function renderPageSkeleton(container) {
  */
 function renderInstalledRunnersContent() {
   if (installedRunners.length === 0) {
-    return '<div class="runner-empty-notice">No runners installed yet. Download one below.</div>';
+    return `<div class="runner-empty-notice">${t('runners:notification.noRunnersInstalled')}</div>`;
   }
 
   // Filter out the active runner and display it separately
@@ -611,7 +612,7 @@ function renderInstalledRunnersContent() {
   if (activeRunner) {
     activeHtml = `
       <div class="active-runner-display">
-        <div class="active-runner-label">Active Runner</div>
+        <div class="active-runner-label">${t('runners:label.activeRunner')}</div>
         <div class="active-runner-name">
           <span class="installed-runner-indicator active"></span>
           ${escapeHtml(activeRunner.name)}
@@ -621,8 +622,8 @@ function renderInstalledRunnersContent() {
   } else {
     activeHtml = `
       <div class="active-runner-display empty">
-        <div class="active-runner-label">Active Runner</div>
-        <div class="active-runner-name-empty">No runner selected</div>
+        <div class="active-runner-label">${t('runners:label.activeRunner')}</div>
+        <div class="active-runner-name-empty">${t('runners:label.noRunnerSelected')}</div>
       </div>
     `;
   }
@@ -633,7 +634,7 @@ function renderInstalledRunnersContent() {
     activatingHtml = `
       <div class="runner-activating-overlay">
         <div class="runners-loading-spinner"></div>
-        <span>Activating ${escapeHtml(activatingRunnerName)}...</span>
+        <span>${t('runners:status.activating', { name: escapeHtml(activatingRunnerName) })}</span>
       </div>
     `;
   }
@@ -650,8 +651,8 @@ function renderInstalledRunnersContent() {
               <span class="installed-runner-name">${escapeHtml(r.name)}</span>
             </div>
             <div class="installed-runner-actions">
-              <button class="btn-sm btn-select-runner" data-name="${escapeHtml(r.name)}" ${isActivatingRunner ? 'disabled' : ''}>Select</button>
-              <button class="btn-sm btn-danger-sm btn-delete-runner" data-name="${escapeHtml(r.name)}" ${isActivatingRunner ? 'disabled' : ''}>Delete</button>
+              <button class="btn-sm btn-select-runner" data-name="${escapeHtml(r.name)}" ${isActivatingRunner ? 'disabled' : ''}>${t('runners:button.select')}</button>
+              <button class="btn-sm btn-danger-sm btn-delete-runner" data-name="${escapeHtml(r.name)}" ${isActivatingRunner ? 'disabled' : ''}>${t('runners:button.delete')}</button>
             </div>
           </div>
         `).join('')}
@@ -680,7 +681,7 @@ function renderDownloadRunnersContent() {
 
   let listHtml;
   if (filtered.length === 0 && fetchErrors.length === 0) {
-    listHtml = '<div class="runner-empty-notice">No runners available from this source.</div>';
+    listHtml = `<div class="runner-empty-notice">${t('runners:notification.noRunnersAvailable')}</div>`;
   } else if (filtered.length === 0) {
     listHtml = '';
   } else {
@@ -696,8 +697,8 @@ function renderDownloadRunnersContent() {
               </span>
             </div>
             ${r.installed
-              ? '<span class="runner-installed-badge">Installed</span>'
-              : `<button class="btn-sm btn-install" data-url="${escapeHtml(r.download_url)}" data-file="${escapeHtml(r.file_name)}" data-name="${escapeHtml(r.name)}">Install</button>`
+              ? `<span class="runner-installed-badge">${t('runners:badge.installed')}</span>`
+              : `<button class="btn-sm btn-install" data-url="${escapeHtml(r.download_url)}" data-file="${escapeHtml(r.file_name)}" data-name="${escapeHtml(r.name)}">${t('runners:button.install')}</button>`
             }
           </div>
         `).join('')}
@@ -717,15 +718,15 @@ function renderDxvkStatusContent() {
   if (dxvkStatus && dxvkStatus.installed) {
     return `
       <div class="dxvk-current">
-        <span class="dxvk-current-label">Current:</span>
-        <span class="dxvk-current-version">${escapeHtml(dxvkStatus.version || 'Unknown')}</span>
+        <span class="dxvk-current-label">${t('runners:label.dxvkCurrent')}</span>
+        <span class="dxvk-current-version">${escapeHtml(dxvkStatus.version || t('runners:label.dxvkUnknownVersion'))}</span>
       </div>
       <div class="dxvk-dll-badges">
         ${dxvkStatus.dlls_found.map(dll => `<span class="dxvk-dll-badge">${escapeHtml(dll)}</span>`).join('')}
       </div>
     `;
   }
-  return '<div class="dxvk-current"><span class="dxvk-current-label">Not installed</span></div>';
+  return `<div class="dxvk-current"><span class="dxvk-current-label">${t('runners:label.dxvkNotInstalled')}</span></div>`;
 }
 
 /**
@@ -736,7 +737,7 @@ function renderDxvkStatusContent() {
  */
 function renderDxvkReleasesContent() {
   if (dxvkReleases.length === 0) {
-    return '<div class="runner-empty-notice">No releases found.</div>';
+    return `<div class="runner-empty-notice">${t('runners:notification.noReleasesFound')}</div>`;
   }
 
   return `
@@ -752,8 +753,8 @@ function renderDxvkReleasesContent() {
               </span>
             </div>
             ${isCurrent
-              ? '<span class="runner-installed-badge">Current</span>'
-              : `<button class="btn-sm btn-install btn-install-dxvk" data-url="${escapeHtml(r.download_url)}" data-version="${escapeHtml(r.version)}">Install</button>`
+              ? `<span class="runner-installed-badge">${t('runners:badge.current')}</span>`
+              : `<button class="btn-sm btn-install btn-install-dxvk" data-url="${escapeHtml(r.download_url)}" data-version="${escapeHtml(r.version)}">${t('runners:button.install')}</button>`
             }
           </div>
         `;
@@ -776,8 +777,8 @@ function renderPrefixToolsContent() {
   // Guard clause: Tools cannot be used without a runner or prefix
   if (!config.selected_runner || !config.install_path) {
     const msg = !config.selected_runner
-      ? 'Select a runner first to use prefix tools.'
-      : 'Run Installation first to use prefix tools.';
+      ? t('runners:notification.selectRunnerFirst')
+      : t('runners:notification.runInstallationPrefix');
     return `<div class="runners-guard-notice-inline">${msg}</div>`;
   }
 
@@ -790,10 +791,10 @@ function renderPrefixToolsContent() {
     <!-- Winecfg: Opens the Wine configuration window -->
     <div class="prefix-tool-row">
       <div class="prefix-tool-info">
-        <span class="prefix-tool-name">Winecfg</span>
-        <span class="prefix-tool-hint">Open Wine configuration window</span>
+        <span class="prefix-tool-name">${t('runners:label.winecfg')}</span>
+        <span class="prefix-tool-hint">${t('runners:desc.winecfg')}</span>
       </div>
-      <button class="btn-sm btn-install" id="btn-winecfg">Launch</button>
+      <button class="btn-sm btn-install" id="btn-winecfg">${t('runners:button.launch')}</button>
     </div>
 
     <div class="prefix-tool-divider"></div>
@@ -801,11 +802,11 @@ function renderPrefixToolsContent() {
     <!-- Wine Shell: Opens a terminal with preconfigured Wine environment -->
     <div class="prefix-tool-row">
       <div class="prefix-tool-info">
-        <span class="prefix-tool-name">Wine Shell</span>
-        <span class="prefix-tool-hint">Open terminal with wine shell for this runner</span>
+        <span class="prefix-tool-name">${t('runners:label.wineShell')}</span>
+        <span class="prefix-tool-hint">${t('runners:desc.wineShell')}</span>
       </div>
       <button class="btn-sm btn-install" id="btn-wine-shell" ${!hasRunner || isRunningPrefixTool ? 'disabled' : ''}>
-        ${isRunningPrefixTool ? 'Starting...' : 'Launch'}
+        ${isRunningPrefixTool ? t('runners:status.starting') : t('runners:button.launch')}
       </button>
     </div>
 
@@ -814,13 +815,13 @@ function renderPrefixToolsContent() {
     <!-- PowerShell: Install via Winetricks (takes several minutes) -->
     <div class="prefix-tool-row">
       <div class="prefix-tool-info">
-        <span class="prefix-tool-name">PowerShell</span>
-        <span class="prefix-tool-hint">${powershellInstalled ? 'Installed' : 'Install via winetricks (takes several minutes)'}</span>
+        <span class="prefix-tool-name">${t('runners:label.powershell')}</span>
+        <span class="prefix-tool-hint">${powershellInstalled ? t('runners:desc.powershellInstalled') : t('runners:desc.powershellNotInstalled')}</span>
       </div>
       ${powershellInstalled
-        ? '<span class="runner-installed-badge">Installed</span>'
+        ? `<span class="runner-installed-badge">${t('runners:badge.installed')}</span>`
         : `<button class="btn-sm btn-install" id="btn-install-powershell" ${isRunningPrefixTool ? 'disabled' : ''}>
-            ${isRunningPrefixTool ? 'Installing...' : 'Install'}
+            ${isRunningPrefixTool ? t('runners:status.installing') : t('runners:button.install')}
           </button>`
       }
     </div>
@@ -849,7 +850,7 @@ function bindSkeletonEvents(container) {
       loadingFlags.installed = true;
       const installedSlot = document.getElementById('installed-runners-slot');
       if (installedSlot) {
-        installedSlot.innerHTML = '<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>Scanning for installed runners...</span></div>';
+        installedSlot.innerHTML = `<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>${t('runners:status.scanningRunners')}</span></div>`;
       }
       refreshInstalledBtn.disabled = true;
       refreshInstalledBtn.textContent = '...';
@@ -865,7 +866,7 @@ function bindSkeletonEvents(container) {
       loadingFlags.available = true;
       const downloadSlot = document.getElementById('download-runners-slot');
       if (downloadSlot) {
-        downloadSlot.innerHTML = '<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>Refreshing runners...</span></div>';
+        downloadSlot.innerHTML = `<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>${t('runners:status.refreshingRunners')}</span></div>`;
       }
       refreshAvailableBtn.disabled = true;
       refreshAvailableBtn.textContent = '...';
@@ -890,7 +891,7 @@ function bindSkeletonEvents(container) {
   if (refreshDxvkBtn) {
     refreshDxvkBtn.addEventListener('click', () => {
       loadingFlags.dxvkReleases = true;
-      patchSection('dxvk-releases-slot', '<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>Refreshing...</span></div>');
+      patchSection('dxvk-releases-slot', `<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>${t('runners:status.refreshing')}</span></div>`);
       fireDataFetches(container, true);
     });
   }
@@ -1042,10 +1043,10 @@ async function selectRunner(name, container) {
  * @param {HTMLElement} container - The container element
  */
 async function showAddSourceDialog(container) {
-  const name = prompt('Enter runner source name (e.g., "LUG Experimental"):');
+  const name = prompt(t('runners:dialog.addSourceName'));
   if (!name || !name.trim()) return;
 
-  const apiUrl = prompt('Enter GitHub API URL:\n(e.g., https://api.github.com/repos/starcitizen-lug/lug-wine-experimental/releases)');
+  const apiUrl = prompt(t('runners:dialog.addSourceUrl'));
   if (!apiUrl || !apiUrl.trim()) return;
 
   try {
@@ -1086,13 +1087,13 @@ async function showAddSourceDialog(container) {
 
       // Reload runner list with forced refresh
       loadingFlags.available = true;
-      patchSection('download-runners-slot', '<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>Refreshing...</span></div>');
+      patchSection('download-runners-slot', `<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>${t('runners:status.refreshing')}</span></div>`);
       fireDataFetches(container, true);
     } else {
       alert(result.message);
     }
   } catch (err) {
-    alert('Failed to add source: ' + err);
+    alert(t('runners:error.failedAddSource', { error: err }));
   }
 }
 
@@ -1137,10 +1138,10 @@ async function importLugHelperSources(container) {
 
     // Force reload runner list
     loadingFlags.available = true;
-    patchSection('download-runners-slot', '<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>Refreshing...</span></div>');
+    patchSection('download-runners-slot', `<div class="runners-loading-state"><div class="runners-loading-spinner"></div><span>${t('runners:status.refreshing')}</span></div>`);
     fireDataFetches(container, true);
   } catch (err) {
-    alert('Failed to import LUG sources: ' + err);
+    alert(t('runners:error.failedImportLug', { error: err }));
   }
 }
 
@@ -1197,7 +1198,7 @@ async function installRunner(downloadUrl, fileName, displayName, container) {
   if (overlay) overlay.style.display = '';
   if (nameEl) nameEl.textContent = displayName;
   if (fillEl) { fillEl.style.width = '0%'; fillEl.classList.remove('extracting'); }
-  if (statusEl) statusEl.textContent = 'Starting download...';
+  if (statusEl) statusEl.textContent = t('runners:status.startingDownload');
 
   // Clean up previous listener
   if (unlistenRunnerProgress) { unlistenRunnerProgress(); unlistenRunnerProgress = null; }
@@ -1214,16 +1215,16 @@ async function installRunner(downloadUrl, fileName, displayName, container) {
         // Download phase: Update progress bar and size display
         fill.classList.remove('extracting');
         fill.style.width = `${p.percent.toFixed(1)}%`;
-        status.textContent = `Downloading... ${formatSize(p.bytes_downloaded)} / ${formatSize(p.total_bytes)}`;
+        status.textContent = t('runners:status.downloading', { downloaded: formatSize(p.bytes_downloaded), total: formatSize(p.total_bytes) });
       } else if (p.phase === 'extracting') {
         // Extraction phase: Pulsing progress bar
         fill.style.width = '100%';
         fill.classList.add('extracting');
-        status.textContent = 'Extracting archive...';
+        status.textContent = t('runners:status.extracting');
       } else if (p.phase === 'complete') {
         fill.style.width = '100%';
         fill.classList.remove('extracting');
-        status.textContent = 'Installation complete!';
+        status.textContent = t('runners:status.installComplete');
       } else if (p.phase === 'error') {
         fill.classList.remove('extracting');
         status.textContent = p.message;
@@ -1234,7 +1235,7 @@ async function installRunner(downloadUrl, fileName, displayName, container) {
   try {
     await invoke('install_runner', { downloadUrl, fileName, basePath: config.install_path });
   } catch (err) {
-    if (statusEl) statusEl.textContent = `Error: ${err}`;
+    if (statusEl) statusEl.textContent = t('runners:error.prefix', { message: err });
   }
 
   // Clean up: Remove listener and release installation lock
@@ -1281,7 +1282,7 @@ async function installDxvk(downloadUrl, version, container) {
   if (overlay) overlay.style.display = '';
   if (nameEl) nameEl.textContent = `DXVK ${version}`;
   if (fillEl) fillEl.style.width = '0%';
-  if (statusEl) statusEl.textContent = 'Starting download...';
+  if (statusEl) statusEl.textContent = t('runners:status.startingDownload');
 
   if (unlistenDxvkProgress) { unlistenDxvkProgress(); unlistenDxvkProgress = null; }
 
@@ -1308,7 +1309,7 @@ async function installDxvk(downloadUrl, version, container) {
   try {
     await invoke('install_dxvk', { downloadUrl, version, basePath: config.install_path });
   } catch (err) {
-    if (statusEl) statusEl.textContent = `Error: ${err}`;
+    if (statusEl) statusEl.textContent = t('runners:error.prefix', { message: err });
   }
 
   if (unlistenDxvkProgress) { unlistenDxvkProgress(); unlistenDxvkProgress = null; }
@@ -1363,7 +1364,7 @@ async function launchWineShell(container) {
     });
   } catch (err) {
     console.error('Failed to launch wine shell:', err);
-    alert('Failed to launch wine shell: ' + err);
+    alert(t('runners:error.failedLaunchWineShell', { error: err }));
   } finally {
     isRunningPrefixTool = false;
     patchSection('prefix-tools-slot', renderPrefixToolsContent());
@@ -1423,14 +1424,14 @@ async function installPowershell(container) {
       basePath: config.install_path,
       runnerName: config.selected_runner,
     });
-    prefixToolLog.push('Done.');
+    prefixToolLog.push(t('runners:status.done'));
 
     // Update PowerShell status after installation
     try {
       powershellInstalled = await invoke('detect_powershell', { basePath: config.install_path });
     } catch { /* ignore */ }
   } catch (err) {
-    prefixToolLog.push(`ERROR: ${err}`);
+    prefixToolLog.push(t('runners:error.powershellError', { error: err }));
   }
 
   if (unlistenPrefixLog) { unlistenPrefixLog(); unlistenPrefixLog = null; }
@@ -1486,7 +1487,7 @@ function formatSize(bytes) {
  * @returns {string} Formatted date (e.g. "12.03.26, 14:30") or "Never"
  */
 function formatCacheTime(timestamp) {
-  if (!timestamp) return 'Never';
+  if (!timestamp) return t('runners:label.cachedNever');
   const date = new Date(timestamp * 1000);
   return date.toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
 }

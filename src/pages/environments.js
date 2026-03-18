@@ -35,6 +35,7 @@ import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import { confirm, prompt, showDiff } from '../utils/dialogs.js';
 import { escapeHtml } from '../utils.js';
+import { t } from '../i18n.js';
 
 // ==================== Debug Logging ====================
 
@@ -201,7 +202,7 @@ function renderHint(id, html) {
         <line x1="12" y1="8" x2="12.01" y2="8"></line>
       </svg>
       <span class="hint-text">${html}</span>
-      <button class="hint-dismiss" data-action="dismiss-hint" data-hint-id="${id}">Got it</button>
+      <button class="hint-dismiss" data-action="dismiss-hint" data-hint-id="${id}">${t('environments:hint.gotIt')}</button>
     </div>
   `;
 }
@@ -496,7 +497,7 @@ export async function renderEnvironments(container) {
     try {
       const migrated = await invoke('migrate_binding_database');
       if (migrated) {
-        showNotification('Old binding database migrated. Bindings are now managed per profile.', 'info');
+        showNotification(t('environments:notification.migrated'), 'info');
       }
     } catch (e) {
       console.warn('[profiles] binding_database migration failed:', e);
@@ -574,8 +575,8 @@ export async function renderEnvironments(container) {
   // Render
   let html = `
     <div class="page-header">
-      <h1>Environments</h1>
-      <p class="page-subtitle">Manage Star Citizen environments, game data, and settings</p>
+      <h1>${t('environments:title')}</h1>
+      <p class="page-subtitle">${t('environments:subtitle')}</p>
     </div>
     <div class="sc-settings">
       ${renderVersionSelector()}
@@ -875,9 +876,9 @@ function renderVersionSelector() {
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
           </svg>
         </div>
-        <h3>No SC Versions Found</h3>
-        <p>No Star Citizen installations detected. Please set your base directory in Settings.</p>
-        <p class="notice-path">${escapeHtml(config?.install_path || 'Not set')}</p>
+        <h3>${t('environments:version.noVersionsTitle')}</h3>
+        <p>${t('environments:version.noVersionsDesc')}</p>
+        <p class="notice-path">${escapeHtml(config?.install_path || t('environments:version.notSet'))}</p>
       </div>
     `;
   }
@@ -900,7 +901,7 @@ function renderVersionSelector() {
 
   return `
     <div class="sc-version-selector">
-      <label class="section-label">Version</label>
+      <label class="section-label">${t('environments:version.label')}</label>
       <div class="version-cards">
         ${allVersionNames.map(vName => {
           const v = scVersions.find(v => v.version === vName);
@@ -920,9 +921,9 @@ function renderVersionSelector() {
             <button class="sc-version-card ${isActive ? 'active' : ''} ${!exists ? 'sc-not-installed' : ''} ${exists && !hasDataP4k ? 'missing-data' : ''}"
                     data-version="${escapeHtml(vName)}">
               <div class="version-status-dot ${statusClass}"
-                   title="${!exists ? 'Folder not created - click to manage' : (isCopying ? 'Copying Data.p4k...' : (hasDataP4k ? 'Ready' : 'Data.p4k missing'))}"></div>
+                   title="${!exists ? t('environments:version.folderNotCreated') : (isCopying ? t('environments:version.copyingDataP4k') : (hasDataP4k ? t('environments:version.ready') : t('environments:version.dataP4kMissing')))}"></div>
               <span class="version-label">${escapeHtml(vName)}</span>
-              ${exists && !hasDataP4k && !isCopying ? `<div class="version-copy-btn" data-version="${escapeHtml(vName)}" title="Copy Data.p4k from another version">⤵</div>` : ''}
+              ${exists && !hasDataP4k && !isCopying ? `<div class="version-copy-btn" data-version="${escapeHtml(vName)}" title="${t('environments:version.copyFromAnother')}">⤵</div>` : ''}
               ${isCopying ? `<div class="version-copy-progress" data-version="${escapeHtml(vName)}">0%</div>` : ''}
             </button>
           `;
@@ -949,10 +950,10 @@ function renderMainContent() {
   }
 
   const tabs = [
-    { key: 'profile', label: 'Profiles', tooltip: 'Save and load Star Citizen profile snapshots' },
-    { key: 'usercfg', label: 'USER.cfg', tooltip: 'Configure graphics, performance, and quality settings' },
-    { key: 'localization', label: 'Localization', tooltip: 'Install community translations' },
-    { key: 'storage', label: 'Storage', tooltip: 'Manage Game Data and Versions' },
+    { key: 'profile', label: t('environments:tab.profile'), tooltip: t('environments:tab.profileTooltip') },
+    { key: 'usercfg', label: t('environments:tab.usercfg'), tooltip: t('environments:tab.usercfgTooltip') },
+    { key: 'localization', label: t('environments:tab.localization'), tooltip: t('environments:tab.localizationTooltip') },
+    { key: 'storage', label: t('environments:tab.storage'), tooltip: t('environments:tab.storageTooltip') },
   ];
 
   let tabContent = '';
@@ -968,7 +969,7 @@ function renderMainContent() {
 
   return `
     <div class="profile-tabs">
-      ${tabs.map(t => `<button class="profile-tab ${activeProfileTab === t.key ? 'active' : ''}" data-tab="${t.key}" data-tooltip="${t.tooltip}" data-tooltip-pos="bottom">${t.label}</button>`).join('')}
+      ${tabs.map(tb => `<button class="profile-tab ${activeProfileTab === tb.key ? 'active' : ''}" data-tab="${tb.key}" data-tooltip="${tb.tooltip}" data-tooltip-pos="bottom">${tb.label}</button>`).join('')}
     </div>
     <div class="profile-tab-content">
       ${tabContent}
@@ -992,23 +993,23 @@ function renderEmptyVersionState() {
           <line x1="9" y1="14" x2="15" y2="14"></line>
         </svg>
       </div>
-      <h3>${escapeHtml(activeScVersion)} Environment not found</h3>
-      <p>This version folder does not exist yet in your Star Citizen directory.</p>
+      <h3>${t('environments:version.envNotFound', { version: escapeHtml(activeScVersion) })}</h3>
+      <p>${t('environments:version.folderNotExist')}</p>
       
       <div class="empty-state-actions" style="display: flex; flex-direction: column; gap: 1rem; max-width: 400px; margin: 2rem auto;">
         <button class="btn btn-primary" id="btn-create-version" data-version="${escapeHtml(activeScVersion)}">
-          Create Empty Folder
+          ${t('environments:version.createEmptyFolder')}
         </button>
         
         ${versionsWithP4k.length > 0 ? `
           <div style="border-top: 1px solid var(--border); padding-top: 1rem; margin-top: 0.5rem;">
-            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Initialize with Data.p4k from another version:</p>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">${t('environments:version.initWithDataP4k')}</p>
             <div style="display: flex; gap: 0.5rem;">
               <select id="data-source-select" class="btn btn-sm" style="flex: 1; background: var(--bg-secondary);">
                 ${versionsWithP4k.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('')}
               </select>
-              <button class="btn btn-sm" id="btn-link-p4k" data-version="${escapeHtml(activeScVersion)}" title="Space-saving symlink (recommended for Linux)">Symlink</button>
-              <button class="btn btn-sm" id="btn-copy-p4k" data-version="${escapeHtml(activeScVersion)}" title="Full independent copy (uses 100GB+ extra)">Copy</button>
+              <button class="btn btn-sm" id="btn-link-p4k" data-version="${escapeHtml(activeScVersion)}" title="${t('environments:version.symlinkTooltip')}">${t('environments:version.symlink')}</button>
+              <button class="btn btn-sm" id="btn-copy-p4k" data-version="${escapeHtml(activeScVersion)}" title="${t('environments:version.copyTooltip')}">${t('environments:version.copy')}</button>
             </div>
           </div>
         ` : ''}
@@ -1030,24 +1031,24 @@ function renderStorageTab() {
   return `
     <div class="sc-section">
       <div class="sc-section-header">
-        <h3>Version Storage Management</h3>
+        <h3>${t('environments:storage.title')}</h3>
       </div>
-      
+
       <div class="profile-info-card">
         <div class="profile-info-row">
-          <span class="profile-info-label">Environment</span>
+          <span class="profile-info-label">${t('environments:storage.environment')}</span>
           <span class="profile-info-value"><strong>${escapeHtml(activeScVersion)}</strong></span>
         </div>
         <div class="profile-info-row">
-          <span class="profile-info-label">Path</span>
+          <span class="profile-info-label">${t('environments:storage.path')}</span>
           <span class="profile-info-value"><code>${escapeHtml(vInfo.path || 'Unknown')}</code></span>
         </div>
         <div class="profile-info-row">
-          <span class="profile-info-label">Data.p4k</span>
+          <span class="profile-info-label">${t('environments:storage.dataP4k')}</span>
           <span class="profile-info-value">
-            ${hasDataP4k 
-              ? '<span class="localization-installed-badge">Installed</span>' 
-              : '<span class="text-muted">Missing</span>'}
+            ${hasDataP4k
+              ? `<span class="localization-installed-badge">${t('environments:storage.installedBadge')}</span>`
+              : `<span class="text-muted">${t('environments:storage.missing')}</span>`}
           </span>
         </div>
       </div>
@@ -1056,15 +1057,14 @@ function renderStorageTab() {
         <div style="padding: 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: rgba(255, 50, 50, 0.05);">
           <h4 style="margin-top: 0; color: #ff6b6b; display: flex; align-items: center; gap: 0.5rem;">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-            Danger Zone
+            ${t('environments:storage.dangerZone')}
           </h4>
           <p style="color: var(--text-secondary); margin-bottom: 1rem; font-size: 0.9rem;">
-            Delete this entire environment folder from your hard drive to free up space. This action cannot be undone. 
-            All profiles, settings, and the Data.p4k file for <strong>${escapeHtml(activeScVersion)}</strong> will be permanently removed.
+            ${t('environments:storage.deleteDesc', { version: escapeHtml(activeScVersion) })}
           </p>
           <button class="btn btn-danger" id="btn-delete-version" data-version="${escapeHtml(activeScVersion)}">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-            Delete ${escapeHtml(activeScVersion)} Environment
+            ${t('environments:storage.deleteButton', { version: escapeHtml(activeScVersion) })}
           </button>
         </div>
       </div>
@@ -1097,9 +1097,9 @@ function renderProfileTab() {
         <line x1="12" y1="16" x2="12" y2="12"></line>
         <line x1="12" y1="8" x2="12.01" y2="8"></line>
       </svg>
-      <span>No profiles found for <strong>${escapeHtml(activeScVersion)}</strong>. Import from another version?</span>
-      <button class="btn btn-sm btn-primary" id="btn-import-banner">Import from Version</button>
-      <button class="btn-icon" id="btn-import-banner-dismiss" title="Dismiss">
+      <span>${t('environments:import.noProfilesFound', { version: escapeHtml(activeScVersion) })}</span>
+      <button class="btn btn-sm btn-primary" id="btn-import-banner">${t('environments:profile.importFromVersion')}</button>
+      <button class="btn-icon" id="btn-import-banner-dismiss" title="${t('environments:import.dismiss')}">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
       </button>
     </div>
@@ -1118,12 +1118,12 @@ function renderProfileTab() {
             <polyline points="7 3 7 8 15 8"></polyline>
           </svg>
           <div class="profile-empty-text">
-            <p><strong>Save your Star Citizen settings as a profile</strong></p>
-            <p class="text-muted">This backs up your keybindings, graphics, and controller settings. You can edit bindings, switch between setups, and restore anytime.</p>
+            <p><strong>${t('environments:profile.saveTitle')}</strong></p>
+            <p class="text-muted">${t('environments:profile.saveDesc')}</p>
           </div>
           <div class="profile-empty-actions">
-            <button class="btn btn-primary" id="btn-save-first-profile">Save Current Settings</button>
-            ${scVersions.length > 1 ? '<button class="btn btn-sm" id="btn-import-version">Import from Version</button>' : ''}
+            <button class="btn btn-primary" id="btn-save-first-profile">${t('environments:profile.saveCurrentSettings')}</button>
+            ${scVersions.length > 1 ? `<button class="btn btn-sm" id="btn-import-version">${t('environments:profile.importFromVersion')}</button>` : ''}
           </div>
         </div>
       </div>
@@ -1139,15 +1139,15 @@ function renderProfileTab() {
       const showApplyButton = isDirty || isOutOfSync;
 
       if (isDirty) {
-        statusText = 'Unsaved changes - click "Apply to SC" to push to game';
+        statusText = t('environments:profile.unsavedChanges');
         statusClass = 'profile-status-changed';
       } else if (activeProfileStatus && activeProfileStatus.files.length > 0) {
         if (activeProfileStatus.matched) {
-          statusText = 'In sync with Star Citizen';
+          statusText = t('environments:profile.inSync');
           statusClass = 'profile-status-ok';
         } else {
           const changedCount = activeProfileStatus.files.filter(f => f.status !== 'unchanged').length;
-          statusText = `${changedCount} file${changedCount !== 1 ? 's' : ''} changed since last apply`;
+          statusText = t('environments:profile.filesChanged', { count: changedCount });
           statusClass = 'profile-status-changed';
         }
       }
@@ -1163,20 +1163,20 @@ function renderProfileTab() {
           </div>
           <div class="profile-active-actions">
             ${isOutOfSync ? `
-              <button class="btn btn-sm btn-ghost" id="btn-revert-changes" title="Discard game changes and reload profile files">Revert</button>
-              <button class="btn btn-sm" id="btn-update-profile" title="Overwrite this profile with your current game settings">Update Profile</button>
+              <button class="btn btn-sm btn-ghost" id="btn-revert-changes" title="${t('environments:profile.revertTooltip')}">${t('environments:profile.revert')}</button>
+              <button class="btn btn-sm" id="btn-update-profile" title="${t('environments:profile.updateProfileTooltip')}">${t('environments:profile.updateProfile')}</button>
             ` : ''}
-            ${showApplyButton ? `<button class="btn btn-primary btn-sm" id="btn-apply-to-sc" title="Push profile files to Star Citizen">Apply to SC ${escapeHtml(activeScVersion)}</button>` : ''}
+            ${showApplyButton ? `<button class="btn btn-primary btn-sm" id="btn-apply-to-sc" title="${t('environments:profile.applyToScTooltip')}">${t('environments:profile.applyToSc', { version: escapeHtml(activeScVersion) })}</button>` : ''}
           </div>
         </div>
-        ${showApplyButton ? renderHint('apply-explain', 'This will copy the profile\'s files to your Star Citizen directory, overwriting the current settings.') : ''}
+        ${showApplyButton ? renderHint('apply-explain', t('environments:hint.applyExplain')) : ''}
         ${showChangesPanel && activeProfileStatus && !activeProfileStatus.matched ? renderChangesPanel(activeProfileStatus.files) : ''}
       `;
     } else if (hasScFiles) {
       activeHeader = `
         <div class="profile-active-header profile-active-none">
           <div class="profile-active-info">
-            <span class="text-muted">No profile loaded - load one below or save your current settings</span>
+            <span class="text-muted">${t('environments:profile.noProfileLoaded')}</span>
           </div>
         </div>
       `;
@@ -1184,7 +1184,7 @@ function renderProfileTab() {
 
     profilesSection = `
       <div class="sc-section profiles-section">
-        ${renderHint('profiles-intro', 'Profiles snapshot your Star Citizen settings (keybindings, graphics, controllers). Load a profile to edit it, then use <strong>Apply to SC</strong> to push changes to the game.')}
+        ${renderHint('profiles-intro', t('environments:hint.profilesIntro'))}
         ${activeHeader}
         <div class="profiles-card-grid">
           ${backups.map(b => {
@@ -1192,12 +1192,12 @@ function renderProfileTab() {
             return `
               <div class="profile-card ${isActive ? 'active' : ''}" data-backup-id="${escapeHtml(b.id)}">
                 <div class="profile-card-header">
-                  <span class="profile-card-name">${escapeHtml(b.label || 'Unnamed profile')}</span>
+                  <span class="profile-card-name">${escapeHtml(b.label || t('environments:profile.unnamedProfile'))}</span>
                   <div class="profile-card-actions">
-                    <button class="btn-icon btn-icon-rename" data-action="rename-saved-profile" data-backup-id="${escapeHtml(b.id)}" title="Rename">
+                    <button class="btn-icon btn-icon-rename" data-action="rename-saved-profile" data-backup-id="${escapeHtml(b.id)}" title="${t('environments:profile.rename')}">
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                     </button>
-                    <button class="btn-icon btn-icon-danger" data-action="delete-saved-profile" data-backup-id="${escapeHtml(b.id)}" title="Delete">
+                    <button class="btn-icon btn-icon-danger" data-action="delete-saved-profile" data-backup-id="${escapeHtml(b.id)}" title="${t('environments:profile.delete')}">
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                     </button>
                   </div>
@@ -1205,22 +1205,22 @@ function renderProfileTab() {
                 <div class="profile-card-meta">
                   <span class="profile-card-date">${escapeHtml(b.created_at)}</span>
                   <span class="backup-type-badge ${b.backup_type}">${escapeHtml(formatProfileTypeBadge(b.backup_type))}</span>
-                  ${b.device_map?.length > 0 ? `<span class="backup-devices">${b.device_map.length} device${b.device_map.length !== 1 ? 's' : ''}</span>` : ''}
-                  ${b.dirty ? '<span class="backup-dirty-badge">unsaved</span>' : ''}
+                  ${b.device_map?.length > 0 ? `<span class="backup-devices">${t('environments:profile.device', { count: b.device_map.length })}</span>` : ''}
+                  ${b.dirty ? `<span class="backup-dirty-badge">${t('environments:profile.unsaved')}</span>` : ''}
                 </div>
-                ${!isActive ? `<button class="btn btn-sm profile-card-load" data-action="load-profile" data-backup-id="${escapeHtml(b.id)}">Load</button>` : '<span class="profile-card-active-badge">Active</span>'}
+                ${!isActive ? `<button class="btn btn-sm profile-card-load" data-action="load-profile" data-backup-id="${escapeHtml(b.id)}">${t('environments:profile.load')}</button>` : `<span class="profile-card-active-badge">${t('environments:profile.active')}</span>`}
               </div>
             `;
           }).join('')}
-          <div class="profile-card profile-card-add" id="btn-save-current" title="Save current Star Citizen settings as a new profile">
+          <div class="profile-card profile-card-add" id="btn-save-current" title="${t('environments:profile.saveCurrentTooltip')}">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="12" y1="5" x2="12" y2="19"></line>
               <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
-            <span>Save Current</span>
+            <span>${t('environments:profile.saveCurrent')}</span>
           </div>
         </div>
-        ${scVersions.length > 1 ? `<div class="profiles-section-footer"><button class="btn btn-sm" id="btn-import-version">Import from Version</button></div>` : ''}
+        ${scVersions.length > 1 ? `<div class="profiles-section-footer"><button class="btn btn-sm" id="btn-import-version">${t('environments:profile.importFromVersion')}</button></div>` : ''}
       </div>
     `;
   }
@@ -1266,12 +1266,12 @@ function renderLocalizationStatus() {
     return `
       <div class="profile-info-card">
         <div class="profile-info-row">
-          <span class="profile-info-label">Language</span>
-          <span class="profile-info-value">English (default)</span>
+          <span class="profile-info-label">${t('environments:localization.language')}</span>
+          <span class="profile-info-value">${t('environments:localization.englishDefault')}</span>
         </div>
         <div class="profile-info-row">
-          <span class="profile-info-label">Status</span>
-          <span class="profile-info-value"><span class="text-muted">No community translation installed</span></span>
+          <span class="profile-info-label">${t('environments:localization.status')}</span>
+          <span class="profile-info-value"><span class="text-muted">${t('environments:localization.noTranslation')}</span></span>
         </div>
       </div>
     `;
@@ -1285,24 +1285,24 @@ function renderLocalizationStatus() {
   return `
     <div class="profile-info-card">
       <div class="profile-info-row">
-        <span class="profile-info-label">Language</span>
+        <span class="profile-info-label">${t('environments:localization.language')}</span>
         <span class="profile-info-value localization-lang-active">${escapeHtml(langName)}</span>
       </div>
       ${status.language_code ? `
         <div class="profile-info-row">
-          <span class="profile-info-label">Code</span>
+          <span class="profile-info-label">${t('environments:localization.code')}</span>
           <span class="profile-info-value"><code>${escapeHtml(status.language_code)}</code></span>
         </div>
       ` : ''}
       ${status.source_label ? `
         <div class="profile-info-row">
-          <span class="profile-info-label">Source</span>
+          <span class="profile-info-label">${t('environments:localization.source')}</span>
           <span class="profile-info-value">${escapeHtml(status.source_label)}</span>
         </div>
       ` : ''}
       ${commitDateStr || shortSha ? `
         <div class="profile-info-row">
-          <span class="profile-info-label">Translation Version</span>
+          <span class="profile-info-label">${t('environments:localization.translationVersion')}</span>
           <span class="profile-info-value">
             ${commitDateStr ? escapeHtml(commitDateStr) : ''}
             ${shortSha ? `<code class="localization-commit-hash">${escapeHtml(shortSha)}</code>` : ''}
@@ -1311,7 +1311,7 @@ function renderLocalizationStatus() {
       ` : ''}
       ${status.repo_url ? `
         <div class="profile-info-row">
-          <span class="profile-info-label">Repository</span>
+          <span class="profile-info-label">${t('environments:localization.repository')}</span>
           <span class="profile-info-value">
             <a href="#" class="localization-repo-link" data-url="${escapeHtml(status.repo_url)}">
               ${escapeHtml(status.source_repo || status.repo_url)}
@@ -1326,21 +1326,21 @@ function renderLocalizationStatus() {
       ` : ''}
       ${status.installed_at ? `
         <div class="profile-info-row">
-          <span class="profile-info-label">Installed</span>
+          <span class="profile-info-label">${t('environments:localization.installed')}</span>
           <span class="profile-info-value">${escapeHtml(status.installed_at)}</span>
         </div>
       ` : ''}
       <div class="profile-info-row">
-        <span class="profile-info-label">File Size</span>
+        <span class="profile-info-label">${t('environments:localization.fileSize')}</span>
         <span class="profile-info-value">${sizeStr}</span>
       </div>
       <div class="profile-info-row">
-        <span class="profile-info-label">Actions</span>
+        <span class="profile-info-label">${t('environments:localization.actionsLabel')}</span>
         <span class="profile-info-value">
           <button class="btn btn-sm btn-primary" id="btn-update-localization" ${localizationLoading ? 'disabled' : ''}>
-            ${localizationLoading ? 'Updating...' : 'Update'}
+            ${localizationLoading ? t('environments:localization.updating') : t('environments:localization.update')}
           </button>
-          <button class="btn btn-sm btn-danger-sm" id="btn-remove-localization" ${localizationLoading ? 'disabled' : ''}>Remove</button>
+          <button class="btn btn-sm btn-danger-sm" id="btn-remove-localization" ${localizationLoading ? 'disabled' : ''}>${t('environments:localization.remove')}</button>
         </span>
       </div>
     </div>
@@ -1354,7 +1354,7 @@ function renderLocalizationStatus() {
  */
 function renderLanguageSelector() {
   if (availableLanguages.length === 0) {
-    return '<div class="sc-hint">No languages available.</div>';
+    return `<div class="sc-hint">${t('environments:localization.noLanguages')}</div>`;
   }
 
   // Group languages by code (one language can have multiple translation sources)
@@ -1398,14 +1398,14 @@ function renderLanguageSelector() {
             <line x1="2" y1="12" x2="22" y2="12"></line>
             <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
           </svg>
-          Available Languages
+          ${t('environments:localization.availableTitle')}
         </h3>
       </div>
       <div class="localization-table">
         <div class="localization-table-header">
-          <span class="localization-col-lang">Language</span>
-          <span class="localization-col-source">Source</span>
-          <span class="localization-col-updated">Updated</span>
+          <span class="localization-col-lang">${t('environments:localization.colLanguage')}</span>
+          <span class="localization-col-source">${t('environments:localization.colSource')}</span>
+          <span class="localization-col-updated">${t('environments:localization.colUpdated')}</span>
           <span class="localization-col-action"></span>
         </div>
         ${rows.map(({ lang, src, isSrcActive }, idx) => {
@@ -1424,7 +1424,7 @@ function renderLanguageSelector() {
             <span class="localization-col-source">
               <span class="localization-source-label">${escapeHtml(src.source_label)}</span>
               ${src.repo_url ? `
-                <a href="#" class="localization-repo-link-icon" data-url="${escapeHtml(src.repo_url)}" title="Open repository">
+                <a href="#" class="localization-repo-link-icon" data-url="${escapeHtml(src.repo_url)}" title="${t('environments:localization.openRepo')}">
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                     <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
                     <polyline points="15 3 21 3 21 9"></polyline>
@@ -1435,14 +1435,14 @@ function renderLanguageSelector() {
             </span>
             <span class="localization-col-updated">${escapeHtml(lastUpdated)}</span>
             <span class="localization-col-action">
-              ${isSrcActive ? '<span class="localization-installed-badge">Installed</span>' : `
+              ${isSrcActive ? `<span class="localization-installed-badge">${t('environments:localization.installedBadge')}</span>` : `
                 <button class="btn-install" data-action="install-lang"
                         data-lang-code="${escapeHtml(lang.language_code)}"
                         data-source-repo="${escapeHtml(src.source_repo)}"
                         data-lang-name="${escapeHtml(lang.language_name)}"
                         data-source-label="${escapeHtml(src.source_label)}"
                         ${localizationLoading ? 'disabled' : ''}>
-                  Install
+                  ${t('environments:localization.install')}
                 </button>
               `}
             </span>
@@ -1451,7 +1451,7 @@ function renderLanguageSelector() {
         }).join('')}
       </div>
       <div class="localization-hint">
-        Translations are maintained by community volunteers. Audio always remains in English.
+        ${t('environments:localization.communityHint')}
       </div>
     </div>
   `;
@@ -1505,10 +1505,10 @@ async function installLocalization(langCode, sourceRepo, displayName, sourceLabe
       languageName: displayName,
       sourceLabel: sourceLabel,
     });
-    showNotification(`${displayName} translation installed`, 'success');
+    showNotification(t('environments:notification.translationInstalled', { language: displayName }), 'success');
     await Promise.all([loadLocalizationData(), loadUserCfgSettings()]);
   } catch (e) {
-    showNotification(`Installation failed: ${e}`, 'error');
+    showNotification(t('environments:notification.installFailed', { error: e }), 'error');
   }
 
   localizationLoading = false;
@@ -1523,7 +1523,7 @@ async function removeLocalization() {
   if (!config?.install_path || !activeScVersion) return;
 
   const langName = localizationStatus?.language_name || 'translation';
-  const confirmed = await confirm(`Remove ${langName} translation?`, { title: 'Remove Translation', kind: 'warning' });
+  const confirmed = await confirm(t('environments:localization.removeConfirm', { language: langName }), { title: t('environments:localization.removeTitle'), kind: 'warning' });
   if (!confirmed) return;
 
   localizationLoading = true;
@@ -1534,10 +1534,10 @@ async function removeLocalization() {
       gamePath: config.install_path,
       version: activeScVersion,
     });
-    showNotification('Translation removed', 'success');
+    showNotification(t('environments:notification.translationRemoved'), 'success');
     await Promise.all([loadLocalizationData(), loadUserCfgSettings()]);
   } catch (e) {
-    showNotification(`Remove failed: ${e}`, 'error');
+    showNotification(t('environments:notification.removeFailed', { error: e }), 'error');
   }
 
   localizationLoading = false;
@@ -1600,7 +1600,7 @@ function refreshBindingsInPlace() {
   });
 
   body.innerHTML = categoryKeys.length === 0
-    ? `<div class="sc-hint">${customizedOnly ? 'No customized bindings.' : 'No keybindings found.'}</div>`
+    ? `<div class="sc-hint">${customizedOnly ? t('environments:binding.noCustomized') : t('environments:binding.noKeybindings')}</div>`
     : categoryKeys.map(catKey => renderBindingCategory(catKey, categorized[catKey].label, categorized[catKey].bindings)).join('');
 
   // Restore filter
@@ -1608,7 +1608,7 @@ function refreshBindingsInPlace() {
 
   // Update stats badge
   const badge = document.querySelector('.binding-stats-badge');
-  if (badge) badge.textContent = `${bindingStats.total} total / ${bindingStats.custom} customized`;
+  if (badge) badge.textContent = t('environments:binding.customizedOfTotal', { custom: bindingStats.custom, total: bindingStats.total });
 
   // Re-attach binding-specific listeners on the new DOM
   attachBindingEventListeners();
@@ -1686,12 +1686,12 @@ function attachBindingEventListeners() {
       const input = btn.dataset.input || '';
 
       if (!lastRestoredBackupId) {
-        showNotification('No profile loaded.', 'error');
+        showNotification(t('environments:notification.noProfileLoaded'), 'error');
         return;
       }
 
-      const confirmed = await confirm(`Remove binding for "${actionName}" from your profile?`, {
-        title: 'Remove Binding',
+      const confirmed = await confirm(t('environments:binding.removeConfirm', { action: actionName }), {
+        title: t('environments:binding.removeTitle'),
         kind: 'warning',
       });
       if (confirmed) {
@@ -1704,12 +1704,12 @@ function attachBindingEventListeners() {
             input: input || null,
           });
 
-          showNotification('Binding removed from profile', 'success');
+          showNotification(t('environments:notification.bindingRemoved'), 'success');
           await loadBackups();
           await loadCompleteBindingList();
           refreshBindingsInPlace();
         } catch (err) {
-          showNotification(`Failed to remove binding: ${err}`, 'error');
+          showNotification(t('environments:notification.removeBindingFailed', { error: err }), 'error');
         }
       }
     });
@@ -1737,21 +1737,21 @@ function renderDeviceMapCollapsible() {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
         </span>
         <h3>
-          Joysticks
-          <span class="binding-stats-badge">${deviceMap.length} mapped</span>
+          ${t('environments:device.title')}
+          <span class="binding-stats-badge">${t('environments:binding.mapped', { count: deviceMap.length })}</span>
         </h3>
       </div>
       <div class="collapsible-content ${isExpanded ? '' : 'collapsed'}">
-        ${renderHint('devices-intro', 'These are the joysticks stored in this profile. Drag to reorder their instance numbers. Star Control matches them to your connected hardware by name.')}
+        ${renderHint('devices-intro', t('environments:hint.devicesIntro'))}
         <div class="device-map-list">
           ${deviceMap.map(dm => `
             <div class="device-map-item device-card draggable" data-product="${escapeHtml(dm.product_name)}" data-instance="${dm.sc_instance}" data-device-type="${escapeHtml(dm.device_type)}">
-              <span class="device-drag-handle" title="Drag to reorder">
+              <span class="device-drag-handle" title="${t('environments:device.dragToReorder')}">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
               </span>
               <span class="device-map-instance">js${dm.sc_instance}</span>
               <span class="device-map-name" title="${escapeHtml(dm.product_name)}">${escapeHtml(dm.alias || dm.product_name)}</span>
-              <button class="btn btn-xs device-map-alias-btn" data-product="${escapeHtml(dm.product_name)}" data-alias="${escapeHtml(dm.alias || '')}" title="Set alias">✏</button>
+              <button class="btn btn-xs device-map-alias-btn" data-product="${escapeHtml(dm.product_name)}" data-alias="${escapeHtml(dm.alias || '')}" title="${t('environments:device.setAlias')}">✏</button>
             </div>
           `).join('')}
         </div>
@@ -1799,27 +1799,27 @@ function renderBindingsCollapsible() {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
         </span>
         <h3>
-          Keybindings
+          ${t('environments:binding.title')}
           <span class="binding-stats-badge" title="Total actions / Customized by you">
-            ${bindingStats.custom} customized / ${bindingStats.total} total
+            ${t('environments:binding.customizedOfTotal', { custom: bindingStats.custom, total: bindingStats.total })}
           </span>
-          ${localizationLoading ? '<span class="loading-spinner-inline" title="Loading translations..."></span>' : ''}
+          ${localizationLoading ? `<span class="loading-spinner-inline" title="${t('environments:binding.loadingTranslations')}"></span>` : ''}
         </h3>
       </div>
       <div class="collapsible-content ${isExpanded ? '' : 'collapsed'}">
-        ${renderHint('bindings-intro', 'Changes you make here are saved to this profile only - your game files stay untouched until you click <strong>Apply to SC</strong> above.')}
+        ${renderHint('bindings-intro', t('environments:hint.bindingsIntro'))}
         <div class="bindings-toolbar">
           <input type="text" class="input binding-search" id="binding-search"
-                 placeholder="Search actions..." value="${escapeHtml(bindingFilter)}"
+                 placeholder="${t('environments:binding.searchPlaceholder')}" value="${escapeHtml(bindingFilter)}"
                  aria-label="Search bindings" />
           <label class="customized-only-toggle">
             <input type="checkbox" id="customized-only-toggle" ${customizedOnly ? 'checked' : ''}>
-            <span>Customized only</span>
+            <span>${t('environments:binding.customizedOnly')}</span>
           </label>
         </div>
         <div class="bindings-body">
           ${categoryKeys.length === 0
-            ? `<div class="sc-hint">${customizedOnly ? 'No customized bindings.' : 'No keybindings found. This profile may not contain actionmaps.xml.'}</div>`
+            ? `<div class="sc-hint">${customizedOnly ? t('environments:binding.noCustomized') : t('environments:binding.noKeybindingsWithHint')}</div>`
             : categoryKeys.map(catKey => renderBindingCategory(catKey, categorized[catKey].label, categorized[catKey].bindings)).join('')
           }
         </div>
@@ -1864,7 +1864,7 @@ function renderBindingCategory(categoryKey, label, items) {
     <div class="binding-category-block ${isExpanded ? 'expanded' : ''}" data-category="${escapeHtml(categoryKey)}">
       <div class="binding-category-header" data-category="${escapeHtml(categoryKey)}">
         <span class="category-title">${escapeHtml(label)}</span>
-        <span class="category-count">${items.length} Actions</span>
+        <span class="category-count">${items.length} ${t('environments:binding.actions')}</span>
         <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="6 9 12 15 18 9"></polyline>
         </svg>
@@ -1873,9 +1873,9 @@ function renderBindingCategory(categoryKey, label, items) {
         <table class="bindings-table">
           <thead>
             <tr>
-              <th style="width: 35%">Action</th>
-              <th style="width: 45%">Binding</th>
-              <th style="width: 20%">Actions</th>
+              <th style="width: 35%">${t('environments:binding.columnAction')}</th>
+              <th style="width: 45%">${t('environments:binding.columnBinding')}</th>
+              <th style="width: 20%">${t('environments:binding.columnActions')}</th>
             </tr>
           </thead>
           <tbody>
@@ -1914,10 +1914,10 @@ function renderBindingCategory(categoryKey, label, items) {
                             <div class="binding-input-row ${b.is_custom ? 'custom-binding' : ''}">
                               <span class="binding-device-tag ${deviceType}">${getDeviceIconSvg(deviceType)}${escapeHtml(deviceName)}</span>
                               <code class="binding-input">${escapeHtml(inputDisplay)}</code>
-                              ${b.is_custom ? '<span class="custom-badge" title="Modified by you">Custom</span>' : ''}
+                              ${b.is_custom ? `<span class="custom-badge" title="${t('environments:binding.customTooltip')}">${t('environments:binding.custom')}</span>` : ''}
                             </div>
                           `
-                      : `<span class="binding-unbound">Unbound</span>`
+                      : `<span class="binding-unbound">${t('environments:binding.unbound')}</span>`
                     }
                   </td>
                   <td class="binding-actions-cell">
@@ -1926,13 +1926,13 @@ function renderBindingCategory(categoryKey, label, items) {
                               data-action="edit-binding"
                               data-action-name="${escapeHtml(b.action_name)}"
                               data-category="${escapeHtml(categoryKey)}"
-                              data-input="${escapeHtml(b.current_input)}">Edit</button>
+                              data-input="${escapeHtml(b.current_input)}">${t('environments:binding.edit')}</button>
                       ${b.current_input ? `
                         <button class="btn btn-xs btn-secondary"
                                 data-action="add-alt-binding"
                                 data-action-name="${escapeHtml(b.action_name)}"
                                 data-category="${escapeHtml(categoryKey)}"
-                                title="Add binding for another device">+</button>
+                                title="${t('environments:binding.addAltTooltip')}">+</button>
                         <button class="btn btn-xs btn-danger-sm"
                                 data-action="remove-binding-direct"
                                 data-action-name="${escapeHtml(b.action_name)}"
@@ -1975,12 +1975,12 @@ function resolveDeviceType(input) {
  */
 function formatDeviceType(deviceType) {
   const labels = {
-    keyboard: 'Keyboard',
-    mouse: 'Mouse',
-    gamepad: 'Gamepad',
-    joystick: 'Joystick',
-    none: 'None',
-    unknown: 'Unknown',
+    keyboard: t('environments:device.keyboard'),
+    mouse: t('environments:device.mouse'),
+    gamepad: t('environments:device.gamepad'),
+    joystick: t('environments:device.joystick'),
+    none: t('environments:device.none'),
+    unknown: t('environments:device.unknown'),
   };
   return labels[deviceType] || deviceType;
 }
@@ -2111,7 +2111,7 @@ function openBindingEditor(actionName, category, currentInput) {
   modal.id = 'binding-editor-modal';
 
   const isEdit = currentInput && currentInput.length > 0;
-  const title = isEdit ? 'Edit Binding' : 'Add Binding';
+  const title = isEdit ? t('environments:binding.editor.editTitle') : t('environments:binding.editor.addTitle');
 
   modal.innerHTML = `
     <div class="modal-content binding-editor-modal">
@@ -2131,26 +2131,26 @@ function openBindingEditor(actionName, category, currentInput) {
           <span class="binding-editor-context-category">${escapeHtml(category)}</span>
         </div>
         <div class="capture-zone" id="capture-container">
-          <label class="capture-zone-label">Press a key, button, or move an axis</label>
+          <label class="capture-zone-label">${t('environments:binding.editor.pressKey')}</label>
           <div class="capture-zone-input-wrap">
             <input type="text" class="capture-input" id="binding-input-field"
                    value="${stripDevicePrefix(currentInput) || ''}"
-                   placeholder="Waiting for input..." readonly
+                   placeholder="${t('environments:binding.editor.waitingForInput')}" readonly
                    aria-label="Captured input">
           </div>
         </div>
         <div class="binding-editor-device">
-          <label>Device</label>
-          <select id="capture-device-select" class="capture-device-select" aria-label="Device">
-            <option value="">Loading devices...</option>
+          <label>${t('environments:binding.editor.device')}</label>
+          <select id="capture-device-select" class="capture-device-select" aria-label="${t('environments:binding.editor.device')}">
+            <option value="">${t('environments:binding.editor.loadingDevices')}</option>
           </select>
         </div>
       </div>
       <div class="modal-footer">
-        ${isEdit ? '<button class="btn btn-danger" id="btn-delete-binding">Delete</button>' : '<span></span>'}
+        ${isEdit ? `<button class="btn btn-danger" id="btn-delete-binding">${t('environments:binding.editor.deleteBtn')}</button>` : '<span></span>'}
         <div class="modal-footer-actions">
-          <button class="btn btn-secondary" data-action="close-binding-editor">Cancel</button>
-          <button class="btn btn-primary" id="btn-save-binding">Save</button>
+          <button class="btn btn-secondary" data-action="close-binding-editor">${t('environments:binding.editor.cancelBtn')}</button>
+          <button class="btn btn-primary" id="btn-save-binding">${t('environments:binding.editor.saveBtn')}</button>
         </div>
       </div>
     </div>
@@ -2173,7 +2173,7 @@ function openBindingEditor(actionName, category, currentInput) {
     if (profileDeviceMap.length > 0) {
       // Show profile's SC devices with connection status
       deviceSelect.innerHTML = `
-        <option value="">Auto-detect device</option>
+        <option value="">${t('environments:binding.editor.autoDetect')}</option>
         ${profileDeviceMap.map(dm => {
           const connected = connectedDevices.find(cd =>
             cd.product_name.toLowerCase() === dm.product_name.toLowerCase()
@@ -2189,7 +2189,7 @@ function openBindingEditor(actionName, category, currentInput) {
       `;
     } else if (connectedDevices.length > 0) {
       deviceSelect.innerHTML = `
-        <option value="">Auto-detect device</option>
+        <option value="">${t('environments:binding.editor.autoDetect')}</option>
         ${connectedDevices.map(d => `
           <option value="${escapeHtml(d.product_name)}" data-instance="${d.instance}">
             ${escapeHtml(d.product_name)} (js${d.instance})
@@ -2197,11 +2197,11 @@ function openBindingEditor(actionName, category, currentInput) {
         `).join('')}
       `;
     } else {
-      deviceSelect.innerHTML = '<option value="">No joystick/gamepad detected</option>';
+      deviceSelect.innerHTML = `<option value="">${t('environments:binding.editor.noDeviceDetected')}</option>`;
     }
   }).catch(err => {
     console.error('[EDITOR] Failed to list devices:', err);
-    deviceSelect.innerHTML = '<option value="">Error loading devices</option>';
+    deviceSelect.innerHTML = `<option value="">${t('environments:binding.editor.errorLoadingDevices')}</option>`;
   });
 
   /**
@@ -2350,7 +2350,7 @@ function openBindingEditor(actionName, category, currentInput) {
 
   modal.querySelector('#btn-delete-binding')?.addEventListener('click', async () => {
     if (!lastRestoredBackupId) {
-      showNotification('No profile loaded.', 'error');
+      showNotification(t('environments:notification.noProfileLoaded'), 'error');
       return;
     }
 
@@ -2363,7 +2363,7 @@ function openBindingEditor(actionName, category, currentInput) {
         input: currentInput || null,
       });
 
-      showNotification('Binding removed from profile', 'success');
+      showNotification(t('environments:notification.bindingRemoved'), 'success');
       if (bindingEditorAction?.category) {
         window.expandedBindingCategories.add(bindingEditorAction.category);
       }
@@ -2373,7 +2373,7 @@ function openBindingEditor(actionName, category, currentInput) {
       refreshBindingsInPlace();
     } catch (err) {
       console.error('[EDITOR] Delete failed:', err);
-      showNotification('Delete Error: ' + err, 'error');
+      showNotification(t('environments:notification.deleteError', { error: err }), 'error');
     }
   });
 
@@ -2382,7 +2382,7 @@ function openBindingEditor(actionName, category, currentInput) {
     const newInput = capturedRawCode.trim();
 
     if (!newInput) {
-      showNotification('No input captured. Press a key, button, or move an axis first.', 'error');
+      showNotification(t('environments:notification.noInputCaptured'), 'error');
       return;
     }
 
@@ -2401,15 +2401,15 @@ function openBindingEditor(actionName, category, currentInput) {
       if (conflicting) {
         const displayInput = stripDevicePrefix(newInput);
         const proceed = await confirm(
-          `"${displayInput}" is already assigned to "${conflicting.display_name || conflicting.action_name}". Assign anyway?`,
-          { title: 'Binding Conflict', kind: 'warning' }
+          t('environments:binding.editor.conflictMsg', { input: displayInput, action: conflicting.display_name || conflicting.action_name }),
+          { title: t('environments:binding.editor.conflictTitle'), kind: 'warning' }
         );
         if (!proceed) return;
       }
     }
 
     if (!lastRestoredBackupId) {
-      showNotification('No profile loaded. Save your current SC settings as a profile first.', 'error');
+      showNotification(t('environments:notification.noProfileForSave'), 'error');
       return;
     }
 
@@ -2443,7 +2443,7 @@ function openBindingEditor(actionName, category, currentInput) {
         oldInput,
       });
 
-      showNotification('Binding saved to profile', 'success');
+      showNotification(t('environments:notification.bindingSaved'), 'success');
       if (bindingEditorAction?.category) {
         window.expandedBindingCategories.add(bindingEditorAction.category);
       }
@@ -2453,7 +2453,7 @@ function openBindingEditor(actionName, category, currentInput) {
       refreshBindingsInPlace();
     } catch (err) {
       console.error('[EDITOR] Save failed. Error:', err);
-      showNotification('Save Error: ' + err, 'error');
+      showNotification(t('environments:notification.saveError', { error: err }), 'error');
     }
   });
 }
@@ -2527,13 +2527,13 @@ function formatBackupFiles(files) {
  */
 function formatProfileTypeBadge(backupType) {
   const map = {
-    'manual': 'saved',
-    'pre-import': 'pre-import',
+    'manual': t('environments:profile.type.saved'),
+    'pre-import': t('environments:profile.type.preImport'),
     // Legacy types from older versions
-    'auto': 'auto-save',
-    'auto-pre-restore': 'auto-save',
-    'auto-pre-import': 'pre-import',
-    'auto-post-import': 'imported',
+    'auto': t('environments:profile.type.autoSave'),
+    'auto-pre-restore': t('environments:profile.type.autoSave'),
+    'auto-pre-import': t('environments:profile.type.preImport'),
+    'auto-post-import': t('environments:profile.type.imported'),
   };
   return map[backupType] || backupType;
 }
@@ -2567,16 +2567,16 @@ function getChangedSettingsCount() {
  * Advanced categories are collapsed by default.
  */
 function renderUserCfgUI() {
-  const essentialCategory = { key: 'essential', label: 'Essential Settings' };
+  const essentialCategory = { key: 'essential', label: t('environments:cfg.category.essential') };
   const advancedCategories = [
-    { key: 'quality', label: 'Graphics Quality' },
-    { key: 'shaders', label: 'Shader Quality' },
-    { key: 'textures', label: 'Textures' },
-    { key: 'effects', label: 'Visual Effects' },
-    { key: 'clarity', label: 'Visual Clarity' },
-    { key: 'lod', label: 'View Distance' },
-    { key: 'input', label: 'Input' },
-    { key: 'advanced', label: 'Advanced (unverified)', hint: 'These settings are not officially documented and may have no effect in current Star Citizen versions.' },
+    { key: 'quality', label: t('environments:cfg.category.quality') },
+    { key: 'shaders', label: t('environments:cfg.category.shaders') },
+    { key: 'textures', label: t('environments:cfg.category.textures') },
+    { key: 'effects', label: t('environments:cfg.category.effects') },
+    { key: 'clarity', label: t('environments:cfg.category.clarity') },
+    { key: 'lod', label: t('environments:cfg.category.lod') },
+    { key: 'input', label: t('environments:cfg.category.input') },
+    { key: 'advanced', label: t('environments:cfg.category.advanced'), hint: t('environments:cfg.category.advancedHint') },
   ];
 
   const changedCount = getChangedSettingsCount();
@@ -2589,12 +2589,12 @@ function renderUserCfgUI() {
             <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
             <circle cx="12" cy="12" r="3"></circle>
           </svg>
-          USER.cfg Settings - ${escapeHtml(activeScVersion)}
+          ${t('environments:cfg.sectionTitle', { version: escapeHtml(activeScVersion) })}
         </h3>
         <div class="sc-section-actions">
-          <span class="usercfg-unsaved" id="usercfg-unsaved" style="display:none">Unsaved changes</span>
-          <button class="btn btn-sm btn-primary" id="btn-apply-usercfg">Apply</button>
-          <button class="btn btn-sm btn-secondary" id="btn-reset-usercfg">Reset</button>
+          <span class="usercfg-unsaved" id="usercfg-unsaved" style="display:none">${t('environments:cfg.unsavedChanges')}</span>
+          <button class="btn btn-sm btn-primary" id="btn-apply-usercfg">${t('environments:cfg.apply')}</button>
+          <button class="btn btn-sm btn-secondary" id="btn-reset-usercfg">${t('environments:cfg.reset')}</button>
         </div>
       </div>
       <div class="usercfg-body">
@@ -2606,8 +2606,8 @@ function renderUserCfgUI() {
               <polyline points="7 3 7 8 15 8"></polyline>
             </svg>
           </span>
-          <span>Only changed values are saved to USER.cfg. </span>
-          <span class="usercfg-header-count">${changedCount > 0 ? `${changedCount} changed` : 'All defaults'}</span>
+          <span>${t('environments:cfg.onlyChangedSaved')}</span>
+          <span class="usercfg-header-count">${changedCount > 0 ? t('environments:cfg.countChanged', { count: changedCount }) : t('environments:cfg.allDefaults')}</span>
         </div>
         <div class="usercfg-categories">
           ${renderCategorySettings(essentialCategory, false)}
@@ -2645,7 +2645,7 @@ function renderCategorySettings(category, collapsible) {
       <div class="usercfg-category-header ${collapsible ? 'collapsible' : ''}"
            ${collapsible ? `data-category-key="${escapeHtml(category.key)}"` : ''}>
         <span class="usercfg-category-label">${category.label}</span>
-        ${changedInCategory > 0 ? `<span class="usercfg-category-badge">${changedInCategory} changed</span>` : ''}
+        ${changedInCategory > 0 ? `<span class="usercfg-category-badge">${t('environments:cfg.countChanged', { count: changedInCategory })}</span>` : ''}
         ${collapsible ? `
           <svg class="usercfg-category-toggle ${isCollapsed ? 'collapsed' : ''}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="6 9 12 15 18 9"></polyline>
@@ -2686,7 +2686,7 @@ function renderSettingControl(key, setting) {
   const helpIcon = renderHelpIcon(setting);
 
   const resetBtn = isChanged
-    ? `<button class="usercfg-reset" data-key="${key}" title="Reset to default">
+    ? `<button class="usercfg-reset" data-key="${key}" title="${t('environments:cfg.resetToDefault')}">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
       </button>`
     : '';
@@ -2697,7 +2697,7 @@ function renderSettingControl(key, setting) {
     const resIsChanged = w !== 1920 || h !== 1080;
     const resChangedClass = resIsChanged ? 'usercfg-changed' : '';
     const resResetBtn = resIsChanged
-      ? `<button class="usercfg-reset" data-key="_resolution" title="Reset to default">
+      ? `<button class="usercfg-reset" data-key="_resolution" title="${t('environments:cfg.resetToDefault')}">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
         </button>`
       : '';
@@ -2709,14 +2709,14 @@ function renderSettingControl(key, setting) {
     }).join('');
     return `
       <div class="usercfg-row ${resChangedClass}">
-        <span class="usercfg-label">${helpIcon}Resolution${resIsChanged ? ' <span class="usercfg-default">(Default: 1920 × 1080)</span>' : ''}</span>
+        <span class="usercfg-label">${helpIcon}Resolution${resIsChanged ? ` <span class="usercfg-default">(${t('environments:cfg.defaultPrefix', { value: '1920 × 1080' })})</span>` : ''}</span>
         <div class="usercfg-control-wrap">
           <div class="usercfg-resolution-wrap">
             <input type="number" class="usercfg-res-input" data-key="r_width" value="${w}" min="640" max="7680" aria-label="Width" />
             <span class="usercfg-res-sep">×</span>
             <input type="number" class="usercfg-res-input" data-key="r_height" value="${h}" min="480" max="4320" aria-label="Height" />
             <select class="usercfg-res-preset" data-key="_resolution" aria-label="Resolution preset">
-              <option value="" ${!presetMatch ? 'selected' : ''}>Custom</option>
+              <option value="" ${!presetMatch ? 'selected' : ''}>${t('environments:cfg.custom')}</option>
               ${presetOptions}
             </select>
           </div>
@@ -2727,10 +2727,10 @@ function renderSettingControl(key, setting) {
   }
 
   if (setting.type === 'toggle') {
-    const defaultLabel = setting.value ? 'On' : 'Off';
+    const defaultLabel = setting.value ? t('environments:cfg.on') : t('environments:cfg.off');
     return `
       <div class="usercfg-row ${changedClass}">
-        <span class="usercfg-label">${helpIcon}${setting.label}${isChanged ? ` <span class="usercfg-default">(Default: ${defaultLabel})</span>` : ''}</span>
+        <span class="usercfg-label">${helpIcon}${setting.label}${isChanged ? ` <span class="usercfg-default">(${t('environments:cfg.defaultPrefix', { value: defaultLabel })})</span>` : ''}</span>
         <div class="usercfg-control-wrap">
           <label class="toggle-switch">
             <input type="checkbox" class="usercfg-input" data-key="${key}" ${value ? 'checked' : ''} />
@@ -2745,7 +2745,7 @@ function renderSettingControl(key, setting) {
   if (setting.type === 'number') {
     return `
       <div class="usercfg-row ${changedClass}">
-        <span class="usercfg-label">${helpIcon}${setting.label}${isChanged ? ` <span class="usercfg-default">(Default: ${setting.value})</span>` : ''}</span>
+        <span class="usercfg-label">${helpIcon}${setting.label}${isChanged ? ` <span class="usercfg-default">(${t('environments:cfg.defaultPrefix', { value: setting.value })})</span>` : ''}</span>
         <div class="usercfg-control-wrap">
           <input type="number" class="usercfg-number-input" data-key="${key}"
                  min="${setting.min}" max="${setting.max}" step="${setting.step}" value="${value}"
@@ -2768,7 +2768,7 @@ function renderSettingControl(key, setting) {
 
   return `
     <div class="usercfg-row ${changedClass}">
-      <span class="usercfg-label">${helpIcon}${setting.label}${isChanged ? ` <span class="usercfg-default">(Default: ${defaultDisplay})</span>` : ''}</span>
+      <span class="usercfg-label">${helpIcon}${setting.label}${isChanged ? ` <span class="usercfg-default">(${t('environments:cfg.defaultPrefix', { value: defaultDisplay })})</span>` : ''}</span>
       <div class="usercfg-control-wrap">
         <div class="usercfg-slider-wrap">
           <input type="range" class="usercfg-slider" data-key="${key}"
@@ -2806,8 +2806,8 @@ async function applyUserCfg() {
     const diskContent = await invoke('read_user_cfg', { gp: config.install_path, v: activeScVersion });
     if (diskContent !== savedUserCfgRaw) {
       const proceed = await confirm(
-        'Die USER.cfg wurde außerhalb von Star Control geändert. Trotzdem überschreiben?',
-        { title: 'Externe Änderungen erkannt', kind: 'warning' }
+        t('environments:cfg.externalChangeDetected'),
+        { title: t('environments:cfg.externalChangeTitle'), kind: 'warning' }
       );
       if (!proceed) return;
     }
@@ -2833,10 +2833,10 @@ async function applyUserCfg() {
     await invoke('write_user_cfg', { gp: config.install_path, v: activeScVersion, c: content });
     savedUserCfgSnapshot = { ...userCfgSettings };
     savedUserCfgRaw = content;
-    showNotification('USER.cfg saved. Restart Star Citizen to apply changes.', 'success');
+    showNotification(t('environments:notification.userCfgSaved'), 'success');
     updateChangedCounts();
   } catch (e) {
-    showNotification('Failed to write USER.cfg', 'error');
+    showNotification(t('environments:notification.userCfgWriteFailed'), 'error');
   } finally {
     isSavingUserCfg = false;
     if (applyBtn) applyBtn.disabled = false;
@@ -2849,15 +2849,15 @@ async function applyUserCfg() {
  */
 async function resetUserCfg() {
   if (!config?.install_path || !activeScVersion) return;
-  const confirmed = await confirm('Reset all settings to defaults?', { title: 'Reset USER.cfg', kind: 'warning' });
+  const confirmed = await confirm(t('environments:cfg.resetConfirm'), { title: t('environments:cfg.resetTitle'), kind: 'warning' });
   if (!confirmed) return;
   userCfgSettings = {};
   try {
     await invoke('write_user_cfg', { gp: config.install_path, v: activeScVersion, c: '' });
-    showNotification('USER.cfg reset', 'success');
+    showNotification(t('environments:notification.userCfgReset'), 'success');
     renderEnvironments(document.getElementById('content'));
   } catch (e) {
-    showNotification('Failed to reset USER.cfg', 'error');
+    showNotification(t('environments:notification.userCfgResetFailed'), 'error');
   }
 }
 
@@ -2978,9 +2978,9 @@ async function saveProfile() {
   const wrap = document.createElement('div');
   wrap.className = 'backup-label-input-wrap';
   wrap.innerHTML = `
-    <input type="text" class="input backup-label-input" placeholder="Profile name (optional)" maxlength="60" aria-label="Profile name" />
-    <button class="btn btn-sm btn-primary" id="btn-backup-confirm">Save</button>
-    <button class="btn btn-sm" id="btn-backup-cancel">Cancel</button>
+    <input type="text" class="input backup-label-input" placeholder="${t('environments:profile.nameOptional')}" maxlength="60" aria-label="${t('environments:profile.profileName')}" />
+    <button class="btn btn-sm btn-primary" id="btn-backup-confirm">${t('environments:profile.save')}</button>
+    <button class="btn btn-sm" id="btn-backup-cancel">${t('environments:profile.cancel')}</button>
   `;
   header.after(wrap);
   const input = wrap.querySelector('.backup-label-input');
@@ -2999,12 +2999,12 @@ async function saveProfile() {
       lastRestoredBackupId = created.id;
       lastRestoredPerVersion[activeScVersion] = created.id;
       invoke('save_active_profile', { v: activeScVersion, bid: created.id }).catch(() => {});
-      showNotification('Profile saved', 'success');
+      showNotification(t('environments:notification.profileSaved'), 'success');
       await loadBackups();
       await loadProfileStatus();
       renderEnvironments(document.getElementById('content'));
     } catch (e) {
-      showNotification(`Save failed: ${e}`, 'error');
+      showNotification(t('environments:notification.saveFailed', { error: e }), 'error');
     }
   }
 
@@ -3026,8 +3026,8 @@ async function loadProfile(backupId) {
   const displayName = backup?.label || backupId;
   const filesInfo = backup ? formatBackupFiles(backup.files) : '';
   const confirmLoad = await confirm(
-    `Load "${displayName}" into Star Citizen (${activeScVersion})?\n\nYour current SC settings will be replaced.\n\nIncludes: ${filesInfo}`,
-    { title: 'Load Profile', kind: 'warning' }
+    t('environments:notification.loadConfirm', { name: displayName, version: activeScVersion, files: filesInfo }),
+    { title: t('environments:notification.loadTitle'), kind: 'warning' }
   );
   if (!confirmLoad) return;
   try {
@@ -3039,12 +3039,12 @@ async function loadProfile(backupId) {
     lastRestoredBackupId = backupId;
     lastRestoredPerVersion[activeScVersion] = backupId;
     invoke('save_active_profile', { v: activeScVersion, bid: backupId }).catch(() => {});
-    showNotification('Profile loaded', 'success');
+    showNotification(t('environments:notification.profileLoaded'), 'success');
     await Promise.all([loadActionDefinitions(), loadDevicesAndBindings(), loadCompleteBindingList(), loadBackups(), loadUserCfgSettings()]);
     await loadProfileStatus();
     renderEnvironments(document.getElementById('content'));
   } catch (e) {
-    showNotification(`Load failed: ${e}`, 'error');
+    showNotification(t('environments:notification.loadFailed', { error: e }), 'error');
   }
 }
 
@@ -3055,8 +3055,8 @@ async function loadProfile(backupId) {
  */
 async function deleteProfile(backupId) {
   const backup = backups.find(b => b.id === backupId);
-  const displayName = backup?.label || 'Unnamed profile';
-  const confirmDelete = await confirm(`Delete profile "${displayName}"?`, { title: 'Delete Profile', kind: 'warning' });
+  const displayName = backup?.label || t('environments:profile.unnamedProfile');
+  const confirmDelete = await confirm(t('environments:notification.deleteProfileConfirm', { name: displayName }), { title: t('environments:notification.deleteProfileTitle'), kind: 'warning' });
   if (!confirmDelete) return;
   try {
     await invoke('delete_backup', { v: activeScVersion, bid: backupId });
@@ -3066,12 +3066,12 @@ async function deleteProfile(backupId) {
       activeProfileStatus = null;
       invoke('save_active_profile', { v: activeScVersion, bid: '' }).catch(() => {});
     }
-    showNotification('Profile deleted', 'success');
+    showNotification(t('environments:notification.profileDeleted'), 'success');
     await loadBackups();
     await loadProfileStatus();
     renderEnvironments(document.getElementById('content'));
   } catch (e) {
-    showNotification(`Delete failed: ${e}`, 'error');
+    showNotification(t('environments:notification.deleteFailed', { error: e }), 'error');
   }
 }
 
@@ -3082,34 +3082,34 @@ async function deleteProfile(backupId) {
 async function deleteScVersion(version) {
   if (!version) return;
 
-  const confirmed = await confirm(`Are you absolutely sure you want to delete the environment ${version}? This will permanently remove the folder and all game data.`, {
-    title: 'Delete Environment',
+  const confirmed = await confirm(t('environments:storage.deleteConfirm', { version }), {
+    title: t('environments:storage.deleteTitle'),
     kind: 'warning',
   });
 
   if (!confirmed) return;
   if (!config?.install_path) {
-    showNotification('No installation path configured.', 'error');
+    showNotification(t('environments:notification.noInstallPath'), 'error');
     return;
   }
 
   try {
-    showNotification(`Deleting environment ${version}...`, 'info');
+    showNotification(t('environments:notification.deletingEnv', { version }), 'info');
     await invoke('delete_sc_version', { gp: config.install_path, version });
-    
+
     // Clear active version if we just deleted it
     if (activeScVersion === version) {
       activeScVersion = null;
       lastRestoredBackupId = null;
-      activeProfileTab = 'profile'; 
+      activeProfileTab = 'profile';
     }
-    
-    showNotification(`Environment ${version} deleted successfully.`, 'success');
+
+    showNotification(t('environments:notification.envDeleted', { version }), 'success');
     
     // Reload environments
     renderEnvironments(document.getElementById('content'));
   } catch (err) {
-    showNotification(`Failed to delete environment: ${err}`, 'error');
+    showNotification(t('environments:notification.envDeleteFailed', { error: err }), 'error');
   }
 }
 
@@ -3128,7 +3128,7 @@ async function handleDeviceDrop(sourceInstance, targetInstance, sourceDeviceType
 
   // Only allow swaps within the same device type
   if (sourceDeviceType !== targetDeviceType) {
-    showNotification(`Cannot swap ${sourceDeviceType} with ${targetDeviceType} - different device types`, 'warning');
+    showNotification(t('environments:notification.cannotSwapDeviceTypes', { typeA: sourceDeviceType, typeB: targetDeviceType }), 'warning');
     return;
   }
 
@@ -3144,13 +3144,13 @@ async function handleDeviceDrop(sourceInstance, targetInstance, sourceDeviceType
       bid: lastRestoredBackupId,
       newOrder,
     });
-    showNotification(`Swapped ${sourceDeviceType} ${sourceInstance} ↔ ${targetInstance}`, 'success');
+    showNotification(t('environments:notification.swapped', { type: sourceDeviceType, a: sourceInstance, b: targetInstance }), 'success');
     // Reload backups and profile status so the UI shows "out of sync"
     await loadBackups();
     await loadProfileStatus();
     renderEnvironments(document.getElementById('content'));
   } catch (e) {
-    showNotification(`Reorder failed: ${e}`, 'error');
+    showNotification(t('environments:notification.reorderFailed', { error: e }), 'error');
   }
 }
 
@@ -3173,7 +3173,7 @@ async function showImportVersionDialog() {
     });
 
     if (versions.length === 0) {
-      showNotification('No other versions with importable data found.', 'info');
+      showNotification(t('environments:notification.noImportableVersions'), 'info');
       return;
     }
 
@@ -3183,22 +3183,22 @@ async function showImportVersionDialog() {
     dialog.className = 'import-version-dialog';
     dialog.innerHTML = `
       <div class="import-version-dialog-header">
-        <h4>Import from Version</h4>
+        <h4>${t('environments:import.dialogTitle')}</h4>
       </div>
       <div class="import-version-dialog-body">
-        <label class="import-version-label">Source version:</label>
+        <label class="import-version-label">${t('environments:import.sourceVersion')}</label>
         <select class="input import-version-select" id="import-source-select">
           ${versions.map(v => `<option value="${escapeHtml(v.version)}" data-info="${escapeHtml(JSON.stringify(v))}">${escapeHtml(v.version)}</option>`).join('')}
         </select>
-        <label class="import-version-label" style="margin-top: 8px;">Source:</label>
+        <label class="import-version-label" style="margin-top: 8px;">${t('environments:import.source')}</label>
         <select class="input import-version-select" id="import-profile-select">
-          <option value="__current__">Current SC files</option>
+          <option value="__current__">${t('environments:import.currentScFiles')}</option>
         </select>
         <div class="import-version-summary" id="import-version-summary"></div>
       </div>
       <div class="import-version-dialog-footer">
-        <button class="btn btn-sm" id="btn-import-cancel">Cancel</button>
-        <button class="btn btn-sm btn-primary" id="btn-import-confirm">Import</button>
+        <button class="btn btn-sm" id="btn-import-cancel">${t('environments:profile.cancel')}</button>
+        <button class="btn btn-sm btn-primary" id="btn-import-confirm">${t('environments:import.confirm')}</button>
       </div>
     `;
 
@@ -3214,7 +3214,7 @@ async function showImportVersionDialog() {
     async function loadSourceProfiles(sourceVersion) {
       const profileSelect = document.getElementById('import-profile-select');
       if (!profileSelect) return;
-      profileSelect.innerHTML = '<option value="__current__">Current SC files</option>';
+      profileSelect.innerHTML = `<option value="__current__">${t('environments:import.currentScFiles')}</option>`;
       try {
         const backups = await invoke('list_backups', { v: sourceVersion });
         for (const b of backups) {
@@ -3222,7 +3222,7 @@ async function showImportVersionDialog() {
           const date = b.created_at ? ` (${b.created_at})` : '';
           const opt = document.createElement('option');
           opt.value = b.id;
-          opt.textContent = `Saved: ${label}${date}`;
+          opt.textContent = t('environments:import.savedPrefix', { label, date });
           profileSelect.appendChild(opt);
         }
       } catch (e) {
@@ -3239,18 +3239,18 @@ async function showImportVersionDialog() {
       const profileSel = document.getElementById('import-profile-select');
       const selectedProfile = profileSel?.value;
       if (selectedProfile && selectedProfile !== '__current__') {
-        summaryEl.textContent = `Will create a new saved profile in ${activeScVersion}`;
+        summaryEl.textContent = t('environments:import.willCreateProfile', { version: activeScVersion });
         return;
       }
       try {
         const info = JSON.parse(opt.dataset.info);
         const parts = [];
-        if (info.profile_file_count > 0) parts.push(`${info.profile_file_count} profile file${info.profile_file_count !== 1 ? 's' : ''}`);
-        if (info.controls_file_count > 0) parts.push(`${info.controls_file_count} control mapping${info.controls_file_count !== 1 ? 's' : ''}`);
-        if (info.character_file_count > 0) parts.push(`${info.character_file_count} character preset${info.character_file_count !== 1 ? 's' : ''}`);
+        if (info.profile_file_count > 0) parts.push(t('environments:import.profileFiles', { count: info.profile_file_count }));
+        if (info.controls_file_count > 0) parts.push(t('environments:import.controlMappings', { count: info.controls_file_count }));
+        if (info.character_file_count > 0) parts.push(t('environments:import.characterPresets', { count: info.character_file_count }));
         summaryEl.textContent = parts.length > 0
-          ? `Will save as new profile: ${parts.join(', ')}`
-          : 'No files found';
+          ? t('environments:import.willSaveAs', { parts: parts.join(', ') })
+          : t('environments:import.noFilesFound');
       } catch { summaryEl.textContent = ''; }
     }
 
@@ -3282,18 +3282,18 @@ async function showImportVersionDialog() {
           bid: isProfile ? selectedProfile : null,
           label: null,
         });
-        showNotification(`Profile "${escapeHtml(result.label)}" created from ${sourceVersion}. Load it to apply.`, 'success');
+        showNotification(t('environments:notification.importCreated', { label: escapeHtml(result.label), version: sourceVersion }), 'success');
 
         // Reload backups to show the new profile
         await loadBackups();
         renderEnvironments(document.getElementById('content'));
       } catch (e) {
-        showNotification(`Import failed: ${e}`, 'error');
+        showNotification(t('environments:notification.importFailed', { error: e }), 'error');
       }
     });
 
   } catch (e) {
-    showNotification(`Failed to load importable versions: ${e}`, 'error');
+    showNotification(t('environments:notification.importVersionsFailed', { error: e }), 'error');
   }
 }
 
@@ -3313,7 +3313,7 @@ async function showDataP4kCopyDropdown(targetVersion, event) {
   const sourceVersions = scVersions.filter(v => v.has_data_p4k && v.version !== targetVersion);
 
   if (sourceVersions.length === 0) {
-    showNotification('Keine Version mit Data.p4k zum Kopieren gefunden', 'info');
+    showNotification(t('environments:notification.noDataP4kSource'), 'info');
     return;
   }
 
@@ -3321,7 +3321,7 @@ async function showDataP4kCopyDropdown(targetVersion, event) {
   const dropdown = document.createElement('div');
   dropdown.className = 'data-p4k-dropdown';
   dropdown.innerHTML = `
-    <div class="data-p4k-dropdown-header">Data.p4k kopieren von:</div>
+    <div class="data-p4k-dropdown-header">${t('environments:dataP4k.dropdownHeader')}</div>
     ${sourceVersions.map(v => `
       <button class="data-p4k-dropdown-item" data-source="${escapeHtml(v.version)}">
         ${escapeHtml(v.version)}
@@ -3387,13 +3387,13 @@ async function showDataP4kCopyProgressModal(sourceVersion, targetVersion) {
   modal.innerHTML = `
     <div class="modal-content data-p4k-copy-modal">
       <div class="modal-header">
-        <h3>Copy Data.p4k</h3>
+        <h3>${t('environments:dataP4k.copyTitle')}</h3>
         <button class="modal-close" id="btn-modal-close">×</button>
       </div>
       <div class="modal-body">
         <div class="copy-progress-info">
-          <p>From <strong>${escapeHtml(sourceVersion)}</strong> to <strong>${escapeHtml(targetVersion)}</strong></p>
-          <p>Size: <strong>${formatFileSize(sizeBytes)}</strong></p>
+          <p>${t('environments:dataP4k.fromTo', { source: escapeHtml(sourceVersion), target: escapeHtml(targetVersion) })}</p>
+          <p>${t('environments:dataP4k.size', { size: formatFileSize(sizeBytes) })}</p>
         </div>
         <div class="progress-bar-container" style="display: none;">
           <div class="progress-bar" id="copy-progress-bar">
@@ -3402,21 +3402,21 @@ async function showDataP4kCopyProgressModal(sourceVersion, targetVersion) {
         </div>
         <div class="progress-stats" style="display: none;">
           <div class="speed">
-            <div class="label">Speed</div>
+            <div class="label">${t('environments:dataP4k.speed')}</div>
             <div class="value" id="copy-speed">-</div>
           </div>
           <div class="eta">
-            <div class="label">Remaining</div>
+            <div class="label">${t('environments:dataP4k.remaining')}</div>
             <div class="value" id="copy-eta">-</div>
           </div>
         </div>
         <p class="progress-text" id="copy-progress-text" style="display: none;">
-          <span id="copied-bytes">0</span> of <span id="total-bytes">${formatFileSize(sizeBytes)}</span> copied
+          ${t('environments:dataP4k.copied', { copied: `<span id="copied-bytes">0</span>`, total: `<span id="total-bytes">${formatFileSize(sizeBytes)}</span>` })}
         </p>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" id="btn-copy-cancel">Cancel</button>
-        <button class="btn btn-primary" id="btn-copy-start">Start</button>
+        <button class="btn btn-secondary" id="btn-copy-cancel">${t('environments:dataP4k.cancelBtn')}</button>
+        <button class="btn btn-primary" id="btn-copy-start">${t('environments:dataP4k.startBtn')}</button>
       </div>
     </div>
   `;
@@ -3441,12 +3441,12 @@ async function showDataP4kCopyProgressModal(sourceVersion, targetVersion) {
     if (speedBps < 1024 * 1024) return '-'; // Less than 1 MB/s
     const remaining = sizeBytes - currentCopied;
     const seconds = remaining / speedBps;
-    if (seconds < 60) return '< 1 Min';
+    if (seconds < 60) return t('environments:dataP4k.lessThan1Min');
     const mins = Math.ceil(seconds / 60);
-    if (mins < 60) return `~${mins} Min`;
+    if (mins < 60) return t('environments:dataP4k.minutesEta', { mins });
     const hours = Math.floor(mins / 60);
     const remainingMins = mins % 60;
-    return `~${hours}h ${remainingMins}m`;
+    return t('environments:dataP4k.hoursEta', { hours, mins: remainingMins });
   }
 
   let currentCopied = 0;
@@ -3478,7 +3478,7 @@ async function showDataP4kCopyProgressModal(sourceVersion, targetVersion) {
   modal.querySelector('#btn-copy-start').addEventListener('click', async () => {
     // Switch to progress mode
     modal.querySelector('#btn-copy-start').style.display = 'none';
-    modal.querySelector('#btn-copy-cancel').textContent = 'Cancel';
+    modal.querySelector('#btn-copy-cancel').textContent = t('environments:dataP4k.cancelBtn');
     progressContainer.style.display = 'block';
     progressText.style.display = 'block';
     progressStats.style.display = 'flex';
@@ -3518,7 +3518,7 @@ async function showDataP4kCopyProgressModal(sourceVersion, targetVersion) {
       });
 
       // Success
-      showNotification(`Data.p4k copied successfully!`, 'success');
+      showNotification(t('environments:notification.dataP4kCopied'), 'success');
       if (unlisten) {
         unlisten();
         unlisten = null;
@@ -3531,7 +3531,7 @@ async function showDataP4kCopyProgressModal(sourceVersion, targetVersion) {
 
     } catch (e) {
       if (e.includes('cancelled') || e.includes('aborted')) {
-        showNotification('Copy cancelled', 'info');
+        showNotification(t('environments:notification.copyCancelled'), 'info');
       } else {
         showNotification(`Error: ${e}`, 'error');
       }
@@ -3589,11 +3589,11 @@ function attachProfilesEventListeners() {
     card.addEventListener('click', async () => {
       // Warn about unsaved USER.cfg changes
       if (hasUnsavedChanges()) {
-        const proceed = await confirm('You have unsaved USER.cfg changes. Switching versions will discard them.', {
-          title: 'Unsaved Changes',
+        const proceed = await confirm(t('environments:notification.unsavedVersionSwitch'), {
+          title: t('environments:notification.unsavedTitle'),
           kind: 'warning',
-          okLabel: 'Switch Anyway',
-          cancelLabel: 'Stay',
+          okLabel: t('environments:notification.switchAnyway'),
+          cancelLabel: t('environments:notification.stay'),
         });
         if (!proceed) return;
       }
@@ -3712,13 +3712,13 @@ function attachProfilesEventListeners() {
   document.getElementById('btn-reload-profile')?.addEventListener('click', async () => {
     await Promise.all([loadDevicesAndBindings(), loadCompleteBindingList(), loadExportedLayouts()]);
     renderEnvironments(document.getElementById('content'));
-    showNotification('Profile reloaded from disk', 'success');
+    showNotification(t('environments:notification.profileReloaded'), 'success');
   });
 
   document.getElementById('btn-update-profile')?.addEventListener('click', async () => {
     if (lastRestoredBackupId) {
-      const confirmed = await confirm('Overwrite this profile with your current game settings? This cannot be undone.', {
-        title: 'Update Profile',
+      const confirmed = await confirm(t('environments:notification.updateConfirm'), {
+        title: t('environments:notification.updateTitle'),
         kind: 'warning',
       });
       if (confirmed) await updateProfileFromSc(lastRestoredBackupId);
@@ -3727,8 +3727,8 @@ function attachProfilesEventListeners() {
 
   document.getElementById('btn-revert-changes')?.addEventListener('click', async () => {
     if (lastRestoredBackupId) {
-      const confirmed = await confirm('Discard all local game changes and revert to the saved profile state?', {
-        title: 'Revert Changes',
+      const confirmed = await confirm(t('environments:notification.revertConfirm'), {
+        title: t('environments:notification.revertTitle'),
         kind: 'warning',
       });
       if (confirmed) {
@@ -3738,12 +3738,12 @@ function attachProfilesEventListeners() {
             v: activeScVersion,
             bid: lastRestoredBackupId,
           });
-          showNotification('Profile reverted', 'success');
+          showNotification(t('environments:notification.profileReverted'), 'success');
           await Promise.all([loadActionDefinitions(), loadDevicesAndBindings(), loadCompleteBindingList(), loadBackups(), loadUserCfgSettings()]);
           await loadProfileStatus();
           renderEnvironments(document.getElementById('content'));
         } catch (e) {
-          showNotification(`Revert failed: ${e}`, 'error');
+          showNotification(t('environments:notification.revertFailed', { error: e }), 'error');
         }
       }
     }
@@ -3854,12 +3854,12 @@ function attachProfilesEventListeners() {
       const input = btn.dataset.input || '';
 
       if (!lastRestoredBackupId) {
-        showNotification('No profile loaded.', 'error');
+        showNotification(t('environments:notification.noProfileLoaded'), 'error');
         return;
       }
 
-      const confirmed = await confirm(`Remove binding for "${actionName}" from your profile?`, {
-        title: 'Remove Binding',
+      const confirmed = await confirm(t('environments:binding.removeConfirm', { action: actionName }), {
+        title: t('environments:binding.removeTitle'),
         kind: 'warning',
       });
       if (confirmed) {
@@ -3872,12 +3872,12 @@ function attachProfilesEventListeners() {
             input: input || null,
           });
 
-          showNotification('Binding removed from profile', 'success');
+          showNotification(t('environments:notification.bindingRemoved'), 'success');
           await loadBackups();
           await loadCompleteBindingList();
           refreshBindingsInPlace();
         } catch (e) {
-          showNotification(`Failed to remove binding: ${e}`, 'error');
+          showNotification(t('environments:notification.removeBindingFailed', { error: e }), 'error');
         }
       }
     });
@@ -3934,12 +3934,12 @@ function attachProfilesEventListeners() {
         v: activeScVersion,
         profileId: lastRestoredBackupId,
       });
-      showNotification('Profile applied to Star Citizen', 'success');
+      showNotification(t('environments:notification.profileApplied'), 'success');
       await loadBackups();
       await loadProfileStatus();
       renderEnvironments(document.getElementById('content'));
     } catch (e) {
-      showNotification(`Apply failed: ${e}`, 'error');
+      showNotification(t('environments:notification.applyFailed', { error: e }), 'error');
     }
   });
 
@@ -3960,7 +3960,7 @@ function attachProfilesEventListeners() {
     btn.addEventListener('click', async () => {
       const productName = btn.dataset.product;
       const currentAlias = btn.dataset.alias || '';
-      const newAlias = await prompt(`Alias for "${productName}":`, { title: 'Set Device Alias', defaultValue: currentAlias });
+      const newAlias = await prompt(t('environments:device.aliasPrompt', { name: productName }), { title: t('environments:device.aliasTitle'), defaultValue: currentAlias });
       if (newAlias === null) return; // cancelled
       try {
         await invoke('set_profile_device_alias', {
@@ -3972,7 +3972,7 @@ function attachProfilesEventListeners() {
         await loadBackups();
         renderEnvironments(document.getElementById('content'));
       } catch (e) {
-        showNotification(`Failed to set alias: ${e}`, 'error');
+        showNotification(t('environments:notification.aliasSetFailed', { error: e }), 'error');
       }
     });
   });
@@ -3997,7 +3997,7 @@ function attachProfilesEventListeners() {
       input.type = 'text';
       input.className = 'input backup-rename-input';
       input.value = currentLabel;
-      input.placeholder = 'Profile name';
+      input.placeholder = t('environments:profile.profileName');
       input.maxLength = 60;
       wrap.appendChild(input);
       input.focus();
@@ -4008,7 +4008,7 @@ function attachProfilesEventListeners() {
         input.remove();
         labelEl.style.display = '';
         btn.style.display = '';
-        labelEl.textContent = newLabel || 'Unnamed profile';
+        labelEl.textContent = newLabel || t('environments:profile.unnamedProfile');
 
         if (backup) backup.label = newLabel;
 
@@ -4019,7 +4019,7 @@ function attachProfilesEventListeners() {
             l: newLabel,
           });
         } catch (e) {
-          showNotification(`Failed to rename: ${e}`, 'error');
+          showNotification(t('environments:notification.renameFailed', { error: e }), 'error');
         }
         // Update header if this is the active profile
         if (lastRestoredBackupId === backupId) {
@@ -4291,7 +4291,7 @@ function attachProfilesEventListeners() {
   listen('data-p4k-copy-complete', async (event) => {
     const { version, success } = event.payload;
     if (success) {
-      showNotification(`Data.p4k for ${version} copied!`, 'success');
+      showNotification(t('environments:notification.dataP4kForVersion', { version }), 'success');
     }
     copyingVersion = null;
     // Reload versions
@@ -4319,7 +4319,7 @@ function updateResolutionHighlight() {
     if (label && !label.querySelector('.usercfg-default')) {
       const helpBtn = label.querySelector('.usercfg-help-btn');
       const helpHtml = helpBtn ? helpBtn.outerHTML : '';
-      label.innerHTML = `${helpHtml}Resolution <span class="usercfg-default">(Default: 1920 × 1080)</span>`;
+      label.innerHTML = `${helpHtml}Resolution <span class="usercfg-default">(${t('environments:cfg.defaultPrefix', { value: '1920 × 1080' })})</span>`;
     }
     if (controlWrap && !controlWrap.querySelector('.usercfg-reset')) {
       const btn = document.createElement('button');
@@ -4360,7 +4360,7 @@ function updateSettingHighlight(row, key, setting, value) {
     row.classList.add('usercfg-changed');
     const label = row.querySelector('.usercfg-label');
     const defaultLabel = setting.type === 'toggle'
-      ? (setting.value ? 'On' : 'Off')
+      ? (setting.value ? t('environments:cfg.on') : t('environments:cfg.off'))
       : (setting.labels
         ? (setting.labels[setting.value] || setting.value)
         : (QUALITY_KEYS.has(key)
@@ -4372,7 +4372,7 @@ function updateSettingHighlight(row, key, setting, value) {
       // Preserve help icon if present
       const helpBtn = label.querySelector('.usercfg-help-btn');
       const helpHtml = helpBtn ? helpBtn.outerHTML : '';
-      label.innerHTML = `${helpHtml}${setting.label} <span class="usercfg-default">(Default: ${defaultLabel})</span>`;
+      label.innerHTML = `${helpHtml}${setting.label} <span class="usercfg-default">(${t('environments:cfg.defaultPrefix', { value: defaultLabel })})</span>`;
     }
     // Add reset button if not present
     if (controlWrap && !controlWrap.querySelector('.usercfg-reset')) {
@@ -4416,7 +4416,7 @@ function updateChangedCounts() {
         const label = header.querySelector('.usercfg-category-label');
         if (label) label.after(badge);
       }
-      badge.textContent = `${changedInCat} changed`;
+      badge.textContent = t('environments:cfg.countChanged', { count: changedInCat });
     } else if (badge) {
       badge.remove();
     }
@@ -4426,7 +4426,7 @@ function updateChangedCounts() {
   const totalChanged = getChangedSettingsCount();
   const headerCount = document.querySelector('.usercfg-header-count');
   if (headerCount) {
-    headerCount.textContent = totalChanged > 0 ? `${totalChanged} changed` : 'All defaults';
+    headerCount.textContent = totalChanged > 0 ? t('environments:cfg.countChanged', { count: totalChanged }) : t('environments:cfg.allDefaults');
   }
 
   // Update unsaved indicator
@@ -4494,8 +4494,8 @@ async function initCloseBlocker() {
 
         // Show confirmation dialog (async custom dialog)
         const confirmed = await confirm(
-          `Data.p4k is still being copied for ${copyingVersion.version}.\n\nDo you really want to close? The partially copied data will be deleted.`,
-          { title: 'Copy in Progress', kind: 'warning', okLabel: 'Close', cancelLabel: 'Keep Copying' }
+          t('environments:closeBlocker.copyInProgress', { version: copyingVersion.version }),
+          { title: t('environments:closeBlocker.title'), kind: 'warning', okLabel: t('environments:closeBlocker.okLabel'), cancelLabel: t('environments:closeBlocker.cancelLabel') }
         );
 
         if (confirmed) {
@@ -4505,7 +4505,7 @@ async function initCloseBlocker() {
               gp: config.install_path,
               version: copyingVersion.version
             });
-            showNotification('Copy cancelled and file deleted.', 'info');
+            showNotification(t('environments:notification.copyCancelledAndDeleted'), 'info');
           } catch (e) {
             console.error('Failed to abort copy:', e);
           }
@@ -4538,15 +4538,15 @@ async function createScVersion(version) {
   if (!version || !config?.install_path) return;
   
   try {
-    showNotification(`Creating folder for ${version}...`, 'info');
+    showNotification(t('environments:notification.creatingFolder', { version }), 'info');
     await invoke('create_sc_version', { gp: config.install_path, version });
-    showNotification(`Version ${version} folder created successfully.`, 'success');
+    showNotification(t('environments:notification.folderCreated', { version }), 'success');
     
     // Reload environments
     scVersions = await invoke('detect_sc_versions', { gp: config.install_path });
     renderEnvironments(document.getElementById('content'));
   } catch (err) {
-    showNotification(`Failed to create version: ${err}`, 'error');
+    showNotification(t('environments:notification.createFailed', { error: err }), 'error');
   }
 }
 
@@ -4560,15 +4560,15 @@ async function linkDataP4k(sourceVersion, targetVersion) {
   if (!sourceVersion || !targetVersion || !config?.install_path) return;
   
   try {
-    showNotification(`Symlinking Data.p4k from ${sourceVersion} to ${targetVersion}...`, 'info');
+    showNotification(t('environments:notification.symlinking', { source: sourceVersion, target: targetVersion }), 'info');
     await invoke('link_data_p4k', { gp: config.install_path, src_version: sourceVersion, dst_version: targetVersion });
-    showNotification(`Data.p4k symlinked successfully.`, 'success');
+    showNotification(t('environments:notification.symlinkSuccess'), 'success');
     
     // Reload environments
     scVersions = await invoke('detect_sc_versions', { gp: config.install_path });
     renderEnvironments(document.getElementById('content'));
   } catch (err) {
-    showNotification(`Failed to symlink Data.p4k: ${err}`, 'error');
+    showNotification(t('environments:notification.symlinkFailed', { error: err }), 'error');
   }
 }
 
@@ -4581,15 +4581,15 @@ async function updateProfileFromSc(backupId) {
   if (!backupId || !activeScVersion || !config?.install_path) return;
   
   try {
-    showNotification('Updating profile from current game files...', 'info');
+    showNotification(t('environments:notification.updatingProfile'), 'info');
     await invoke('update_backup_from_sc', { gp: config.install_path, v: activeScVersion, bid: backupId });
-    showNotification('Profile updated successfully.', 'success');
+    showNotification(t('environments:notification.profileUpdated'), 'success');
     
     // Refresh UI
     await loadBackups();
     await loadProfileStatus();
     renderEnvironments(document.getElementById('content'));
   } catch (err) {
-    showNotification(`Failed to update profile: ${err}`, 'error');
+    showNotification(t('environments:notification.profileUpdateFailed', { error: err }), 'error');
   }
 }

@@ -1,0 +1,75 @@
+{
+  "title": "Launch",
+  "subtitle": "Start Star Citizen",
+
+  "section.launchOptions": "Launch Options",
+  "section.logOutput": "Log Output",
+  "section.wayland": "Wayland",
+  "section.customEnvVars": "Custom Environment Variables",
+
+  "button.launch": "LAUNCH",
+  "button.launching": "LAUNCHING...",
+  "button.checking": "CHECKING...",
+  "button.stop": "STOP",
+  "button.gotoInstall": "Go to Installation",
+  "button.retry": "Retry",
+  "button.addVariable": "+ Add Variable",
+
+  "status.running": "RSI Launcher is running - press Stop to close",
+  "status.checking": "Checking installation...",
+  "status.waitingForLaunch": "Waiting for launch...",
+
+  "label.runner": "Runner",
+  "label.prefix": "Prefix",
+  "label.none": "None",
+  "label.enableWayland": "Enable Wayland",
+  "label.waylandMonitor": "Wayland Monitor",
+  "label.infoCardTitle": "Active Configuration",
+
+  "tooltip.esync": "Eventfd-based synchronization - reduces CPU overhead in Wine",
+  "tooltip.fsync": "Futex-based synchronization - faster than ESync on supported kernels",
+  "tooltip.dxvkAsync": "Asynchronous shader compilation - reduces stutter",
+  "tooltip.hdr": "High Dynamic Range rendering (PROTON_ENABLE_HDR + DXVK_HDR)",
+  "tooltip.fsr": "AMD FidelityFX Super Resolution upscaling",
+  "tooltip.mangohud": "On-screen performance overlay (FPS, CPU, GPU, RAM)",
+  "tooltip.dxvkHud": "DXVK-specific overlay showing draw calls and compiler activity",
+  "tooltip.wayland": "Enable Wayland protocol support in Wine",
+  "tooltip.waylandFractional": "Fractional scaling detected - Wayland mode is not compatible and has been disabled. Set all monitors to 100% scale to use this option.",
+  "tooltip.waylandMonitor": "Force game to a specific Wayland output. Requires a GE-Proton or Mactan runner with WAYLANDDRV_PRIMARY_MONITOR support.",
+  "tooltip.envVarConflict": "This variable overrides a built-in setting",
+  "tooltip.removeVariable": "Remove variable",
+
+  "option.group.performance": "Performance",
+  "option.group.display": "Display",
+  "option.group.overlays": "Overlays",
+
+  "option.esync": "ESync",
+  "option.fsync": "FSync",
+  "option.dxvkAsync": "DXVK Async",
+  "option.hdr": "HDR",
+  "option.fsr": "FSR",
+  "option.mangohud": "MangoHUD",
+  "option.dxvkHud": "DXVK HUD",
+
+  "badge.experimental": "Experimental",
+  "badge.override": "override",
+
+  "desc.waylandWarning": "These settings are completely experimental and may have no effect depending on your runner.",
+  "desc.customEnvHint": "Add custom environment variables for Wine/Proton launches. These override built-in variables with the same name.",
+  "desc.fractionalScalingWarning": "Fractional scaling active - Wayland mode disabled",
+
+  "placeholder.envKey": "KEY",
+  "placeholder.envValue": "value",
+  "placeholder.monitorInput": "e.g. DP-1",
+
+  "error.notInstalled": "Star Citizen is not installed",
+  "error.noConfig": "No configuration found",
+  "error.generic": "An error occurred",
+
+  "notification.localizationChecking": "Checking for translation updates...",
+  "notification.localizationUpdating": "Updating {{langName}} translation for {{version}}...",
+  "notification.localizationUpdated": "{{count}} translation updated.",
+  "notification.localizationUpToDate": "Translations are up to date.",
+
+  "monitor.primary": "primary"
+}

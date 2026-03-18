@@ -32,6 +32,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import madeByCommunityUrl from '../assets/logos/MadeByTheCommunity_White.png';
 import { escapeHtml } from '../utils.js';
+import { t } from '../i18n.js';
 
 /** @type {string} Default installation path (suggested by the backend) */
 let defaultPath = '';
@@ -81,39 +82,38 @@ function renderDisclaimerStep(container, { onComplete }) {
       <div class="setup-card">
         <div class="setup-header">
           <img src="${madeByCommunityUrl}" alt="Star Control" class="setup-logo" />
-          <h1 class="setup-title">Welcome to Star Control</h1>
-          <p class="setup-subtitle">Linux launcher for Star Citizen</p>
+          <h1 class="setup-title">${t('setup:title')}</h1>
+          <p class="setup-subtitle">${t('setup:subtitle')}</p>
         </div>
 
         <div class="setup-body">
           <p class="setup-description">
-            Star Control is a community interface for the Star Citizen Linux ecosystem. This app was
-            developed with AI assistance and would not be possible without the following projects:
+            ${t('setup:desc.intro')}
           </p>
 
           <!-- Links to the community projects that serve as the foundation -->
           <div class="project-links">
             <a href="https://wiki.starcitizen-lug.org/" target="_blank" rel="noopener noreferrer" class="project-link">
-              <span class="project-name">LUG Wiki</span>
-              <span class="project-desc">The central resource for Star Citizen on Linux</span>
+              <span class="project-name">${t('setup:project.lugWiki')}</span>
+              <span class="project-desc">${t('setup:project.lugWikiDesc')}</span>
             </a>
             <a href="https://github.com/starcitizen-lug/lug-helper" target="_blank" rel="noopener noreferrer" class="project-link">
-              <span class="project-name">LUG Helper</span>
-              <span class="project-desc">Installation scripts and automation</span>
+              <span class="project-name">${t('setup:project.lugHelper')}</span>
+              <span class="project-desc">${t('setup:project.lugHelperDesc')}</span>
             </a>
             <a href="https://luftwerft.com" target="_blank" rel="noopener noreferrer" class="project-link">
-              <span class="project-name">SC Launcher Configurator</span>
-              <span class="project-desc">Wine and gaming configuration</span>
+              <span class="project-name">${t('setup:project.scLauncher')}</span>
+              <span class="project-desc">${t('setup:project.scLauncherDesc')}</span>
             </a>
           </div>
 
           <p class="setup-description" style="margin-top: 1.5rem;">
-            Star Control provides only a graphical interface for these tools. The real magic happens in the projects listed above.
+            ${t('setup:desc.interfaceOnly')}
           </p>
         </div>
 
         <div class="setup-footer">
-          <button class="btn btn-primary" id="setup-btn-continue">Continue</button>
+          <button class="btn btn-primary" id="setup-btn-continue">${t('setup:button.continue')}</button>
         </div>
       </div>
     </div>
@@ -141,22 +141,21 @@ function renderDirectoryStep(container, { onComplete }) {
       <div class="setup-card">
         <div class="setup-header">
           <img src="${madeByCommunityUrl}" alt="Star Control" class="setup-logo" />
-          <h1 class="setup-title">Welcome to Star Control</h1>
-          <p class="setup-subtitle">Linux launcher for Star Citizen</p>
+          <h1 class="setup-title">${t('setup:title')}</h1>
+          <p class="setup-subtitle">${t('setup:subtitle')}</p>
         </div>
 
         <div class="setup-body">
           <p class="setup-description">
-            Choose where Star Citizen will be installed. This directory will hold the Wine prefix,
-            runners, and game files. You need at least <strong>100 GB</strong> of free space.
+            ${t('setup:desc.chooseDir')}
           </p>
 
           <div class="setup-field">
-            <label class="setup-label">Installation Directory</label>
+            <label class="setup-label">${t('setup:label.installDir')}</label>
             <div class="path-input-row">
               <input type="text" class="input" id="setup-path-input"
                      value="${escapeHtml(defaultPath)}"
-                     placeholder="~/Games/star-citizen" />
+                     placeholder="${t('setup:label.placeholder')}" />
               <button class="btn btn-secondary" id="setup-btn-browse">Browse</button>
             </div>
             <div id="setup-path-validation" class="path-validation-msg"></div>
@@ -164,7 +163,7 @@ function renderDirectoryStep(container, { onComplete }) {
         </div>
 
         <div class="setup-footer">
-          <button class="btn btn-primary" id="setup-btn-continue" disabled>Continue</button>
+          <button class="btn btn-primary" id="setup-btn-continue" disabled>${t('setup:button.continue')}</button>
         </div>
       </div>
     </div>
@@ -187,7 +186,7 @@ function renderDirectoryStep(container, { onComplete }) {
   // Open directory browser dialog via the Tauri dialog plugin
   document.getElementById('setup-btn-browse').addEventListener('click', async () => {
     try {
-      const selected = await open({ directory: true, title: 'Select Installation Directory' });
+      const selected = await open({ directory: true, title: t('setup:label.selectDialog') });
       if (selected) {
         pathInput.value = selected;
         currentPath = selected;
@@ -204,7 +203,7 @@ function renderDirectoryStep(container, { onComplete }) {
     if (isCreating) return;
     isCreating = true;
     continueBtn.disabled = true;
-    continueBtn.textContent = 'Checking...';
+    continueBtn.textContent = t('setup:status.checking');
 
     try {
       // Step 1: Check if runners already exist at the selected path
@@ -234,7 +233,7 @@ function renderDirectoryStep(container, { onComplete }) {
       // Step 3: If RSI Launcher exists, show the installation mode dialog
       // (Quick Install vs. full reinstall)
       if (detectedInstallation && detectedInstallation.launcher_exe_exists) {
-        continueBtn.textContent = 'Continue';
+        continueBtn.textContent = t('setup:button.continue');
         continueBtn.disabled = false;
         isCreating = false;
         showInstallModeModal(container, { onComplete, continueBtn });
@@ -242,7 +241,7 @@ function renderDirectoryStep(container, { onComplete }) {
       }
 
       // Step 4: No existing launcher - normal flow (create directory + save config)
-      continueBtn.textContent = 'Creating...';
+      continueBtn.textContent = t('setup:status.creating');
 
       await invoke('create_install_directory', { path: currentPath });
 
@@ -277,7 +276,7 @@ function renderDirectoryStep(container, { onComplete }) {
       msgEl.className = 'path-validation-msg validation-fail';
       msgEl.textContent = String(err);
       continueBtn.disabled = false;
-      continueBtn.textContent = 'Continue';
+      continueBtn.textContent = t('setup:button.continue');
       isCreating = false;
     }
   });
@@ -298,13 +297,13 @@ async function validateSetupPath() {
   // Empty path is invalid
   if (!currentPath.trim()) {
     msgEl.className = 'path-validation-msg validation-fail';
-    msgEl.textContent = 'Please enter an install path';
+    msgEl.textContent = t('setup:error.enterPath');
     continueBtn.disabled = true;
     return;
   }
 
   msgEl.className = 'path-validation-msg';
-  msgEl.textContent = 'Validating...';
+  msgEl.textContent = t('setup:status.validating');
 
   try {
     // Backend validation: Checks path existence, permissions, and free disk space
@@ -322,7 +321,7 @@ async function validateSetupPath() {
     }
   } catch (err) {
     msgEl.className = 'path-validation-msg validation-fail';
-    msgEl.textContent = 'Validation failed';
+    msgEl.textContent = t('setup:status.validationFailed');
     continueBtn.disabled = true;
   }
 }
@@ -349,20 +348,20 @@ function showInstallModeModal(container, { onComplete, continueBtn }) {
   modal.className = 'modal-overlay';
   modal.innerHTML = `
     <div class="modal-content">
-      <h2 class="modal-title">Existing Installation Detected</h2>
+      <h2 class="modal-title">${t('setup:modal.existingTitle')}</h2>
       <p class="modal-description">
-        An RSI Launcher installation was found at the selected path. You can choose to:
+        ${t('setup:modal.existingDesc')}
       </p>
 
       <!-- Show detected installation details (path and runner if available) -->
       <div class="detected-info">
         <div class="detected-row">
-          <span class="detected-label">Path:</span>
+          <span class="detected-label">${t('setup:modal.path')}</span>
           <span class="detected-value">${escapeHtml(detectedInstallation.install_path)}</span>
         </div>
         ${detectedInstallation.runner_name ? `
         <div class="detected-row">
-          <span class="detected-label">Runner:</span>
+          <span class="detected-label">${t('setup:modal.runner')}</span>
           <span class="detected-value">${escapeHtml(detectedInstallation.runner_name)}</span>
         </div>
         ` : ''}
@@ -373,29 +372,27 @@ function showInstallModeModal(container, { onComplete, continueBtn }) {
         <div class="mode-option" data-mode="quick">
           <div class="mode-option-header">
             <span class="mode-option-icon">⚡</span>
-            <span class="mode-option-title">Quick Install</span>
+            <span class="mode-option-title">${t('setup:modal.quickTitle')}</span>
           </div>
           <p class="mode-option-desc">
-            Only install/update DXVK and Wine components. Skip downloading
-            the RSI Launcher. (Requires existing Runner)
+            ${t('setup:modal.quickDesc')}
           </p>
         </div>
 
         <div class="mode-option" data-mode="full">
           <div class="mode-option-header">
             <span class="mode-option-icon">📦</span>
-            <span class="mode-option-title">Reinstall All</span>
+            <span class="mode-option-title">${t('setup:modal.reinstallTitle')}</span>
           </div>
           <p class="mode-option-desc">
-            Complete fresh installation including downloading
-            and installing the RSI Launcher.
+            ${t('setup:modal.reinstallDesc')}
           </p>
         </div>
       </div>
 
       <div class="modal-actions">
-        <button class="btn btn-secondary" id="modal-btn-cancel">Cancel</button>
-        <button class="btn btn-primary" id="modal-btn-continue">Continue</button>
+        <button class="btn btn-secondary" id="modal-btn-cancel">${t('setup:modal.cancel')}</button>
+        <button class="btn btn-primary" id="modal-btn-continue">${t('setup:modal.continue')}</button>
       </div>
     </div>
   `;
@@ -428,7 +425,7 @@ function showInstallModeModal(container, { onComplete, continueBtn }) {
   modal.querySelector('#modal-btn-continue').addEventListener('click', async () => {
     const btn = modal.querySelector('#modal-btn-continue');
     btn.disabled = true;
-    btn.textContent = 'Saving...';
+    btn.textContent = t('setup:status.saving');
 
     try {
       await invoke('create_install_directory', { path: currentPath });
@@ -460,7 +457,7 @@ function showInstallModeModal(container, { onComplete, continueBtn }) {
       onComplete();
     } catch (err) {
       btn.disabled = false;
-      btn.textContent = 'Continue';
+      btn.textContent = t('setup:modal.continue');
       console.error('Failed to save config:', err);
     }
   });

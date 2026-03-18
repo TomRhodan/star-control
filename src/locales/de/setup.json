@@ -1,0 +1,40 @@
+{
+  "title": "Willkommen bei Star Control",
+  "subtitle": "Linux-Launcher fuer Star Citizen",
+
+  "desc.intro": "Star Control ist eine Community-Oberflaeche fuer das Star Citizen Linux-Oekosystem. Diese App wurde mit KI-Unterstuetzung entwickelt und waere ohne die folgenden Projekte nicht moeglich:",
+  "desc.interfaceOnly": "Star Control bietet nur eine grafische Oberflaeche fuer diese Werkzeuge. Die eigentliche Magie passiert in den oben genannten Projekten.",
+  "desc.chooseDir": "Waehle, wo Star Citizen installiert werden soll. Dieses Verzeichnis enthaelt den Wine-Prefix, Runner und Spieldateien. Du brauchst mindestens <strong>100 GB</strong> freien Speicherplatz.",
+
+  "project.lugWiki": "LUG Wiki",
+  "project.lugWikiDesc": "Die zentrale Ressource fuer Star Citizen auf Linux",
+  "project.lugHelper": "LUG Helper",
+  "project.lugHelperDesc": "Installationsskripte und Automatisierung",
+  "project.scLauncher": "SC Launcher Konfigurator",
+  "project.scLauncherDesc": "Wine- und Gaming-Konfiguration",
+
+  "label.installDir": "Installationsverzeichnis",
+  "label.placeholder": "~/Games/star-citizen",
+  "label.selectDialog": "Installationsverzeichnis auswaehlen",
+
+  "button.continue": "Weiter",
+
+  "status.checking": "Wird geprueft...",
+  "status.creating": "Wird erstellt...",
+  "status.saving": "Wird gespeichert...",
+  "status.validating": "Wird validiert...",
+  "status.validationFailed": "Validierung fehlgeschlagen",
+
+  "error.enterPath": "Bitte gib einen Installationspfad ein",
+
+  "modal.existingTitle": "Bestehende Installation erkannt",
+  "modal.existingDesc": "Eine RSI Launcher Installation wurde im ausgewaehlten Pfad gefunden. Du kannst waehlen:",
+  "modal.path": "Pfad:",
+  "modal.runner": "Runner:",
+  "modal.quickTitle": "Schnellinstallation",
+  "modal.quickDesc": "Nur DXVK und Wine-Komponenten installieren/aktualisieren. Download des RSI Launchers ueberspringen. (Erfordert vorhandenen Runner)",
+  "modal.reinstallTitle": "Alles neu installieren",
+  "modal.reinstallDesc": "Vollstaendige Neuinstallation inklusive Download und Installation des RSI Launchers.",
+  "modal.cancel": "Abbrechen",
+  "modal.continue": "Weiter"
+}

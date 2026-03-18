@@ -1,0 +1,58 @@
+{
+  "title": "Einstellungen",
+  "subtitle": "Anwendungspfade und Einstellungen konfigurieren",
+
+  "section.paths": "Pfade",
+  "section.application": "Anwendung",
+  "section.resetApp": "Anwendung zuruecksetzen",
+
+  "label.baseDir": "Basisverzeichnis",
+  "label.baseDirTooltip": "Stammverzeichnis fuer Star Citizen Wine-Prefix und Runner",
+  "label.baseDirPlaceholder": "~/Games/star-citizen",
+  "label.starCitizen": "Star Citizen",
+  "label.logLevel": "Log-Level",
+  "label.logLevelTooltip": "Steuert die Ausfuehrlichkeit der Log-Ausgabe",
+  "label.uiScale": "UI-Skalierung",
+  "label.uiScaleTooltip": "Benutzeroberflaeche skalieren (50% - 200%)",
+  "label.language": "Sprache",
+  "label.languageTooltip": "Anzeigesprache der Anwendung",
+  "label.languageAuto": "Auto (System)",
+  "label.githubToken": "GitHub-Token",
+  "label.githubTokenTooltip": "Star Control laedt Wine Runner und DXVK von GitHub herunter. Ohne Token erlaubt GitHub 60 Anfragen/Stunde pro IP. Das reicht fuer normale Nutzung - ein Token ist nur noetig bei Rate-Limits, z.B. bei der Entwicklung oder wenn viele Nutzer eine IP teilen.",
+  "label.githubTokenHint": "Optional. Nur noetig, wenn du GitHubs 60 Anfragen/Stunde-Limit ueberschreitest.",
+  "label.selectDirDialog": "Star Citizen Basisverzeichnis auswaehlen",
+
+  "logLevel.debug": "Debug",
+  "logLevel.info": "Info",
+  "logLevel.warn": "Warnung",
+  "logLevel.error": "Fehler",
+
+  "button.browse": "Durchsuchen",
+  "button.saveSettings": "Einstellungen speichern",
+  "button.resetRestart": "Zuruecksetzen & Neustarten",
+
+  "token.replaceTitle": "Token ersetzen",
+  "token.removeTitle": "Token entfernen",
+  "token.save": "Speichern",
+  "token.cancel": "Abbrechen",
+  "token.placeholder": "ghp_xxxxxxxxxxxx",
+
+  "reset.description": "Dies loescht permanent die gesamte Star Citizen Installation, einschliesslich Wine-Prefix, Runner und aller Spieldateien. Die App-Konfiguration und der Cache werden entfernt. Star Control startet neu und kehrt zur Ersteinrichtung zurueck.",
+  "reset.deleteInstall": "Installationsverzeichnis loeschen",
+  "reset.removeConfig": "App-Konfiguration und Cache entfernen",
+  "reset.restartApp": "Star Control neustarten (Einrichtungsassistent)",
+  "reset.keepToken": "GitHub-Token wird beibehalten",
+  "reset.confirmMsg": "Bist du sicher? Dies loescht die gesamte Installation, Wine-Prefix und Spieldateien. Dies kann nicht rueckgaengig gemacht werden.",
+  "reset.confirmTitle": "Anwendung zuruecksetzen",
+  "reset.confirmOk": "Ja, alles loeschen",
+
+  "notification.saved": "Einstellungen gespeichert",
+  "notification.saveFailed": "Einstellungen konnten nicht gespeichert werden",
+  "notification.tokenSaved": "GitHub-Token gespeichert",
+  "notification.tokenSaveFailed": "Token konnte nicht gespeichert werden",
+  "notification.tokenRemoved": "GitHub-Token entfernt",
+  "notification.tokenRemoveFailed": "Token konnte nicht entfernt werden",
+  "notification.enterToken": "Bitte gib einen Token ein",
+  "notification.resetFailed": "Zuruecksetzen fehlgeschlagen: {{error}}",
+  "notification.resetting": "Wird zurueckgesetzt..."
+}

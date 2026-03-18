@@ -33,6 +33,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { router } from '../router.js';
 import { requestAutoLaunch } from './launch.js';
 import { escapeHtml } from '../utils.js';
+import { t } from '../i18n.js';
 
 // ── Module-wide State ──────────────────────────────
 
@@ -62,24 +63,24 @@ let statsCurrent = null;
 export function renderDashboard(container) {
   container.innerHTML = `
     <div class="page-header">
-      <h1>Command Center</h1>
-      <p class="page-subtitle">News, Status & Community at a glance</p>
+      <h1>${t('dashboard:title')}</h1>
+      <p class="page-subtitle">${t('dashboard:subtitle')}</p>
     </div>
     <div class="dash-status-row" id="dash-status-row">
       ${renderStatusSkeleton()}
     </div>
     <div class="dash-main">
       <div class="dash-panel" id="dash-news-panel">
-        <div class="dash-panel-title"><span class="dash-panel-title-icon">&#9783;</span> RSI News</div>
+        <div class="dash-panel-title"><span class="dash-panel-title-icon">&#9783;</span> ${t('dashboard:section.news')}</div>
         <div id="dash-news-content">${renderNewsSkeleton()}</div>
       </div>
       <div class="dash-right-col">
         <div class="dash-panel" id="dash-status-panel">
-          <div class="dash-panel-title"><span class="dash-panel-title-icon">&#9673;</span> Server Status</div>
+          <div class="dash-panel-title"><span class="dash-panel-title-icon">&#9673;</span> ${t('dashboard:section.serverStatus')}</div>
           <div id="dash-server-content">${renderServerSkeleton()}</div>
         </div>
         <div class="dash-panel" id="dash-stats-panel">
-          <div class="dash-panel-title"><span class="dash-panel-title-icon">&#9734;</span> Community</div>
+          <div class="dash-panel-title"><span class="dash-panel-title-icon">&#9734;</span> ${t('dashboard:section.community')}</div>
           <div id="dash-stats-content">${renderStatsSkeleton()}</div>
         </div>
       </div>
@@ -94,15 +95,15 @@ export function renderDashboard(container) {
 function renderStatusSkeleton() {
   return `
     <div class="dash-card dash-card--neutral">
-      <div class="dash-card-header"><span class="dash-card-title">Star Citizen</span><span class="badge badge-neutral">Loading</span></div>
+      <div class="dash-card-header"><span class="dash-card-title">${t('dashboard:label.starCitizen')}</span><span class="badge badge-neutral">${t('dashboard:status.loading')}</span></div>
       <div class="dash-card-body"><div class="dash-skeleton dash-skeleton-line medium"></div><div class="dash-skeleton dash-skeleton-line short"></div></div>
     </div>
     <div class="dash-card dash-card--neutral">
-      <div class="dash-card-header"><span class="dash-card-title">Wine Runner</span><span class="badge badge-neutral">Loading</span></div>
+      <div class="dash-card-header"><span class="dash-card-title">${t('dashboard:label.wineRunner')}</span><span class="badge badge-neutral">${t('dashboard:status.loading')}</span></div>
       <div class="dash-card-body"><div class="dash-skeleton dash-skeleton-line medium"></div></div>
     </div>
     <div class="dash-card dash-card--launch">
-      <div class="dash-card-launch-inner"><span class="dash-card-launch-label">Checking...</span><button class="btn btn-primary btn-lg" disabled>Launch Star Citizen</button></div>
+      <div class="dash-card-launch-inner"><span class="dash-card-launch-label">${t('dashboard:status.checking')}</span><button class="btn btn-primary btn-lg" disabled>${t('dashboard:button.launchStarCitizen')}</button></div>
     </div>
   `;
 }
@@ -243,11 +244,11 @@ function renderScCard({ installed, installPath }) {
   // Determine badge status: not configured / installed / incomplete
   let scBadge;
   if (!dashConfig) {
-    scBadge = '<span class="badge badge-neutral">Not configured</span>';
+    scBadge = `<span class="badge badge-neutral">${t('dashboard:status.notConfigured')}</span>`;
   } else if (installed) {
-    scBadge = '<span class="badge badge-ok">Installed</span>';
+    scBadge = `<span class="badge badge-ok">${t('dashboard:status.installed')}</span>`;
   } else {
-    scBadge = '<span class="badge badge-warn">Incomplete</span>';
+    scBadge = `<span class="badge badge-warn">${t('dashboard:status.incomplete')}</span>`;
   }
 
   // Determine CSS class for card color
@@ -269,23 +270,23 @@ function renderScCard({ installed, installPath }) {
   return `
     <div class="dash-card dash-card--${statusClass}">
       <div class="dash-card-header">
-        <span class="dash-card-title">Star Citizen</span>
+        <span class="dash-card-title">${t('dashboard:label.starCitizen')}</span>
         ${scBadge}
       </div>
       <div class="dash-card-body">
         <div class="dash-card-row">
-          <span class="dash-card-label">Path</span>
-          <span class="dash-card-value mono">${escapeHtml(installPath || 'Not configured')}</span>
+          <span class="dash-card-label">${t('dashboard:label.path')}</span>
+          <span class="dash-card-value mono">${escapeHtml(installPath || t('dashboard:status.notConfigured'))}</span>
         </div>
         ${dashLocStatus?.installed ? `
         <div class="dash-card-row">
-          <span class="dash-card-label">Language</span>
+          <span class="dash-card-label">${t('dashboard:label.language')}</span>
           <span class="dash-card-value">${escapeHtml(locLang)} ${locDot}</span>
         </div>` : ''}
       </div>
       <div class="dash-card-actions">
-        ${installPath ? `<button class="btn btn-sm" id="dash-open-folder">Open Folder</button>` : ''}
-        ${dashLocUpdate?.update_available ? `<button class="btn btn-sm dash-btn-update" id="dash-loc-update">Update Translation</button>` : ''}
+        ${installPath ? `<button class="btn btn-sm" id="dash-open-folder">${t('dashboard:button.openFolder')}</button>` : ''}
+        ${dashLocUpdate?.update_available ? `<button class="btn btn-sm dash-btn-update" id="dash-loc-update">${t('dashboard:button.updateTranslation')}</button>` : ''}
       </div>
     </div>`;
 }
@@ -301,11 +302,11 @@ function renderScCard({ installed, installPath }) {
 function renderRunnerCard({ hasRunner, runnerName }) {
   let runnerBadge;
   if (!runnerName) {
-    runnerBadge = '<span class="badge badge-neutral">Not configured</span>';
+    runnerBadge = `<span class="badge badge-neutral">${t('dashboard:status.notConfigured')}</span>`;
   } else if (hasRunner) {
-    runnerBadge = '<span class="badge badge-ok">Ready</span>';
+    runnerBadge = `<span class="badge badge-ok">${t('dashboard:status.ready')}</span>`;
   } else {
-    runnerBadge = '<span class="badge badge-warn">Missing</span>';
+    runnerBadge = `<span class="badge badge-warn">${t('dashboard:status.missing')}</span>`;
   }
 
   let statusClass;
@@ -319,26 +320,26 @@ function renderRunnerCard({ hasRunner, runnerName }) {
 
   let displayName;
   if (!runnerName) {
-    displayName = 'None';
+    displayName = t('dashboard:status.runnerNone');
   } else if (hasRunner) {
     displayName = runnerName;
   } else {
-    displayName = `${runnerName} (not found)`;
+    displayName = `${runnerName} ${t('dashboard:status.runnerNotFound')}`;
   }
 
   return `
     <div class="dash-card dash-card--${statusClass}">
       <div class="dash-card-header">
-        <span class="dash-card-title">Wine Runner</span>
+        <span class="dash-card-title">${t('dashboard:label.wineRunner')}</span>
         ${runnerBadge}
       </div>
       <div class="dash-card-body">
         <div class="dash-card-row">
-          <span class="dash-card-label">Runner</span>
+          <span class="dash-card-label">${t('dashboard:label.runner')}</span>
           <span class="dash-card-value mono">${escapeHtml(displayName)}</span>
         </div>
       </div>
-      <div class="dash-card-actions"><button class="btn btn-sm" id="dash-manage-runners">Manage Runners</button></div>
+      <div class="dash-card-actions"><button class="btn btn-sm" id="dash-manage-runners">${t('dashboard:button.manageRunners')}</button></div>
     </div>`;
 }
 
@@ -350,14 +351,14 @@ function renderRunnerCard({ hasRunner, runnerName }) {
  * @returns {string} HTML string of the card
  */
 function renderLaunchCard({ installed }) {
-  const launchText = installed ? 'Ready to launch' : 'Complete installation first';
+  const launchText = installed ? t('dashboard:status.readyToLaunch') : t('dashboard:status.completeInstallFirst');
   const launchDisabled = !installed;
 
   return `
     <div class="dash-card dash-card--launch">
       <div class="dash-card-launch-inner">
         <span class="dash-card-launch-label">${escapeHtml(launchText)}</span>
-        <button class="btn btn-primary btn-lg" id="dash-launch-btn" ${launchDisabled ? 'disabled' : ''}>Launch Star Citizen</button>
+        <button class="btn btn-primary btn-lg" id="dash-launch-btn" ${launchDisabled ? 'disabled' : ''}>${t('dashboard:button.launchStarCitizen')}</button>
       </div>
     </div>`;
 }
@@ -399,7 +400,7 @@ function bindStatusCardEvents({ installed, installPath }) {
   if (updateBtn && dashLocStatus && dashScVersion) {
     updateBtn.addEventListener('click', async () => {
       updateBtn.disabled = true;
-      updateBtn.textContent = 'Updating...';
+      updateBtn.textContent = t('dashboard:status.updating');
       try {
         // Fetch available languages and find the matching source
         const languages = await invoke('get_available_languages');
@@ -418,7 +419,7 @@ function bindStatusCardEvents({ installed, installPath }) {
           await loadLocalStatus();
         }
       } catch {
-        updateBtn.textContent = 'Update failed';
+        updateBtn.textContent = t('dashboard:status.updateFailed');
         updateBtn.disabled = false;
       }
     });
@@ -438,12 +439,12 @@ async function loadNews() {
   try {
     const result = await invoke('fetch_rsi_news');
     if (result.error && result.items.length === 0) {
-      el.innerHTML = renderError('Could not load news', () => loadNews());
+      el.innerHTML = renderError(t('dashboard:error.couldNotLoadNews'), () => loadNews());
       return;
     }
     renderNewsItems(el, result.items);
   } catch {
-    el.innerHTML = renderError('Could not load news', () => loadNews());
+    el.innerHTML = renderError(t('dashboard:error.couldNotLoadNews'), () => loadNews());
   }
 }
 
@@ -455,7 +456,7 @@ async function loadNews() {
  */
 function renderNewsItems(el, items) {
   if (items.length === 0) {
-    el.innerHTML = '<div class="dash-error"><span class="dash-error-msg">No news available</span></div>';
+    el.innerHTML = `<div class="dash-error"><span class="dash-error-msg">${t('dashboard:news.noNewsAvailable')}</span></div>`;
     return;
   }
 
@@ -497,12 +498,12 @@ async function loadServerStatus() {
   try {
     const result = await invoke('fetch_server_status');
     if (result.error && result.components.length === 0) {
-      el.innerHTML = renderError('Could not load server status', () => loadServerStatus());
+      el.innerHTML = renderError(t('dashboard:error.couldNotLoadServerStatus'), () => loadServerStatus());
       return;
     }
     renderServerComponents(el, result.components);
   } catch {
-    el.innerHTML = renderError('Could not load server status', () => loadServerStatus());
+    el.innerHTML = renderError(t('dashboard:error.couldNotLoadServerStatus'), () => loadServerStatus());
   }
 }
 
@@ -514,21 +515,21 @@ async function loadServerStatus() {
  */
 function renderServerComponents(el, components) {
   if (components.length === 0) {
-    el.innerHTML = '<div class="dash-error"><span class="dash-error-msg">No status data</span></div>';
+    el.innerHTML = `<div class="dash-error"><span class="dash-error-msg">${t('dashboard:server.noStatusData')}</span></div>`;
     return;
   }
 
-  // Mapping of backend status keys to readable labels
+  // Mapping of backend status keys to i18n translation keys
   const statusLabels = {
-    operational: 'Operational',
-    degraded: 'Degraded',
-    major_outage: 'Major Outage',
-    unknown: 'Unknown',
+    operational: t('dashboard:server.operational'),
+    degraded: t('dashboard:server.degraded'),
+    major_outage: t('dashboard:server.majorOutage'),
+    unknown: t('dashboard:server.unknown'),
   };
 
   let html = '<div class="dash-server-list">';
   for (const comp of components) {
-    const label = statusLabels[comp.status] || 'Unknown';
+    const label = statusLabels[comp.status] || t('dashboard:server.unknown');
     html += `
       <div class="dash-server-row">
         <span class="dash-server-name">${escapeHtml(comp.name)}</span>
@@ -556,7 +557,7 @@ async function loadCommunityStats() {
   try {
     const result = await invoke('fetch_community_stats');
     if (result.error || !result.stats) {
-      el.innerHTML = renderError('Could not load community stats', () => loadCommunityStats());
+      el.innerHTML = renderError(t('dashboard:error.couldNotLoadCommunityStats'), () => loadCommunityStats());
       return;
     }
     statsCurrent = result.stats;
@@ -565,7 +566,7 @@ async function loadCommunityStats() {
     // Load history asynchronously - don't block initial render
     loadStatsHistory();
   } catch {
-    el.innerHTML = renderError('Could not load community stats', () => loadCommunityStats());
+    el.innerHTML = renderError(t('dashboard:error.couldNotLoadCommunityStats'), () => loadCommunityStats());
   }
 }
 
@@ -591,15 +592,15 @@ function renderStats(el, stats) {
     <div class="dash-stats-grid">
       <div class="dash-stat-item">
         <div class="dash-stat-value">${escapeHtml(stats.funds)}</div>
-        <div class="dash-stat-label">Total Funding</div>
+        <div class="dash-stat-label">${t('dashboard:label.totalFunding')}</div>
       </div>
       <div class="dash-stat-item">
         <div class="dash-stat-value">${escapeHtml(stats.fans)}</div>
-        <div class="dash-stat-label">Star Citizens</div>
+        <div class="dash-stat-label">${t('dashboard:label.starCitizens')}</div>
       </div>
       <div class="dash-stat-item">
         <div class="dash-stat-value">${escapeHtml(stats.vehicles)}</div>
-        <div class="dash-stat-label">Vehicles in Game</div>
+        <div class="dash-stat-label">${t('dashboard:label.vehiclesInGame')}</div>
       </div>
     </div>
   `;
@@ -620,8 +621,8 @@ function renderStatsWithSparklines() {
 
   // Metrics for which historical data and sparklines are available
   const historyMetrics = [
-    { key: 'funds', label: 'Total Funding', value: statsCurrent.funds },
-    { key: 'fans', label: 'Star Citizens', value: statsCurrent.fans },
+    { key: 'funds', label: t('dashboard:label.totalFunding'), value: statsCurrent.funds },
+    { key: 'fans', label: t('dashboard:label.starCitizens'), value: statsCurrent.fans },
   ];
 
   let html = renderPeriodToggle();
@@ -653,7 +654,7 @@ function renderStatsWithSparklines() {
   html += `
     <div class="dash-stat-item">
       <div class="dash-stat-value">${escapeHtml(statsCurrent.vehicles)}</div>
-      <div class="dash-stat-label">Vehicles in Game</div>
+      <div class="dash-stat-label">${t('dashboard:label.vehiclesInGame')}</div>
     </div>`;
 
   html += '</div>';
@@ -664,8 +665,8 @@ function renderStatsWithSparklines() {
 /** Renders the time period toggle buttons (7 days / 30 days) for the sparklines */
 function renderPeriodToggle() {
   return `<div class="dash-stats-period">
-    <button class="dash-stats-period-btn${statsCurrentPeriod === 7 ? ' active' : ''}" data-days="7">7d</button>
-    <button class="dash-stats-period-btn${statsCurrentPeriod === 30 ? ' active' : ''}" data-days="30">30d</button>
+    <button class="dash-stats-period-btn${statsCurrentPeriod === 7 ? ' active' : ''}" data-days="7">${t('dashboard:button.period7d')}</button>
+    <button class="dash-stats-period-btn${statsCurrentPeriod === 30 ? ' active' : ''}" data-days="30">${t('dashboard:button.period30d')}</button>
   </div>`;
 }
 
@@ -765,7 +766,7 @@ function renderError(message, retryFn) {
   return `
     <div class="dash-error">
       <span class="dash-error-msg">${escapeHtml(message)}</span>
-      <button class="dash-retry-btn" id="${id}">Retry</button>
+      <button class="dash-retry-btn" id="${id}">${t('dashboard:button.retry')}</button>
     </div>`;
 }
 

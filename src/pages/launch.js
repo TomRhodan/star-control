@@ -34,6 +34,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { escapeHtml } from '../utils.js';
+import { t } from '../i18n.js';
 
 // ── Module-wide State ──────────────────────────────
 
@@ -58,31 +59,28 @@ let unlistenLaunchStarted = null;
 let unlistenLaunchExited = null;
 
 /**
- * Definition of available launch options, grouped by category.
+ * Returns available launch options, grouped by category.
  * Each option has an internal key, a label, and a tooltip.
  * The keys correspond to the fields in launchConfig.performance.
+ * Must be a function so that t() calls resolve at render time, not at import time.
  */
-const LAUNCH_OPTIONS = [
-  {
-    group: 'Performance', options: [
-      { key: 'esync', label: 'ESync', tooltip: 'Eventfd-based synchronization - reduces CPU overhead in Wine' },
-      { key: 'fsync', label: 'FSync', tooltip: 'Futex-based synchronization - faster than ESync on supported kernels' },
-      { key: 'dxvk_async', label: 'DXVK Async', tooltip: 'Asynchronous shader compilation - reduces stutter' },
-    ]
-  },
-  {
-    group: 'Display', options: [
-      { key: 'hdr', label: 'HDR', tooltip: 'High Dynamic Range rendering (PROTON_ENABLE_HDR + DXVK_HDR)' },
-      { key: 'fsr', label: 'FSR', tooltip: 'AMD FidelityFX Super Resolution upscaling' },
-    ]
-  },
-  {
-    group: 'Overlays', options: [
-      { key: 'mangohud', label: 'MangoHUD', tooltip: 'On-screen performance overlay (FPS, CPU, GPU, RAM)' },
-      { key: 'dxvk_hud', label: 'DXVK HUD', tooltip: 'DXVK-specific overlay showing draw calls and compiler activity' },
-    ]
-  },
-];
+function getLaunchOptions() {
+  return [
+    { group: t('launch:option.group.performance'), options: [
+      { key: 'esync', label: t('launch:option.esync'), tooltip: t('launch:tooltip.esync') },
+      { key: 'fsync', label: t('launch:option.fsync'), tooltip: t('launch:tooltip.fsync') },
+      { key: 'dxvk_async', label: t('launch:option.dxvkAsync'), tooltip: t('launch:tooltip.dxvkAsync') },
+    ]},
+    { group: t('launch:option.group.display'), options: [
+      { key: 'hdr', label: t('launch:option.hdr'), tooltip: t('launch:tooltip.hdr') },
+      { key: 'fsr', label: t('launch:option.fsr'), tooltip: t('launch:tooltip.fsr') },
+    ]},
+    { group: t('launch:option.group.overlays'), options: [
+      { key: 'mangohud', label: t('launch:option.mangohud'), tooltip: t('launch:tooltip.mangohud') },
+      { key: 'dxvk_hud', label: t('launch:option.dxvkHud'), tooltip: t('launch:tooltip.dxvkHud') },
+    ]},
+  ];
+}
 
 /**
  * Built-in environment variables set by the Rust backend (configure_wine_env()).
@@ -157,7 +155,7 @@ async function loadAndCheck(container) {
     const config = await invoke('load_config');
     if (!config) {
       launchStatus = 'not_installed';
-      installStatus = { installed: false, message: 'No configuration found' };
+      installStatus = { installed: false, message: t('launch:error.noConfig') };
       renderPage(container);
       return;
     }
@@ -220,8 +218,8 @@ function listenForExit(container) {
 function renderPage(container) {
   container.innerHTML = `
     <div class="page-header">
-      <h1>Launch</h1>
-      <p class="page-subtitle">Start Star Citizen</p>
+      <h1>${t('launch:title')}</h1>
+      <p class="page-subtitle">${t('launch:subtitle')}</p>
     </div>
     <div class="launch-section">
       <div class="launch-center">
@@ -230,13 +228,13 @@ function renderPage(container) {
         ${renderLaunchInfo()}
       </div>
       <div class="launch-options card">
-        <h3>Launch Options</h3>
+        <h3>${t('launch:section.launchOptions')}</h3>
         ${renderOptionsGrid()}
       </div>
     </div>
     <div class="card log-panel-flex">
-      <h3>Log Output</h3>
-      <pre class="log-output log-output-flex" id="launch-log-output"><code>Waiting for launch...</code></pre>
+      <h3>${t('launch:section.logOutput')}</h3>
+      <pre class="log-output log-output-flex" id="launch-log-output"><code>${t('launch:status.waitingForLaunch')}</code></pre>
     </div>
   `;
 
@@ -265,16 +263,16 @@ function renderLaunchButton() {
     return `
       <button class="btn-launch stop" id="btn-stop">
         <svg class="launch-icon" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
-        <span>STOP</span>
+        <span>${t('launch:button.stop')}</span>
       </button>
     `;
   }
 
   const disabled = launchStatus !== 'ready';
 
-  let label = 'LAUNCH';
-  if (spinning) label = 'LAUNCHING...';
-  if (launchStatus === 'checking') label = 'CHECKING...';
+  let label = t('launch:button.launch');
+  if (spinning) label = t('launch:button.launching');
+  if (launchStatus === 'checking') label = t('launch:button.checking');
 
   const iconSvg = spinning
     ? '<div class="launch-spinner"></div>'
@@ -296,31 +294,31 @@ function renderLaunchButton() {
  */
 function renderLaunchStatus() {
   if (launchStatus === 'not_installed') {
-    const msg = installStatus?.message || 'Star Citizen is not installed';
+    const msg = installStatus?.message || t('launch:error.notInstalled');
     return `
       <div class="launch-not-installed">
         <p>${escapeHtml(msg)}</p>
-        <button class="btn btn-primary btn-sm" id="btn-goto-install">Go to Installation</button>
+        <button class="btn btn-primary btn-sm" id="btn-goto-install">${t('launch:button.gotoInstall')}</button>
       </div>
     `;
   }
 
   if (launchStatus === 'error') {
-    const msg = installStatus?.message || 'An error occurred';
+    const msg = installStatus?.message || t('launch:error.generic');
     return `
       <div class="launch-status error">
         <p>${escapeHtml(msg)}</p>
-        <button class="btn btn-sm" id="btn-retry-check">Retry</button>
+        <button class="btn btn-sm" id="btn-retry-check">${t('launch:button.retry')}</button>
       </div>
     `;
   }
 
   if (launchStatus === 'running') {
-    return '<div class="launch-status running">RSI Launcher is running - press Stop to close</div>';
+    return `<div class="launch-status running">${t('launch:status.running')}</div>`;
   }
 
   if (launchStatus === 'checking') {
-    return '<div class="launch-status checking">Checking installation...</div>';
+    return `<div class="launch-status checking">${t('launch:status.checking')}</div>`;
   }
 
   return '';
@@ -335,7 +333,7 @@ function renderLaunchStatus() {
 function renderLaunchInfo() {
   if (!launchConfig || !installStatus?.installed) return '';
 
-  const runner = launchConfig.selected_runner || 'None';
+  const runner = launchConfig.selected_runner || t('launch:label.none');
   const prefix = launchConfig.install_path || '?';
 
   const runnerIcon = `<svg class="launch-runner-badge-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>`;
@@ -343,16 +341,16 @@ function renderLaunchInfo() {
   return `
     <div class="launch-info">
       <div class="launch-info-card">
-        <div class="launch-info-card-title">Active Configuration</div>
+        <div class="launch-info-card-title">${t('launch:label.infoCardTitle')}</div>
         <div class="launch-info-row">
-          <span class="launch-info-label">Runner</span>
+          <span class="launch-info-label">${t('launch:label.runner')}</span>
           <span class="launch-runner-badge">
             ${runnerIcon}
             ${escapeHtml(runner)}
           </span>
         </div>
         <div class="launch-info-row">
-          <span class="launch-info-label">Prefix</span>
+          <span class="launch-info-label">${t('launch:label.prefix')}</span>
           <span class="launch-prefix-value">${escapeHtml(prefix)}</span>
         </div>
       </div>
@@ -374,12 +372,12 @@ function renderOptionsGrid() {
   const fractional = hasFractionalScaling();
 
   const waylandTooltip = fractional
-    ? 'Fractional scaling detected - Wayland mode is not compatible and has been disabled. Set all monitors to 100% scale to use this option.'
-    : 'Enable Wayland protocol support in Wine';
+    ? t('launch:tooltip.waylandFractional')
+    : t('launch:tooltip.wayland');
 
   return `
     <div class="launch-options-grid">
-      ${LAUNCH_OPTIONS.map(group => `
+      ${getLaunchOptions().map(group => `
         <div class="launch-option-group">
           <div class="launch-option-group-title">${group.group}</div>
           ${group.options.map(opt => {
@@ -400,19 +398,19 @@ function renderOptionsGrid() {
 
     <div class="launch-wayland-area">
       <div class="launch-wayland-header">
-        <h4>Wayland <span class="badge-experimental">Experimental</span></h4>
-        <p class="wayland-warning-text">These settings are completely experimental and may have no effect depending on your runner.</p>
+        <h4>${t('launch:section.wayland')} <span class="badge-experimental">${t('launch:badge.experimental')}</span></h4>
+        <p class="wayland-warning-text">${t('launch:desc.waylandWarning')}</p>
       </div>
       <div class="launch-wayland-content">
         <label class="toggle-option ${fractional ? 'toggle-blocked' : ''}" data-tooltip="${waylandTooltip}">
           <input type="checkbox" data-key="wayland"
             ${!fractional && perf.wayland ? 'checked' : ''}
             ${disabled || fractional ? 'disabled' : ''} />
-          <span>Enable Wayland</span>
+          <span>${t('launch:label.enableWayland')}</span>
         </label>
         ${renderMonitorSelect(disabled, perf)}
       </div>
-      ${fractional ? '<div class="launch-scaling-warning">Fractional scaling active - Wayland mode disabled</div>' : ''}
+      ${fractional ? `<div class="launch-scaling-warning">${t('launch:desc.fractionalScalingWarning')}</div>` : ''}
     </div>
     ${renderCustomEnvVars(disabled)}
   `;
@@ -435,12 +433,12 @@ function renderCustomEnvVars(disabled) {
         <input type="checkbox" class="env-var-toggle" data-env-index="${i}"
           ${v.enabled ? 'checked' : ''} ${disabled ? 'disabled' : ''} />
         <input type="text" class="input env-var-key" data-env-index="${i}"
-          value="${escapeHtml(v.key)}" placeholder="KEY" ${disabled ? 'disabled' : ''} />
+          value="${escapeHtml(v.key)}" placeholder="${t('launch:placeholder.envKey')}" ${disabled ? 'disabled' : ''} />
         <span class="env-var-equals">=</span>
         <input type="text" class="input env-var-value" data-env-index="${i}"
-          value="${escapeHtml(v.value)}" placeholder="value" ${disabled ? 'disabled' : ''} />
-        ${isConflict ? '<span class="env-var-conflict" data-tooltip="This variable overrides a built-in setting">⚠ override</span>' : ''}
-        <button class="btn-env-delete" data-env-index="${i}" ${disabled ? 'disabled' : ''} title="Remove variable">✕</button>
+          value="${escapeHtml(v.value)}" placeholder="${t('launch:placeholder.envValue')}" ${disabled ? 'disabled' : ''} />
+        ${isConflict ? `<span class="env-var-conflict" data-tooltip="${t('launch:tooltip.envVarConflict')}">⚠ ${t('launch:badge.override')}</span>` : ''}
+        <button class="btn-env-delete" data-env-index="${i}" ${disabled ? 'disabled' : ''} title="${t('launch:tooltip.removeVariable')}">✕</button>
       </div>
     `;
   }).join('');
@@ -448,12 +446,12 @@ function renderCustomEnvVars(disabled) {
   return `
     <div class="launch-custom-env-area">
       <div class="launch-custom-env-header">
-        <h4>Custom Environment Variables</h4>
-        <p class="custom-env-hint">Add custom environment variables for Wine/Proton launches. These override built-in variables with the same name.</p>
+        <h4>${t('launch:section.customEnvVars')}</h4>
+        <p class="custom-env-hint">${t('launch:desc.customEnvHint')}</p>
       </div>
       <div class="launch-custom-env-content">
         ${rows}
-        <button class="btn btn-sm btn-add-env" id="btn-add-env" ${disabled ? 'disabled' : ''}>+ Add Variable</button>
+        <button class="btn btn-sm btn-add-env" id="btn-add-env" ${disabled ? 'disabled' : ''}>${t('launch:button.addVariable')}</button>
       </div>
     </div>
   `;
@@ -472,20 +470,20 @@ function renderMonitorSelect(disabled, perf) {
   let selectHtml;
   if (detectedMonitors.length > 0) {
     const options = detectedMonitors.map(m => {
-      const label = `${m.name}${m.resolution ? ' (' + m.resolution : ''}${m.primary ? ', primary)' : m.resolution ? ')' : ''}`;
+      const label = `${m.name}${m.resolution ? ' (' + m.resolution : ''}${m.primary ? ', ' + t('launch:monitor.primary') + ')' : m.resolution ? ')' : ''}`;
       const selected = perf.primary_monitor === m.name ? 'selected' : '';
       return `<option value="${escapeHtml(m.name)}" ${selected}>${escapeHtml(label)}</option>`;
     }).join('');
     selectHtml = `<select class="input launch-monitor-input" id="launch-monitor-select" ${!hasMonitor || disabled ? 'disabled' : ''}>${options}</select>`;
   } else {
-    selectHtml = `<input type="text" class="input launch-monitor-input" id="launch-monitor-input" value="${escapeHtml(perf.primary_monitor || '')}" placeholder="e.g. DP-1" ${!hasMonitor || disabled ? 'disabled' : ''} />`;
+    selectHtml = `<input type="text" class="input launch-monitor-input" id="launch-monitor-input" value="${escapeHtml(perf.primary_monitor || '')}" placeholder="${t('launch:placeholder.monitorInput')}" ${!hasMonitor || disabled ? 'disabled' : ''} />`;
   }
 
   return `
     <div class="launch-monitor-row">
-      <label class="toggle-option" data-tooltip="Force game to a specific Wayland output. Requires a GE-Proton or Mactan runner with WAYLANDDRV_PRIMARY_MONITOR support." data-tooltip-pos="bottom">
+      <label class="toggle-option" data-tooltip="${t('launch:tooltip.waylandMonitor')}" data-tooltip-pos="bottom">
         <input type="checkbox" id="launch-monitor-enabled" ${hasMonitor ? 'checked' : ''} ${disabled ? 'disabled' : ''} />
-        <span>Wayland Monitor</span>
+        <span>${t('launch:label.waylandMonitor')}</span>
       </label>
       <div class="launch-monitor-select-wrap ${!hasMonitor ? 'disabled' : ''}" id="launch-monitor-wrap">
         ${selectHtml}
@@ -507,7 +505,7 @@ function updateMonitorSelect() {
   const disabled = launchStatus === 'launching' || launchStatus === 'running' || launchStatus === 'not_installed' || launchStatus === 'checking';
 
   const options = detectedMonitors.map(m => {
-    const label = `${m.name}${m.resolution ? ' (' + m.resolution : ''}${m.primary ? ', primary)' : m.resolution ? ')' : ''}`;
+    const label = `${m.name}${m.resolution ? ' (' + m.resolution : ''}${m.primary ? ', ' + t('launch:monitor.primary') + ')' : m.resolution ? ')' : ''}`;
     const selected = perf.primary_monitor === m.name ? 'selected' : '';
     return `<option value="${escapeHtml(m.name)}" ${selected}>${escapeHtml(label)}</option>`;
   }).join('');
@@ -649,8 +647,8 @@ function bindEnvVarEvents(container) {
           if (isConflict && !existing) {
             const badge = document.createElement('span');
             badge.className = 'env-var-conflict';
-            badge.setAttribute('data-tooltip', 'This variable overrides a built-in setting');
-            badge.textContent = '⚠ override';
+            badge.setAttribute('data-tooltip', t('launch:tooltip.envVarConflict'));
+            badge.textContent = '⚠ ' + t('launch:badge.override');
             const delBtn = row.querySelector('.btn-env-delete');
             row.insertBefore(badge, delBtn);
           } else if (!isConflict && existing) {
@@ -791,7 +789,7 @@ function appendLogLine(text) {
 
   const code = logEl.querySelector('code');
   if (code) {
-    if (launchLog.length === 1 && code.textContent === 'Waiting for launch...') {
+    if (launchLog.length === 1 && code.textContent === t('launch:status.waitingForLaunch')) {
       code.textContent = '';
     }
     code.textContent += (code.textContent ? '\n' : '') + text;
@@ -910,7 +908,7 @@ async function checkAndUpdateLocalization(container) {
   if (installed.length === 0) return;
 
   // Show overlay and wait for actual rendering (double rAF)
-  showPreLaunchOverlay([{ text: 'Checking for translation updates...' }]);
+  showPreLaunchOverlay([{ text: t('launch:notification.localizationChecking') }]);
   await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
   let updatedCount = 0;
@@ -929,11 +927,7 @@ async function checkAndUpdateLocalization(container) {
     if (!needsUpdate) continue;
 
     updatePreLaunchMessage([
-      { text: 'Updating ' },
-      { text: langName, bold: true },
-      { text: ' translation for ' },
-      { text: version, bold: true },
-      { text: '...' },
+      { text: t('launch:notification.localizationUpdating', { langName, version }) },
     ]);
 
     try {
@@ -961,10 +955,10 @@ async function checkAndUpdateLocalization(container) {
 
   // Show brief result message before closing the overlay
   if (updatedCount > 0) {
-    updatePreLaunchMessage([{ text: `${updatedCount} translation${updatedCount > 1 ? 's' : ''} updated.` }]);
+    updatePreLaunchMessage([{ text: t('launch:notification.localizationUpdated', { count: updatedCount }) }]);
     await new Promise(r => setTimeout(r, 1200));
   } else {
-    updatePreLaunchMessage([{ text: 'Translations are up to date.' }]);
+    updatePreLaunchMessage([{ text: t('launch:notification.localizationUpToDate') }]);
     await new Promise(r => setTimeout(r, 800));
   }
 

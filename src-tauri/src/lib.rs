@@ -496,6 +496,7 @@ pub fn run() {
                 config::reset_app,
                 config::add_runner_source_from_github,
                 config::import_lug_helper_sources,
+                config::get_system_locale,
 
                 // Wine/Proton runner management (download, installation, deletion)
                 runners::fetch_available_runners,

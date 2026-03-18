@@ -25,6 +25,7 @@
  */
 
 import { escapeHtml } from '../utils.js';
+import { t } from '../i18n.js';
 
 /**
  * Displays a custom confirmation dialog.
@@ -44,10 +45,10 @@ import { escapeHtml } from '../utils.js';
  */
 export function confirm(message, options = {}) {
   const {
-    title = 'Confirm',
+    title = t('dialogs:confirm.defaultTitle'),
     kind = 'info',
-    okLabel = 'Confirm',
-    cancelLabel = 'Cancel'
+    okLabel = t('dialogs:confirm.defaultOk'),
+    cancelLabel = t('dialogs:confirm.defaultCancel')
   } = options;
 
   return new Promise((resolve) => {
@@ -143,11 +144,11 @@ export function confirm(message, options = {}) {
  */
 export function prompt(message, options = {}) {
   const {
-    title = 'Input',
+    title = t('dialogs:prompt.defaultTitle'),
     defaultValue = '',
     placeholder = '',
-    okLabel = 'OK',
-    cancelLabel = 'Cancel'
+    okLabel = t('dialogs:prompt.defaultOk'),
+    cancelLabel = t('dialogs:prompt.defaultCancel')
   } = options;
 
   return new Promise((resolve) => {
@@ -253,7 +254,7 @@ export function showDiff(title, lines) {
     // Build diff HTML: either empty display or line-by-line rendering
     let diffHtml;
     if (lines.length === 0) {
-      diffHtml = '<div class="diff-empty">No differences found.</div>';
+      diffHtml = `<div class="diff-empty">${t('dialogs:diff.noChanges')}</div>`;
     } else {
       // Each diff line consists of: old line number | new line number | content
       // line_type determines the color: 'add' = green, 'remove' = red, 'context' = neutral

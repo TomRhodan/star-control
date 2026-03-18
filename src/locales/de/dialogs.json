@@ -1,0 +1,11 @@
+{
+  "confirm.defaultTitle": "Bestaetigen",
+  "confirm.defaultOk": "Bestaetigen",
+  "confirm.defaultCancel": "Abbrechen",
+
+  "prompt.defaultTitle": "Eingabe",
+  "prompt.defaultOk": "OK",
+  "prompt.defaultCancel": "Abbrechen",
+
+  "diff.noChanges": "Keine Unterschiede gefunden."
+}

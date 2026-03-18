@@ -1,0 +1,26 @@
+{
+  "title": "Star Control",
+  "tagline": "Star Citizen Linux Manager",
+
+  "section.appInfo": "App-Info",
+  "section.impressum": "Impressum",
+  "section.credits": "Credits & Inspirationen",
+  "section.license": "Lizenz",
+
+  "label.name": "Name",
+  "label.version": "Version",
+  "label.description": "Beschreibung",
+  "label.source": "Quellcode",
+  "label.author": "Autor",
+  "label.email": "E-Mail",
+  "label.license": "Lizenz",
+  "label.copyright": "Copyright",
+  "label.details": "Details",
+
+  "desc.app": "Ein Linux-Verwaltungswerkzeug fuer Star Citizen. Star Citizen mit Wine/Proton unter Linux installieren, konfigurieren und starten.",
+  "desc.lugHelper": "Star Citizen LUG Helper Skript",
+  "desc.luftwerft": "SC Launcher Konfigurator",
+  "desc.lugWiki": "Community-Wissensbasis fuer Linux-Gaming",
+  "desc.disclaimer": "Star Citizen ist eine eingetragene Marke der Cloud Imperium Games Corporation. Star Control ist nicht mit Cloud Imperium Games verbunden oder von ihnen unterstuetzt.",
+  "desc.gpl": "GNU General Public License v3.0"
+}

@@ -1,0 +1,40 @@
+{
+  "title": "Welcome to Star Control",
+  "subtitle": "Linux launcher for Star Citizen",
+
+  "desc.intro": "Star Control is a community interface for the Star Citizen Linux ecosystem. This app was developed with AI assistance and would not be possible without the following projects:",
+  "desc.interfaceOnly": "Star Control provides only a graphical interface for these tools. The real magic happens in the projects listed above.",
+  "desc.chooseDir": "Choose where Star Citizen will be installed. This directory will hold the Wine prefix, runners, and game files. You need at least <strong>100 GB</strong> of free space.",
+
+  "project.lugWiki": "LUG Wiki",
+  "project.lugWikiDesc": "The central resource for Star Citizen on Linux",
+  "project.lugHelper": "LUG Helper",
+  "project.lugHelperDesc": "Installation scripts and automation",
+  "project.scLauncher": "SC Launcher Configurator",
+  "project.scLauncherDesc": "Wine and gaming configuration",
+
+  "label.installDir": "Installation Directory",
+  "label.placeholder": "~/Games/star-citizen",
+  "label.selectDialog": "Select Installation Directory",
+
+  "button.continue": "Continue",
+
+  "status.checking": "Checking...",
+  "status.creating": "Creating...",
+  "status.saving": "Saving...",
+  "status.validating": "Validating...",
+  "status.validationFailed": "Validation failed",
+
+  "error.enterPath": "Please enter an install path",
+
+  "modal.existingTitle": "Existing Installation Detected",
+  "modal.existingDesc": "An RSI Launcher installation was found at the selected path. You can choose to:",
+  "modal.path": "Path:",
+  "modal.runner": "Runner:",
+  "modal.quickTitle": "Quick Install",
+  "modal.quickDesc": "Only install/update DXVK and Wine components. Skip downloading the RSI Launcher. (Requires existing Runner)",
+  "modal.reinstallTitle": "Reinstall All",
+  "modal.reinstallDesc": "Complete fresh installation including downloading and installing the RSI Launcher.",
+  "modal.cancel": "Cancel",
+  "modal.continue": "Continue"
+}

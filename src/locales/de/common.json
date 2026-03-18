@@ -1,0 +1,28 @@
+{
+  "nav.dashboard": "Dashboard",
+  "nav.launch": "Starten",
+  "nav.installation": "Installation",
+  "nav.runners": "Wine Runner",
+  "nav.environments": "Umgebungen",
+  "nav.settings": "Einstellungen",
+  "nav.about": "Info",
+  "nav.wiki": "LUG Wiki",
+
+  "aria.minimize": "Minimieren",
+  "aria.maximize": "Maximieren",
+  "aria.close": "Schliessen",
+
+  "button.save": "Speichern",
+  "button.cancel": "Abbrechen",
+  "button.browse": "Durchsuchen",
+  "button.delete": "Loeschen",
+  "button.confirm": "Bestaetigen",
+  "button.continue": "Weiter",
+  "button.back": "Zurueck",
+  "button.retry": "Erneut versuchen",
+  "button.ok": "OK",
+
+  "status.loading": "Laden...",
+  "status.error": "Fehler",
+  "status.success": "Erfolg"
+}

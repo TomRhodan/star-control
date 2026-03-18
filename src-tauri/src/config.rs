@@ -149,6 +149,8 @@ pub struct AppConfig {
     pub install_mode: String,
     /// UI scale factor (1.0 = 100%, 0.5 = 50%, 2.0 = 200%)
     pub ui_scale: f64,
+    /// UI language override (e.g. "en", "de"). None = auto-detect from system.
+    pub language: Option<String>,
 }
 
 /// Defaults: Empty installation path (must be set by the user),
@@ -165,8 +167,35 @@ impl Default for AppConfig {
             runner_sources: vec![],
             install_mode: "full".to_string(),
             ui_scale: 1.0,
+            language: None,
         }
     }
+}
+
+/// Returns the system locale as a two-letter language code (e.g. "de", "en").
+///
+/// Checks environment variables in order: LANGUAGE, LC_MESSAGES, LANG.
+/// Parses values like "de_DE.UTF-8" down to "de".
+/// Falls back to "en" if no locale can be determined.
+#[tauri::command]
+pub fn get_system_locale() -> String {
+    for var in &["LANGUAGE", "LC_MESSAGES", "LANG"] {
+        if let Ok(val) = std::env::var(var) {
+            let val = val.trim().to_string();
+            if val.is_empty() || val == "C" || val == "POSIX" {
+                continue;
+            }
+            // LANGUAGE can contain colon-separated list, take the first
+            let first = val.split(':').next().unwrap_or(&val);
+            // Parse "de_DE.UTF-8" -> "de"
+            let lang = first.split('_').next().unwrap_or(first);
+            let lang = lang.split('.').next().unwrap_or(lang);
+            if !lang.is_empty() {
+                return lang.to_lowercase();
+            }
+        }
+    }
+    "en".to_string()
 }
 
 // --- Cached data structures (Cache) ---
@@ -636,6 +665,7 @@ pub async fn save_config(config: AppConfig) -> Result<(), String> {
                         config.install_mode
                     },
                     ui_scale: config.ui_scale,
+                    language: config.language,
                 }
             };
 

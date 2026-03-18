@@ -1,0 +1,58 @@
+{
+  "title": "Settings",
+  "subtitle": "Configure application paths and preferences",
+
+  "section.paths": "Paths",
+  "section.application": "Application",
+  "section.resetApp": "Reset Application",
+
+  "label.baseDir": "Base Directory",
+  "label.baseDirTooltip": "Root directory for Star Citizen Wine prefix and runners",
+  "label.baseDirPlaceholder": "~/Games/star-citizen",
+  "label.starCitizen": "Star Citizen",
+  "label.logLevel": "Log Level",
+  "label.logLevelTooltip": "Controls verbosity of application log output",
+  "label.uiScale": "UI Scale",
+  "label.uiScaleTooltip": "Scale the user interface (50% - 200%)",
+  "label.language": "Language",
+  "label.languageTooltip": "Application display language",
+  "label.languageAuto": "Auto (System)",
+  "label.githubToken": "GitHub Token",
+  "label.githubTokenTooltip": "Star Control downloads Wine runners and DXVK from GitHub. Without a token, GitHub allows 60 requests/hour per IP. This is enough for normal use - you only need a token if you hit rate limits, e.g. during development or when many users share one IP.",
+  "label.githubTokenHint": "Optional. Only needed if you exceed GitHub's 60 requests/hour limit.",
+  "label.selectDirDialog": "Select Star Citizen Base Directory",
+
+  "logLevel.debug": "Debug",
+  "logLevel.info": "Info",
+  "logLevel.warn": "Warning",
+  "logLevel.error": "Error",
+
+  "button.browse": "Browse",
+  "button.saveSettings": "Save Settings",
+  "button.resetRestart": "Reset & Restart",
+
+  "token.replaceTitle": "Replace token",
+  "token.removeTitle": "Remove token",
+  "token.save": "Save",
+  "token.cancel": "Cancel",
+  "token.placeholder": "ghp_xxxxxxxxxxxx",
+
+  "reset.description": "This will permanently delete the entire Star Citizen installation, including the Wine prefix, runners, and all game files. The app configuration and cache will be removed. Star Control will restart and return to the initial setup.",
+  "reset.deleteInstall": "Delete installation directory",
+  "reset.removeConfig": "Remove app config and cache",
+  "reset.restartApp": "Restart Star Control (setup wizard)",
+  "reset.keepToken": "GitHub token will be preserved",
+  "reset.confirmMsg": "Are you sure? This will delete the entire installation, Wine prefix, and game files. This cannot be undone.",
+  "reset.confirmTitle": "Reset Application",
+  "reset.confirmOk": "Yes, delete everything",
+
+  "notification.saved": "Settings saved",
+  "notification.saveFailed": "Failed to save settings",
+  "notification.tokenSaved": "GitHub token saved",
+  "notification.tokenSaveFailed": "Failed to save token",
+  "notification.tokenRemoved": "GitHub token removed",
+  "notification.tokenRemoveFailed": "Failed to remove token",
+  "notification.enterToken": "Please enter a token",
+  "notification.resetFailed": "Reset failed: {{error}}",
+  "notification.resetting": "Resetting..."
+}

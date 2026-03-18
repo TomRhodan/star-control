@@ -1,0 +1,51 @@
+{
+  "title": "Command Center",
+  "subtitle": "News, Status & Community at a glance",
+
+  "section.news": "RSI News",
+  "section.serverStatus": "Server Status",
+  "section.community": "Community",
+
+  "label.starCitizen": "Star Citizen",
+  "label.wineRunner": "Wine Runner",
+  "label.path": "Path",
+  "label.language": "Language",
+  "label.runner": "Runner",
+  "label.totalFunding": "Total Funding",
+  "label.starCitizens": "Star Citizens",
+  "label.vehiclesInGame": "Vehicles in Game",
+
+  "status.loading": "Loading",
+  "status.checking": "Checking...",
+  "status.notConfigured": "Not configured",
+  "status.installed": "Installed",
+  "status.incomplete": "Incomplete",
+  "status.ready": "Ready",
+  "status.missing": "Missing",
+  "status.readyToLaunch": "Ready to launch",
+  "status.completeInstallFirst": "Complete installation first",
+  "status.runnerNone": "None",
+  "status.runnerNotFound": "(not found)",
+  "status.updating": "Updating...",
+  "status.updateFailed": "Update failed",
+
+  "button.launchStarCitizen": "Launch Star Citizen",
+  "button.openFolder": "Open Folder",
+  "button.updateTranslation": "Update Translation",
+  "button.manageRunners": "Manage Runners",
+  "button.retry": "Retry",
+  "button.period7d": "7d",
+  "button.period30d": "30d",
+
+  "error.couldNotLoadNews": "Could not load news",
+  "error.couldNotLoadServerStatus": "Could not load server status",
+  "error.couldNotLoadCommunityStats": "Could not load community stats",
+
+  "news.noNewsAvailable": "No news available",
+
+  "server.noStatusData": "No status data",
+  "server.operational": "Operational",
+  "server.degraded": "Degraded",
+  "server.majorOutage": "Major Outage",
+  "server.unknown": "Unknown"
+}
