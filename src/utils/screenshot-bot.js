@@ -83,7 +83,11 @@ async function runCaptureSequence(btn) {
     { id: 'installation', file: 'system-check.png', action: () => document.getElementById('install-btn-check')?.click() },
     { id: 'installation', file: 'installation-progress.png', action: () => document.getElementById('install-btn-main')?.click() },
     { id: 'settings', file: 'settings.png' },
-    { id: 'about', file: 'about.png' }
+    { id: 'about', file: 'about.png' },
+    // Handbook-specific screenshots (tabs not covered above)
+    { id: 'environments', file: 'handbook/keybindings.png', tab: 'keybinding' },
+    { id: 'environments', file: 'handbook/storage.png', tab: 'storage' },
+    { id: 'environments', file: 'handbook/profiles-detail.png', tab: 'profile' }
   ];
 
   // Initial wait to ensure the confirm dialog is completely gone and UI settled
@@ -139,7 +143,7 @@ async function runCaptureSequence(btn) {
   
   await confirm(
     'Screenshot capture complete!\n\n' +
-    'All 11 images have been saved to:\n' +
+    'All images have been saved to:\n' +
     'docs/star-control.de/assets/screenshots/',
     { title: 'Success', okLabel: 'Done', cancelLabel: '', kind: 'info' }
   );

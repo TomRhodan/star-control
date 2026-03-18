@@ -1,0 +1,443 @@
+/* Handbook Pages */
+.handbook-page {
+  display: flex;
+  gap: 0;
+  padding: 0;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+  min-height: 100vh;
+  padding-top: 70px;
+}
+
+/* Sidebar */
+.handbook-sidebar {
+  width: 260px;
+  min-width: 260px;
+  padding: 1.5rem 1rem;
+  border-right: 1px solid var(--border-color);
+  position: sticky;
+  top: 70px;
+  height: calc(100vh - 70px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
+}
+
+.handbook-sidebar-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 1rem;
+  padding: 0 0.5rem;
+}
+
+.handbook-sidebar-nav {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.handbook-sidebar-nav li {
+  margin-bottom: 2px;
+}
+
+.handbook-sidebar-nav a {
+  display: block;
+  padding: 0.5rem 0.75rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 0.9rem;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  line-height: 1.4;
+}
+
+.handbook-sidebar-nav a:hover {
+  color: var(--text-primary);
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.handbook-sidebar-nav a.active {
+  color: var(--accent-secondary);
+  background: rgba(59, 130, 246, 0.12);
+  font-weight: 500;
+}
+
+/* Mobile sidebar toggle */
+.handbook-mobile-toggle {
+  display: none;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  cursor: pointer;
+  margin-bottom: 1rem;
+  width: 100%;
+  transition: border-color 0.3s ease;
+}
+
+.handbook-mobile-toggle:hover {
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+.handbook-mobile-toggle svg {
+  transition: transform 0.2s ease;
+}
+
+.handbook-mobile-toggle.open svg {
+  transform: rotate(180deg);
+}
+
+/* Content */
+.handbook-content {
+  flex: 1;
+  max-width: 900px;
+  padding: 2rem 2.5rem 4rem;
+  min-width: 0;
+}
+
+.handbook-content header {
+  margin-bottom: 2rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.handbook-content header h1 {
+  font-family: 'Orbitron', sans-serif;
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0.4rem;
+}
+
+.handbook-content header p {
+  color: var(--text-secondary);
+  font-size: 1rem;
+}
+
+.handbook-content h2 {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--accent-secondary);
+  margin-top: 2.5rem;
+  margin-bottom: 1rem;
+  letter-spacing: 0.02em;
+}
+
+.handbook-content h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.handbook-content p {
+  color: var(--text-secondary);
+  line-height: 1.7;
+  font-size: 0.95rem;
+  margin-bottom: 1rem;
+}
+
+.handbook-content ul,
+.handbook-content ol {
+  color: var(--text-secondary);
+  line-height: 1.7;
+  font-size: 0.95rem;
+  padding-left: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.handbook-content li {
+  margin-bottom: 0.4rem;
+}
+
+.handbook-content code {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.9em;
+  color: var(--accent-cyan);
+}
+
+.handbook-content strong {
+  color: var(--text-primary);
+}
+
+/* Screenshots */
+.handbook-screenshot {
+  margin: 1.5rem 0;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: border-color 0.3s ease;
+}
+
+.handbook-screenshot:hover {
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+.handbook-screenshot img {
+  width: 100%;
+  display: block;
+}
+
+.handbook-screenshot figcaption {
+  padding: 0.75rem 1rem;
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  border-top: 1px solid var(--border-color);
+}
+
+/* Callout boxes */
+.handbook-tip,
+.handbook-warning,
+.handbook-note {
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  margin: 1.5rem 0;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.handbook-tip {
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  color: var(--text-secondary);
+}
+
+.handbook-tip::before {
+  content: 'Tip';
+  display: block;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+}
+
+.handbook-warning {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  color: var(--text-secondary);
+}
+
+.handbook-warning::before {
+  content: 'Warning';
+  display: block;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #f59e0b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+}
+
+.handbook-note {
+  background: rgba(6, 182, 212, 0.08);
+  border: 1px solid rgba(6, 182, 212, 0.2);
+  color: var(--text-secondary);
+}
+
+.handbook-note::before {
+  content: 'Note';
+  display: block;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent-cyan);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+}
+
+/* Steps */
+.handbook-steps {
+  counter-reset: step;
+  list-style: none;
+  padding: 0;
+  margin: 1.5rem 0;
+}
+
+.handbook-steps li {
+  counter-increment: step;
+  position: relative;
+  padding: 1rem 1.25rem 1rem 3.5rem;
+  margin-bottom: 0.75rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  transition: border-color 0.3s ease;
+}
+
+.handbook-steps li:hover {
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+.handbook-steps li::before {
+  content: counter(step);
+  position: absolute;
+  left: 1rem;
+  top: 1rem;
+  width: 1.75rem;
+  height: 1.75rem;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent-secondary);
+}
+
+/* Bottom navigation (prev/next) - reset styles inherited from global nav selector */
+.handbook-nav-bottom {
+  position: static;
+  top: auto;
+  left: auto;
+  right: auto;
+  background: none;
+  backdrop-filter: none;
+  border-bottom: none;
+  z-index: auto;
+  animation: none;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 3rem;
+  padding: 1.5rem 0 0;
+  border-top: 1px solid var(--border-color);
+}
+
+.handbook-nav-bottom a {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 1rem 1.25rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  text-decoration: none;
+  transition: border-color 0.3s ease;
+  max-width: 45%;
+}
+
+.handbook-nav-bottom a:hover {
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+.handbook-nav-bottom .nav-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.handbook-nav-bottom .nav-title {
+  color: var(--accent-secondary);
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.handbook-nav-bottom .nav-next {
+  text-align: right;
+  margin-left: auto;
+}
+
+/* TOC cards (index page) */
+.handbook-toc {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+  margin: 2rem 0;
+}
+
+.handbook-toc-card {
+  display: block;
+  padding: 1.25rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  text-decoration: none;
+  transition: all 0.3s ease;
+}
+
+.handbook-toc-card:hover {
+  border-color: rgba(59, 130, 246, 0.4);
+  transform: translateY(-2px);
+}
+
+.handbook-toc-card h3 {
+  color: var(--accent-secondary);
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+}
+
+.handbook-toc-card p {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .handbook-page {
+    flex-direction: column;
+  }
+
+  .handbook-sidebar {
+    display: none;
+    position: static;
+    width: 100%;
+    min-width: 100%;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+    padding: 0.75rem;
+  }
+
+  .handbook-sidebar.open {
+    display: block;
+  }
+
+  .handbook-mobile-toggle {
+    display: flex;
+  }
+
+  .handbook-content {
+    padding: 1.5rem 1.25rem 3rem;
+  }
+
+  .handbook-nav-bottom {
+    flex-direction: column;
+  }
+
+  .handbook-nav-bottom a {
+    max-width: 100%;
+  }
+
+  .handbook-toc {
+    grid-template-columns: 1fr;
+  }
+}
