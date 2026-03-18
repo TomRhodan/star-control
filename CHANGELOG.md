@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-03-18
+
+### Added
+- **Internationalization (i18n)** - Full localization system using i18next with English and German support. All ~880 UI strings across the app are now translatable.
+- **Language Selector** - New dropdown in Settings to switch the UI language instantly. Supports "Auto (System)" detection and manual override.
+- **System Locale Detection** - New `get_system_locale` Rust command reads LANGUAGE/LC_MESSAGES/LANG environment variables to auto-detect the user's preferred language.
+- **Translation Guide** - New `TRANSLATING.md` with step-by-step instructions for community translators. Weblate-compatible JSON format.
+- **Locale Files** - 10 namespace files per language (common, dashboard, launch, installation, runners, environments, settings, setup, about, dialogs) in `src/locales/{lang}/`.
+
+### Changed
+- Static HTML elements (sidebar navigation, window buttons) now use `data-i18n` attributes for translation at startup.
+- Module-level constants with UI strings (`LAUNCH_OPTIONS`, `CHECK_ITEMS`, `INSTALL_PHASES`, `QUALITY_LEVELS`, `SHADER_LEVELS`) converted to functions for deferred translation resolution.
+- USER.cfg dropdown labels (Window Mode, Renderer, SSDO, Motion Blur) are now translatable via locale keys.
+- `AppConfig` extended with optional `language` field (backward-compatible via serde default).
+
+## [0.3.6] - 2026-03-17
+
+### Fixed
+- AppImage-safe folder opening using D-Bus XDG Portal with fallback to xdg-open.
+- Browser launch in new window mode to prevent blocking the main app.
+
 ## [0.3.5] - 2026-03-16
 
 ### Fixed
@@ -185,6 +206,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Prefix Tools** - Winecfg, DPI scaling, PowerShell installation via winetricks
 - **Multi-version Support** - Manage LIVE, PTU, EPTU, and other Star Citizen channels
 
+[0.4.0]: https://github.com/TomRhodan/star-control/compare/v0.3.6...v0.4.0
+[0.3.6]: https://github.com/TomRhodan/star-control/compare/v0.3.5...v0.3.6
 [0.3.5]: https://github.com/TomRhodan/star-control/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/TomRhodan/star-control/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/TomRhodan/star-control/compare/v0.3.2...v0.3.3
