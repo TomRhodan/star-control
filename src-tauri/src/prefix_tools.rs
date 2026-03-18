@@ -91,38 +91,26 @@ pub async fn launch_wine_shell(base_path: String, runner_name: String) -> Result
     let prefix_str = prefix.to_string_lossy().to_string();
     let wine_bin_str = wine_bin_dir.to_string_lossy().to_string();
 
-    // Search for an available terminal emulator -- supports the most common Linux terminals
-    let terminal = if
-        Command::new("which")
-            .arg("konsole")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    {
+    // Search for an available terminal emulator -- supports the most common Linux terminals.
+    // AppImage sandboxes modify PATH/LD_LIBRARY_PATH, so we must clean the environment
+    // for `which` to find host system binaries.
+    let find_terminal = |name: &str| -> bool {
+        let mut cmd = Command::new("which");
+        cmd.arg(name);
+        cmd.env_remove("LD_LIBRARY_PATH");
+        cmd.env_remove("LD_PRELOAD");
+        cmd.env_remove("APPDIR");
+        cmd.env_remove("APPIMAGE");
+        cmd.output().map(|o| o.status.success()).unwrap_or(false)
+    };
+
+    let terminal = if find_terminal("konsole") {
         "konsole"
-    } else if
-        Command::new("which")
-            .arg("gnome-terminal")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    {
+    } else if find_terminal("gnome-terminal") {
         "gnome-terminal"
-    } else if
-        Command::new("which")
-            .arg("xfce4-terminal")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    {
+    } else if find_terminal("xfce4-terminal") {
         "xfce4-terminal"
-    } else if
-        Command::new("which")
-            .arg("xterm")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    {
+    } else if find_terminal("xterm") {
         "xterm"
     } else {
         return Err(
@@ -154,12 +142,17 @@ pub async fn launch_wine_shell(base_path: String, runner_name: String) -> Result
 
     // Helper function to launch a terminal command with the required environment variables.
     // The Wine bin path is prepended to PATH so the script can find "wine" directly.
+    // AppImage env vars are removed so the terminal runs in the host environment.
     let build_cmd = |name: &str, args: &[&str]| -> Result<(), String> {
         Command::new(name)
             .args(args)
             .env("WINEPREFIX", &prefix_str)
             .env("PATH", format!("{}:{}", wine_bin_str, std::env::var("PATH").unwrap_or_default()))
             .env("WINEDEBUG", "-all")
+            .env_remove("LD_LIBRARY_PATH")
+            .env_remove("LD_PRELOAD")
+            .env_remove("APPDIR")
+            .env_remove("APPIMAGE")
             .spawn()
             .map_err(|e| format!("Failed to launch {}: {}", name, e))?;
         Ok(())
@@ -311,7 +304,7 @@ pub async fn install_powershell(
 
     let client = reqwest::Client
         ::builder()
-        .user_agent("star-control/0.4.1")
+        .user_agent("star-control/0.4.2")
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(30))
         .build()
