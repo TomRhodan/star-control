@@ -30,7 +30,7 @@ src/locales/
    export const SUPPORTED_LANGUAGES = [
      { code: 'en', name: 'English' },
      { code: 'de', name: 'Deutsch' },
-     { code: 'fr', name: 'Francais' },  // <-- add here
+     { code: 'fr', name: 'Fran\u00e7ais' },  // <-- add here
    ];
    ```
 4. Build and test
@@ -59,11 +59,24 @@ Dynamic values use `{{variable}}` syntax:
 }
 ```
 
+### Pluralization
+
+i18next supports plural forms via `_one` / `_other` suffixed keys:
+
+```json
+{
+  "notification.localizationUpdated_one": "{{count}} translation updated.",
+  "notification.localizationUpdated_other": "{{count}} translations updated."
+}
+```
+
+In code, pass `count` as an interpolation option: `t('launch:notification.localizationUpdated', { count: 3 })`. i18next automatically selects the correct plural form based on the language rules.
+
 ### Namespaces
 
 Each JSON file is a namespace. In code, keys are referenced as `namespace:key`:
 - `t('settings:title')` - reads from `settings.json`
-- `t('common:button.save')` - reads from `common.json`
+- `t('common:nav.dashboard')` - reads from `common.json`
 
 ## Translation Guidelines
 
@@ -73,6 +86,9 @@ Each JSON file is a namespace. In code, keys are referenced as `namespace:key`:
 - Do not translate brand names (e.g. "Star Citizen", "RSI Launcher", "Star Control")
 - HTML tags like `<strong>` in values must be preserved
 - Test your translations in the app to check for text overflow
+- Some strings use `data-i18n` attributes in `src/index.html` (sidebar navigation, window buttons) - these are translated at startup
+
+**Note:** The USER.cfg settings panel (labels, descriptions, help texts for graphics/performance CVars) is not yet translatable. These are Star Citizen engine-specific CVar names and descriptions that remain in English.
 
 ## Language Detection
 

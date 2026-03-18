@@ -10,19 +10,5 @@
 
   "aria.minimize": "Minimize",
   "aria.maximize": "Maximize",
-  "aria.close": "Close",
-
-  "button.save": "Save",
-  "button.cancel": "Cancel",
-  "button.browse": "Browse",
-  "button.delete": "Delete",
-  "button.confirm": "Confirm",
-  "button.continue": "Continue",
-  "button.back": "Back",
-  "button.retry": "Retry",
-  "button.ok": "OK",
-
-  "status.loading": "Loading...",
-  "status.error": "Error",
-  "status.success": "Success"
+  "aria.close": "Close"
 }

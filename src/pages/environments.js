@@ -449,9 +449,27 @@ const DEFAULT_SETTINGS = {
 };
 
 /** Display labels for graphics quality levels (1-4) */
-const QUALITY_LEVELS = ['', 'Low', 'Medium', 'High', 'Very High'];
+function getQualityLevels() {
+  return ['', t('environments:cfg.quality.low'), t('environments:cfg.quality.medium'), t('environments:cfg.quality.high'), t('environments:cfg.quality.veryHigh')];
+}
 /** Display labels for shader quality levels (0-3) */
-const SHADER_LEVELS = ['', 'Low', 'Medium', 'High'];
+function getShaderLevels() {
+  return ['', t('environments:cfg.quality.low'), t('environments:cfg.quality.medium'), t('environments:cfg.quality.high')];
+}
+
+/**
+ * Returns translated labels for CVar settings that use dropdown labels.
+ * Called at render time so t() resolves to the current language.
+ */
+function getSettingLabels(key) {
+  const map = {
+    '_windowMode': () => [t('environments:cfg.windowMode.windowed'), t('environments:cfg.windowMode.fullscreen'), t('environments:cfg.windowMode.borderless')],
+    'r.graphicsRenderer': () => [t('environments:cfg.renderer.vulkan'), t('environments:cfg.renderer.dx11')],
+    'r_ssdo': () => [t('environments:cfg.ssdo.off'), t('environments:cfg.ssdo.fast'), t('environments:cfg.ssdo.optimized'), t('environments:cfg.ssdo.reference')],
+    'r_MotionBlur': () => [t('environments:cfg.motionBlur.off'), t('environments:cfg.motionBlur.camera'), t('environments:cfg.motionBlur.cameraObject')],
+  };
+  return map[key]?.() || null;
+}
 
 // CVar keys that should display quality/shader level labels
 const QUALITY_KEYS = new Set(['sys_spec', 'sys_spec_GameEffects', 'sys_spec_ObjectDetail', 'sys_spec_Particles', 'sys_spec_Physics', 'sys_spec_Shading', 'sys_spec_Shadows', 'sys_spec_Texture', 'sys_spec_Water', 'sys_spec_Light', 'sys_spec_PostProcessing', 'sys_spec_TextureResolution', 'sys_spec_VolumetricEffects', 'sys_spec_Sound']);
@@ -2757,14 +2775,16 @@ function renderSettingControl(key, setting) {
   }
 
   let displayValue = value;
-  if (setting.labels) displayValue = setting.labels[value] || value;
-  else if (QUALITY_KEYS.has(key)) displayValue = QUALITY_LEVELS[value] || value;
-  else if (SHADER_KEYS.has(key)) displayValue = SHADER_LEVELS[value] || value;
+  const dlb = getSettingLabels(key) || setting.labels;
+  if (dlb) displayValue = dlb[value] || value;
+  else if (QUALITY_KEYS.has(key)) displayValue = getQualityLevels()[value] || value;
+  else if (SHADER_KEYS.has(key)) displayValue = getShaderLevels()[value] || value;
 
   let defaultDisplay = setting.value;
-  if (setting.labels) defaultDisplay = setting.labels[setting.value] || setting.value;
-  else if (QUALITY_KEYS.has(key)) defaultDisplay = QUALITY_LEVELS[setting.value] || setting.value;
-  else if (SHADER_KEYS.has(key)) defaultDisplay = SHADER_LEVELS[setting.value] || setting.value;
+  const deflb = getSettingLabels(key) || setting.labels;
+  if (deflb) defaultDisplay = deflb[setting.value] || setting.value;
+  else if (QUALITY_KEYS.has(key)) defaultDisplay = getQualityLevels()[setting.value] || setting.value;
+  else if (SHADER_KEYS.has(key)) defaultDisplay = getShaderLevels()[setting.value] || setting.value;
 
   return `
     <div class="usercfg-row ${changedClass}">
@@ -4078,9 +4098,10 @@ function attachProfilesEventListeners() {
       const setting = DEFAULT_SETTINGS[key];
 
       let displayValue = value;
-      if (setting.labels) displayValue = setting.labels[value] || value;
-      else if (QUALITY_KEYS.has(key)) displayValue = QUALITY_LEVELS[value] || value;
-      else if (SHADER_KEYS.has(key)) displayValue = SHADER_LEVELS[value] || value;
+      const slb = getSettingLabels(key) || setting.labels;
+      if (slb) displayValue = slb[value] || value;
+      else if (QUALITY_KEYS.has(key)) displayValue = getQualityLevels()[value] || value;
+      else if (SHADER_KEYS.has(key)) displayValue = getShaderLevels()[value] || value;
 
       e.target.parentElement.querySelector('.usercfg-value').textContent = displayValue;
       userCfgSettings[key] = value;
@@ -4260,9 +4281,10 @@ function attachProfilesEventListeners() {
       const valueSpan = row.querySelector('.usercfg-value');
       if (valueSpan) {
         let display = setting.value;
-        if (setting.labels) display = setting.labels[setting.value] || setting.value;
-        else if (QUALITY_KEYS.has(key)) display = QUALITY_LEVELS[setting.value] || setting.value;
-        else if (SHADER_KEYS.has(key)) display = SHADER_LEVELS[setting.value] || setting.value;
+        const rlb = getSettingLabels(key) || setting.labels;
+        if (rlb) display = rlb[setting.value] || setting.value;
+        else if (QUALITY_KEYS.has(key)) display = getQualityLevels()[setting.value] || setting.value;
+        else if (SHADER_KEYS.has(key)) display = getShaderLevels()[setting.value] || setting.value;
         valueSpan.textContent = display;
       }
     } else if (numberInput) {
@@ -4361,12 +4383,12 @@ function updateSettingHighlight(row, key, setting, value) {
     const label = row.querySelector('.usercfg-label');
     const defaultLabel = setting.type === 'toggle'
       ? (setting.value ? t('environments:cfg.on') : t('environments:cfg.off'))
-      : (setting.labels
-        ? (setting.labels[setting.value] || setting.value)
+      : ((getSettingLabels(key) || setting.labels)
+        ? ((getSettingLabels(key) || setting.labels)[setting.value] || setting.value)
         : (QUALITY_KEYS.has(key)
-          ? (QUALITY_LEVELS[setting.value] || setting.value)
+          ? (getQualityLevels()[setting.value] || setting.value)
           : (SHADER_KEYS.has(key)
-            ? (SHADER_LEVELS[setting.value] || setting.value)
+            ? (getShaderLevels()[setting.value] || setting.value)
             : setting.value)));
     if (!label.querySelector('.usercfg-default')) {
       // Preserve help icon if present

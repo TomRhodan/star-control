@@ -68,7 +68,8 @@
 
   "notification.localizationChecking": "Checking for translation updates...",
   "notification.localizationUpdating": "Updating {{langName}} translation for {{version}}...",
-  "notification.localizationUpdated": "{{count}} translation updated.",
+  "notification.localizationUpdated_one": "{{count}} translation updated.",
+  "notification.localizationUpdated_other": "{{count}} translations updated.",
   "notification.localizationUpToDate": "Translations are up to date.",
 
   "monitor.primary": "primary"

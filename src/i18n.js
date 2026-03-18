@@ -123,7 +123,8 @@ export function t(key, options) {
  */
 export async function changeLanguage(lang) {
   await i18next.changeLanguage(lang);
-  document.documentElement.lang = lang;
+  // Use resolved language (i18next falls back to 'en' for unknown codes)
+  document.documentElement.lang = i18next.language;
 }
 
 /**

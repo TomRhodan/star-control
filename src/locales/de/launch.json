@@ -68,7 +68,8 @@
 
   "notification.localizationChecking": "Suche nach Uebersetzungsupdates...",
   "notification.localizationUpdating": "Aktualisiere {{langName}}-Uebersetzung fuer {{version}}...",
-  "notification.localizationUpdated": "{{count}} Uebersetzung aktualisiert.",
+  "notification.localizationUpdated_one": "{{count}} Uebersetzung aktualisiert.",
+  "notification.localizationUpdated_other": "{{count}} Uebersetzungen aktualisiert.",
   "notification.localizationUpToDate": "Uebersetzungen sind aktuell.",
 
   "monitor.primary": "primaer"
