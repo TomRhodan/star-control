@@ -110,6 +110,77 @@ pub fn list_connected_devices() -> Result<Vec<ConnectedDevice>, String> {
     Ok(devices)
 }
 
+/// Information about a device axis for the tuning UI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceAxis {
+    /// Axis name in SC format (e.g. "x", "y", "z", "rotx", "slider1")
+    pub name: String,
+    /// Human-readable label
+    pub label: String,
+}
+
+/// Information about a connected device and its axes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConnectedDeviceWithAxes {
+    pub product_name: String,
+    pub instance: u32,
+    pub axes: Vec<DeviceAxis>,
+}
+
+/// Lists all connected devices with their available axes.
+/// Used by the tuning UI to show axis-level deadzone/saturation controls.
+#[tauri::command]
+pub fn list_device_axes() -> Result<Vec<ConnectedDeviceWithAxes>, String> {
+    let gilrs = Gilrs::new().map_err(|e| e.to_string())?;
+    let mut results = Vec::new();
+
+    for (id, gamepad) in gilrs.gamepads() {
+        let js_id: usize = id.into();
+        let instance = (js_id + 1) as u32;
+
+        let mut axes = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        // Iterate over the gamepad's axis state to find supported axes
+        for (axis, _data) in gamepad.state().axes() {
+            let native_code = axis.into_u32();
+            let sc: Option<(String, String)> = match native_code {
+                0 => Some(("x".into(), "X".into())),
+                1 => Some(("y".into(), "Y".into())),
+                2 => Some(("z".into(), "Z".into())),
+                3 => Some(("rotx".into(), "Rot X".into())),
+                4 => Some(("roty".into(), "Rot Y".into())),
+                5 => Some(("rotz".into(), "Rot Z".into())),
+                6 => Some(("slider1".into(), "Slider 1".into())),
+                7 => Some(("slider2".into(), "Slider 2".into())),
+                _ => None,
+            };
+
+            if let Some((name, label)) = sc {
+                if seen.insert(name.clone()) {
+                    axes.push(DeviceAxis { name, label });
+                }
+            }
+        }
+
+        // Sort axes by a logical order
+        axes.sort_by_key(|a| match a.name.as_str() {
+            "x" => 0, "y" => 1, "z" => 2,
+            "rotx" => 3, "roty" => 4, "rotz" => 5,
+            "slider1" => 6, "slider2" => 7,
+            _ => 8,
+        });
+
+        results.push(ConnectedDeviceWithAxes {
+            product_name: gamepad.name().to_string(),
+            instance,
+            axes,
+        });
+    }
+
+    Ok(results)
+}
+
 /// Starts input capture in a background thread.
 /// The thread listens for all joystick/gamepad events via gilrs
 /// and sends detected inputs as "input-captured" events to the frontend.

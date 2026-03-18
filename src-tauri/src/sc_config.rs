@@ -71,6 +71,20 @@ pub struct ScDeviceOption {
     pub saturation: Option<f64>,
 }
 
+/// Tuning option for a device (response curve, inversion, sensitivity).
+/// Parsed from child elements of `<options>` in actionmaps.xml.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ScOptionsTuning {
+    /// Element name, e.g. "flight_move_pitch", "master", "throttle"
+    pub name: String,
+    /// Inversion flag (0 or 1)
+    pub invert: Option<u8>,
+    /// Response curve exponent (typically 1.0-3.0)
+    pub exponent: Option<f64>,
+    /// Sensitivity multiplier
+    pub sensitivity: Option<f64>,
+}
+
 /// Represents a connected input device from the actionmaps.xml.
 /// The combination of device_type + instance uniquely identifies a device in SC.
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -83,6 +97,9 @@ pub struct ScDevice {
     pub product: String,
     /// Optional GUID for device identification
     pub guid: Option<String>,
+    /// Per-device tuning (inversion, curves, sensitivity) from options children
+    #[serde(default)]
+    pub tuning: Vec<ScOptionsTuning>,
 }
 
 /// A single key binding: links an action to an input string.
@@ -382,11 +399,16 @@ fn parse_actionmaps_xml(c: &str) -> Result<ParsedActionMaps, String> {
     r.config_mut().trim_text(true);
     let mut res = ParsedActionMaps::default();
     let mut current_device_options: Option<ScDeviceOptions> = None;
+    // Index into cp.devices for the current <options> block (to attach tuning children)
+    let mut current_device_index: Option<usize> = None;
     // cp = current profile, cm = current map, ca = current action name
     let (mut cp, mut cm, mut ca) = (None, None, None);
     let mut buf = Vec::new();
     loop {
-        match r.read_event_into(&mut buf) {
+        let event = r.read_event_into(&mut buf);
+        // Track whether this is a Start (has children) or Empty (self-closing) event
+        let is_start_event = matches!(&event, Ok(Event::Start(_)));
+        match event {
             Ok(Event::Eof) => {
                 break;
             }
@@ -447,7 +469,12 @@ fn parse_actionmaps_xml(c: &str) -> Result<ParsedActionMaps, String> {
                                     .unwrap_or(0),
                                 product: product.trim().to_string(),
                                 guid,
+                                tuning: vec![],
                             });
+                            // If <options> has children (Start event), track index for tuning
+                            if is_start_event {
+                                current_device_index = Some(p.devices.len() - 1);
+                            }
                         }
                     }
                     "deviceoptions" => {
@@ -493,12 +520,34 @@ fn parse_actionmaps_xml(c: &str) -> Result<ParsedActionMaps, String> {
                             });
                         }
                     }
-                    _ => {}
+                    _ => {
+                        // Inside an <options> block: parse unknown children as tuning entries
+                        if let Some(dev_idx) = current_device_index {
+                            if let Some(ref mut p) = cp {
+                                if let Some(dev) = p.devices.get_mut(dev_idx) {
+                                    let invert = get_attr(e, b"invert").and_then(|v| v.parse().ok());
+                                    let exponent = get_attr(e, b"exponent").and_then(|v| v.parse().ok());
+                                    let sensitivity = get_attr(e, b"sensitivity").and_then(|v| v.parse().ok());
+                                    if invert.is_some() || exponent.is_some() || sensitivity.is_some() {
+                                        dev.tuning.push(ScOptionsTuning {
+                                            name: tag.clone(),
+                                            invert,
+                                            exponent,
+                                            sensitivity,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             Ok(Event::End(ref e)) => {
                 let tag = String::from_utf8_lossy(e.name().as_ref()).to_lowercase();
                 match tag.as_str() {
+                    "options" => {
+                        current_device_index = None;
+                    }
                     "actionmap" => {
                         if let (Some(m), Some(ref mut p)) = (cm.take(), cp.as_mut()) {
                             p.action_maps.push(m);
@@ -561,7 +610,25 @@ fn write_actionmaps_xml(p: &Path, parsed: &ParsedActionMaps) -> Result<(), Strin
                 };
                 d_tag.push_attribute(("Product", product_with_guid.as_str()));
             }
-            w.write_event(Event::Empty(d_tag)).ok();
+            if d.tuning.is_empty() {
+                w.write_event(Event::Empty(d_tag)).ok();
+            } else {
+                w.write_event(Event::Start(d_tag)).ok();
+                for t in &d.tuning {
+                    let mut t_tag = BytesStart::new(t.name.as_str());
+                    if let Some(inv) = t.invert {
+                        t_tag.push_attribute(("invert", inv.to_string().as_str()));
+                    }
+                    if let Some(exp) = t.exponent {
+                        t_tag.push_attribute(("exponent", exp.to_string().as_str()));
+                    }
+                    if let Some(sens) = t.sensitivity {
+                        t_tag.push_attribute(("sensitivity", sens.to_string().as_str()));
+                    }
+                    w.write_event(Event::Empty(t_tag)).ok();
+                }
+                w.write_event(Event::End(BytesEnd::new("options"))).ok();
+            }
         }
 
         // Write device options (deadzone, saturation)
@@ -1978,6 +2045,125 @@ pub async fn remove_profile_binding(
                 // Fallback: remove all bindings for the action
                 am.bindings.retain(|b| b.action_name != action_name);
             }
+        }
+    }
+
+    write_actionmaps_xml(&actionmaps_path, &parsed)?;
+    mark_backup_dirty(&bdir)
+}
+
+/// Combined tuning data for a single device (hardware axis options + response/inversion tuning).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DeviceTuningResponse {
+    pub product: String,
+    pub device_type: String,
+    pub instance: u32,
+    pub axis_options: Vec<ScDeviceOption>,
+    pub tuning: Vec<ScOptionsTuning>,
+}
+
+/// Returns tuning data (deadzones, curves, inversion, sensitivity) for all joystick devices
+/// in a saved profile. Correlates `<deviceoptions>` (axis settings) with `<options>` (tuning).
+#[tauri::command]
+pub async fn get_device_tuning(
+    v: String,
+    profile_id: String,
+) -> Result<Vec<DeviceTuningResponse>, String> {
+    validate_backup_id(&profile_id)?;
+    let bdir = backup_version_dir(&v)?.join(&profile_id);
+    let actionmaps_path = bdir.join("actionmaps.xml");
+    if !actionmaps_path.exists() {
+        return Ok(vec![]);
+    }
+
+    let parsed = parse_actionmaps_xml(
+        &fs::read_to_string(&actionmaps_path).map_err(|e| e.to_string())?
+    )?;
+
+    let profile = parsed.profiles.first().ok_or("No profile")?;
+    let mut results = Vec::new();
+
+    for d in &profile.devices {
+        if d.device_type != "joystick" {
+            continue;
+        }
+        // Skip empty joystick slots (SC reserves 8 slots, most are unused)
+        if d.product.is_empty() && d.tuning.is_empty() {
+            continue;
+        }
+        // Correlate deviceoptions by matching "ProductName {GUID}" format
+        let full_product = if let Some(ref guid) = d.guid {
+            format!("{} {{{}}}", d.product.trim(), guid)
+        } else {
+            d.product.clone()
+        };
+        let axis_options = profile.device_options.iter()
+            .find(|do_opts| do_opts.name == full_product)
+            .map(|do_opts| do_opts.options.clone())
+            .unwrap_or_default();
+
+        results.push(DeviceTuningResponse {
+            product: d.product.clone(),
+            device_type: d.device_type.clone(),
+            instance: d.instance,
+            axis_options,
+            tuning: d.tuning.clone(),
+        });
+    }
+
+    Ok(results)
+}
+
+/// Updates tuning data for a specific joystick device in a saved profile.
+/// Modifies both `<deviceoptions>` (axis settings) and `<options>` children (tuning).
+#[tauri::command]
+pub async fn update_device_tuning(
+    v: String,
+    profile_id: String,
+    instance: u32,
+    device_type: String,
+    axis_options: Vec<ScDeviceOption>,
+    tuning: Vec<ScOptionsTuning>,
+) -> Result<(), String> {
+    validate_backup_id(&profile_id)?;
+    let bdir = backup_version_dir(&v)?.join(&profile_id);
+    let actionmaps_path = bdir.join("actionmaps.xml");
+    if !actionmaps_path.exists() {
+        return Err("Profile has no actionmaps.xml".into());
+    }
+
+    let mut parsed = parse_actionmaps_xml(
+        &fs::read_to_string(&actionmaps_path).map_err(|e| e.to_string())?
+    )?;
+
+    let profile = parsed.profiles.iter_mut()
+        .find(|pr| pr.profile_name == "default" || pr.profile_name.is_empty())
+        .ok_or("No profile")?;
+
+    // Find the device by instance + type and update tuning
+    let dev = profile.devices.iter_mut()
+        .find(|d| d.instance == instance && d.device_type == device_type)
+        .ok_or("Device not found")?;
+    dev.tuning = tuning;
+
+    // Update deviceoptions (axis deadzones/saturations)
+    let full_product = if let Some(ref guid) = dev.guid {
+        format!("{} {{{}}}", dev.product.trim(), guid)
+    } else {
+        dev.product.clone()
+    };
+
+    if !axis_options.is_empty() {
+        if let Some(do_opts) = profile.device_options.iter_mut()
+            .find(|do_opts| do_opts.name == full_product)
+        {
+            do_opts.options = axis_options;
+        } else {
+            // Create new deviceoptions entry if none existed
+            profile.device_options.push(ScDeviceOptions {
+                name: full_product,
+                options: axis_options,
+            });
         }
     }
 
@@ -3492,3 +3678,4 @@ pub async fn update_backup_from_sc(
     log::info!("Updated profile {} from current SC files", bid);
     Ok(())
 }
+

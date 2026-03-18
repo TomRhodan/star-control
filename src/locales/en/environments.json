@@ -305,5 +305,22 @@
   "notification.updatingProfile": "Updating profile from current game files...",
   "notification.profileUpdated": "Profile updated successfully.",
   "notification.profileUpdateFailed": "Failed to update profile: {{error}}",
-  "notification.noDataP4kSource": "No version with Data.p4k found for copying"
+  "notification.noDataP4kSource": "No version with Data.p4k found for copying",
+  "notification.tuningSaved": "Tuning saved",
+  "notification.tuningSaveFailed": "Failed to save tuning: {{error}}",
+
+  "tuning.title": "Joystick Tuning",
+  "tuning.hint": "Adjust deadzone, response curves, inversion and sensitivity for each joystick. Changes are saved to this profile only.",
+  "tuning.hardware": "Hardware",
+  "tuning.curves": "Response Curves",
+  "tuning.inversion": "Inversion",
+  "tuning.sensitivity": "Sensitivity",
+  "tuning.deadzone": "Deadzone",
+  "tuning.saturation": "Saturation",
+  "tuning.exponent": "Exponent",
+  "tuning.inverted": "Inverted",
+  "tuning.linear": "Linear",
+  "tuning.noDevices": "No joystick devices found in this profile.",
+  "tuning.noTuning": "No tuning data configured for this device.",
+  "tuning.addEntry": "Add Tuning Entry"
 }

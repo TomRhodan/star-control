@@ -305,5 +305,22 @@
   "notification.updatingProfile": "Profil wird mit aktuellen Spieldateien aktualisiert...",
   "notification.profileUpdated": "Profil erfolgreich aktualisiert.",
   "notification.profileUpdateFailed": "Profil konnte nicht aktualisiert werden: {{error}}",
-  "notification.noDataP4kSource": "Keine Version mit Data.p4k zum Kopieren gefunden"
+  "notification.noDataP4kSource": "Keine Version mit Data.p4k zum Kopieren gefunden",
+  "notification.tuningSaved": "Tuning gespeichert",
+  "notification.tuningSaveFailed": "Tuning konnte nicht gespeichert werden: {{error}}",
+
+  "tuning.title": "Joystick-Tuning",
+  "tuning.hint": "Deadzone, Antwortkurven, Invertierung und Empfindlichkeit fuer jeden Joystick anpassen. Aenderungen werden nur in diesem Profil gespeichert.",
+  "tuning.hardware": "Hardware",
+  "tuning.curves": "Antwortkurven",
+  "tuning.inversion": "Invertierung",
+  "tuning.sensitivity": "Empfindlichkeit",
+  "tuning.deadzone": "Deadzone",
+  "tuning.saturation": "Saettigung",
+  "tuning.exponent": "Exponent",
+  "tuning.inverted": "Invertiert",
+  "tuning.linear": "Linear",
+  "tuning.noDevices": "Keine Joystick-Geraete in diesem Profil gefunden.",
+  "tuning.noTuning": "Keine Tuning-Daten fuer dieses Geraet konfiguriert.",
+  "tuning.addEntry": "Tuning-Eintrag hinzufuegen"
 }

@@ -584,6 +584,10 @@ pub fn run() {
                 sc_config::create_sc_version,
                 sc_config::link_data_p4k,
 
+                // Joystick tuning (deadzone, curves, inversion, sensitivity)
+                sc_config::get_device_tuning,
+                sc_config::update_device_tuning,
+
                 // File diff (comparison of configuration files)
                 sc_config::get_file_diff,
 
@@ -591,6 +595,7 @@ pub fn run() {
                 binding_capture::start_input_capture,
                 binding_capture::stop_input_capture,
                 binding_capture::list_connected_devices,
+                binding_capture::list_device_axes,
 
                 // Language pack management (e.g. German translation for Star Citizen)
                 localization::check_localization_update,

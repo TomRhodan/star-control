@@ -154,9 +154,13 @@ let useHumanReadable = true;
 let renderGeneration = 0;
 /** @type {boolean} Whether the one-time migration check has already been performed */
 let migrationChecked = false;
+/** @type {Array} Tuning data for all joystick devices (from get_device_tuning) */
+let deviceTuningData = [];
+/** @type {number|null} Debounce timer for tuning slider changes */
+let tuningDebounceTimer = null;
 
 // Which collapsible panels are open (persists within the session)
-if (!window.expandedPanels) window.expandedPanels = { bindings: false, devices: false };
+if (!window.expandedPanels) window.expandedPanels = { bindings: false, devices: false, tuning: false };
 
 // ==================== Contextual Hints ====================
 
@@ -584,6 +588,7 @@ export async function renderEnvironments(container) {
     loadBackups(),
     loadUserCfgSettings(),
     loadLocalizationData(),
+    loadDeviceTuning(),
   ]);
   await loadProfileStatus();
 
@@ -1735,6 +1740,367 @@ function attachBindingEventListeners() {
 }
 
 /**
+ * Generates SVG path data for a response curve y = x^exponent.
+ * @param {number} exp - Exponent value
+ * @param {number} w - SVG width
+ * @param {number} h - SVG height
+ * @returns {string} SVG path d attribute
+ */
+function curvePathData(exp, w, h) {
+  const steps = 20;
+  let d = `M 0 ${h}`;
+  for (let i = 1; i <= steps; i++) {
+    const x = i / steps;
+    const y = Math.pow(x, exp);
+    d += ` L ${(x * w).toFixed(1)} ${(h - y * h).toFixed(1)}`;
+  }
+  return d;
+}
+
+/**
+ * Opens the tuning dialog for a specific joystick device.
+ */
+function openTuningDialog(instance, deviceType) {
+  const dev = deviceTuningData.find(d => d.instance === instance && d.device_type === deviceType);
+  if (!dev) return;
+
+  // Snapshot for change detection
+  const snapshot = JSON.stringify({ tuning: dev.tuning, axis_options: dev.axis_options });
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.id = 'tuning-dialog';
+
+  const renderTab = (activeTab) => {
+    let tabContent = '';
+
+    if (activeTab === 'curves') {
+      const svgW = 120, svgH = 80;
+      tabContent = dev.tuning.filter(t => t.exponent != null).map(t => {
+        const exp = t.exponent ?? 1;
+        return `
+          <div class="td-curve-item">
+            <div class="td-curve-header">
+              <span class="td-curve-label">${escapeHtml(tuningLabel(t.name))}</span>
+              <span class="td-curve-value" data-tuning-val="${escapeHtml(t.name)}">${exp.toFixed(1)}</span>
+            </div>
+            <div class="td-curve-body">
+              <svg class="td-curve-svg" viewBox="0 0 ${svgW} ${svgH}">
+                <line x1="0" y1="${svgH}" x2="${svgW}" y2="0" stroke-dasharray="3 3" />
+                <path d="${curvePathData(exp, svgW, svgH)}" />
+              </svg>
+              <input type="range" class="td-slider" min="0.5" max="5" step="0.1" value="${exp}"
+                data-tuning-name="${escapeHtml(t.name)}" data-tuning-field="exponent" />
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    if (activeTab === 'inversion') {
+      tabContent = dev.tuning.filter(t => t.invert != null).map(t => `
+        <div class="td-invert-item">
+          <label class="td-invert-label">
+            <input type="checkbox" class="tuning-toggle td-invert-check"
+              ${t.invert === 1 ? 'checked' : ''}
+              data-tuning-name="${escapeHtml(t.name)}" />
+            <span>${escapeHtml(tuningLabel(t.name))}</span>
+          </label>
+        </div>
+      `).join('');
+    }
+
+    if (activeTab === 'sensitivity') {
+      tabContent = dev.tuning.filter(t => t.sensitivity != null).map(t => `
+        <div class="td-sens-item">
+          <span class="td-sens-label">${escapeHtml(tuningLabel(t.name))}</span>
+          <input type="range" class="td-slider" min="0.1" max="3" step="0.05" value="${t.sensitivity ?? 1}"
+            data-tuning-name="${escapeHtml(t.name)}" data-tuning-field="sensitivity" />
+          <span class="td-sens-value" data-tuning-val="${escapeHtml(t.name)}">${(t.sensitivity ?? 1).toFixed(2)}</span>
+        </div>
+      `).join('');
+    }
+
+    if (activeTab === 'axes') {
+      tabContent = dev.axis_options.length > 0 ? dev.axis_options.map(opt => `
+        <div class="td-axis-item">
+          <span class="td-axis-name">${escapeHtml(opt.input.toUpperCase())}</span>
+          <div class="td-axis-controls">
+            <div class="td-axis-field">
+              <span class="td-axis-field-label">${t('environments:tuning.deadzone')}</span>
+              <input type="range" class="td-slider td-axis-slider" min="0" max="0.5" step="0.005" value="${opt.deadzone ?? 0}"
+                data-axis-input="${escapeHtml(opt.input)}" data-axis-field="deadzone" />
+              <span class="td-axis-value" data-axis-val="${escapeHtml(opt.input)}-dz">${(opt.deadzone ?? 0).toFixed(3)}</span>
+            </div>
+            <div class="td-axis-field">
+              <span class="td-axis-field-label">${t('environments:tuning.saturation')}</span>
+              <input type="range" class="td-slider td-axis-slider" min="0.1" max="1" step="0.005" value="${opt.saturation ?? 1}"
+                data-axis-input="${escapeHtml(opt.input)}" data-axis-field="saturation" />
+              <span class="td-axis-value" data-axis-val="${escapeHtml(opt.input)}-sat">${(opt.saturation ?? 1).toFixed(3)}</span>
+            </div>
+          </div>
+        </div>
+      `).join('') : `<div class="td-empty">${t('environments:tuning.noTuning')}</div>`;
+    }
+
+    return tabContent;
+  };
+
+  const tabs = [
+    { id: 'curves', label: t('environments:tuning.curves'), icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 20Q7 4 12 12Q17 20 21 4"/></svg>' },
+    { id: 'inversion', label: t('environments:tuning.inversion'), icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="7 18 17 6"/><polyline points="17 18 17 6 7 6"/></svg>' },
+    { id: 'sensitivity', label: t('environments:tuning.sensitivity'), icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>' },
+    { id: 'axes', label: t('environments:tuning.hardware'), icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="2" x2="12" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg>' },
+  ];
+
+  let activeTab = 'curves';
+
+  modal.innerHTML = `
+    <div class="modal-container td-modal">
+      <div class="modal-header td-header">
+        <div class="td-title-wrap">
+          <span class="tuning-instance-badge">js${dev.instance}</span>
+          <span class="td-title">${escapeHtml(dev.product || 'Unknown Device')}</span>
+        </div>
+        <button class="modal-close td-close" data-action="close-tuning">&times;</button>
+      </div>
+      <div class="td-tabs">
+        ${tabs.map(tab => `
+          <button class="td-tab ${tab.id === activeTab ? 'active' : ''}" data-tab="${tab.id}">
+            ${tab.icon}
+            <span>${tab.label}</span>
+          </button>
+        `).join('')}
+      </div>
+      <div class="td-body">
+        ${renderTab(activeTab)}
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+  requestAnimationFrame(() => modal.classList.add('show'));
+
+  // --- Event wiring ---
+
+  const switchTab = (tabId) => {
+    activeTab = tabId;
+    modal.querySelectorAll('.td-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabId));
+    modal.querySelector('.td-body').innerHTML = renderTab(tabId);
+    wireTabEvents();
+  };
+
+  const wireTabEvents = () => {
+    // Curve & sensitivity sliders
+    modal.querySelectorAll('.td-slider:not(.td-axis-slider)').forEach(slider => {
+      slider.addEventListener('input', () => {
+        const name = slider.dataset.tuningName;
+        const field = slider.dataset.tuningField;
+        const value = parseFloat(slider.value);
+        const entry = dev.tuning.find(t => t.name === name);
+        if (entry) entry[field] = value;
+
+        const valEl = modal.querySelector(`[data-tuning-val="${name}"]`);
+        if (valEl) valEl.textContent = field === 'exponent' ? value.toFixed(1) : value.toFixed(2);
+
+        if (field === 'exponent') {
+          const path = slider.closest('.td-curve-item')?.querySelector('.td-curve-svg path');
+          if (path) path.setAttribute('d', curvePathData(value, 120, 80));
+        }
+      });
+    });
+
+    // Axis sliders
+    modal.querySelectorAll('.td-axis-slider').forEach(slider => {
+      slider.addEventListener('input', () => {
+        const axisInput = slider.dataset.axisInput;
+        const field = slider.dataset.axisField;
+        const value = parseFloat(slider.value);
+        const opt = dev.axis_options.find(o => o.input === axisInput);
+        if (opt) opt[field] = value;
+
+        const suffix = field === 'deadzone' ? 'dz' : 'sat';
+        const valEl = modal.querySelector(`[data-axis-val="${axisInput}-${suffix}"]`);
+        if (valEl) valEl.textContent = value.toFixed(3);
+      });
+    });
+
+    // Inversion toggles
+    modal.querySelectorAll('.td-invert-check').forEach(check => {
+      check.addEventListener('change', () => {
+        const name = check.dataset.tuningName;
+        const entry = dev.tuning.find(t => t.name === name);
+        if (entry) entry.invert = check.checked ? 1 : 0;
+      });
+    });
+  };
+
+  // Tab clicks
+  modal.querySelectorAll('.td-tab').forEach(tab => {
+    tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+  });
+
+  wireTabEvents();
+
+  // Close
+  const closeDialog = async () => {
+    const current = JSON.stringify({ tuning: dev.tuning, axis_options: dev.axis_options });
+    const hasChanges = current !== snapshot;
+
+    if (hasChanges) {
+      await saveTuningForDevice(instance, deviceType);
+      await loadBackups();
+      await loadProfileStatus();
+      renderEnvironments(document.getElementById('content'));
+    }
+
+    modal.classList.remove('show');
+    setTimeout(() => modal.remove(), 200);
+  };
+
+  modal.querySelector('[data-action="close-tuning"]').addEventListener('click', closeDialog);
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeDialog(); });
+  const escHandler = (e) => { if (e.key === 'Escape') { closeDialog(); window.removeEventListener('keydown', escHandler); } };
+  window.addEventListener('keydown', escHandler);
+}
+
+
+/** SC tuning categories with human-readable labels */
+const SC_TUNING_LABELS = {
+  'master': 'Master',
+  'flight_move_pitch': 'Pitch',
+  'flight_move_yaw': 'Yaw',
+  'flight_move_roll': 'Roll',
+  'flight_move_strafe_vertical': 'Strafe Vertical',
+  'flight_move_strafe_lateral': 'Strafe Lateral',
+  'flight_move_strafe_longitudinal': 'Strafe Longitudinal',
+  'flight_strafe_longitudinal': 'Strafe Longitudinal',
+  'flight_strafe_forward': 'Strafe Forward',
+  'flight_strafe_backward': 'Strafe Backward',
+  'flight_throttle_abs': 'Throttle (Absolute)',
+  'flight_throttle_rel': 'Throttle (Relative)',
+  'flight_aim': 'Aim',
+  'flight_view': 'Free Look',
+  'turret_aim': 'Turret Aim',
+  'mining_throttle': 'Mining Throttle',
+  'mining_aim': 'Mining Aim',
+  'flight_move_speed_range_abs': 'Speed Range (Abs)',
+  'flight_move_speed_range_rel': 'Speed Range (Rel)',
+  'flight_move_accel_range_abs': 'Accel Range (Abs)',
+  'flight_move_accel_range_rel': 'Accel Range (Rel)',
+  'throttle': 'Throttle',
+  'viewaim': 'View / Aim',
+};
+
+/** All SC tuning categories that apply to joystick devices */
+const SC_TUNING_DEFAULTS = [
+  'flight_move_pitch', 'flight_move_yaw', 'flight_move_roll',
+  'flight_move_strafe_vertical', 'flight_move_strafe_lateral', 'flight_move_strafe_longitudinal',
+  'flight_strafe_forward', 'flight_strafe_backward', 'flight_strafe_longitudinal',
+  'flight_throttle_abs', 'flight_throttle_rel',
+  'flight_move_speed_range_abs', 'flight_move_speed_range_rel',
+  'flight_move_accel_range_abs', 'flight_move_accel_range_rel',
+  'flight_aim', 'flight_view', 'turret_aim', 'mining_throttle',
+];
+
+/**
+ * Returns a human-readable label for a tuning category name.
+ * Falls back to title-casing the technical name.
+ */
+function tuningLabel(name) {
+  if (SC_TUNING_LABELS[name]) return SC_TUNING_LABELS[name];
+  // Fallback: replace underscores, title case
+  return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+/**
+ * Loads tuning data from the backend for the active profile,
+ * enriched with hardware axis info from connected devices.
+ */
+async function loadDeviceTuning() {
+  if (!lastRestoredBackupId || !activeScVersion) {
+    deviceTuningData = [];
+    return;
+  }
+  try {
+    // Load profile tuning data and connected hardware axes in parallel
+    const [profileTuning, connectedAxes] = await Promise.all([
+      invoke('get_device_tuning', {
+        v: activeScVersion,
+        profileId: lastRestoredBackupId,
+      }),
+      invoke('list_device_axes').catch(() => []),
+    ]);
+
+    // Enrich each device with hardware axes and default tuning entries
+    for (const dev of profileTuning) {
+      // Match connected hardware by product name (fuzzy: one contains the other)
+      const hwMatch = connectedAxes.find(hw =>
+        hw.product_name === dev.product ||
+        dev.product.includes(hw.product_name) ||
+        hw.product_name.includes(dev.product)
+      );
+
+      // Fill in missing axis_options from hardware detection
+      if (hwMatch && dev.axis_options.length === 0) {
+        dev.axis_options = hwMatch.axes.map(axis => ({
+          input: axis.name,
+          deadzone: 0.0,
+          saturation: 1.0,
+        }));
+      }
+
+      // Merge defaults: keep existing values, add missing categories
+      const existingNames = new Set(dev.tuning.map(t => t.name));
+      for (const name of SC_TUNING_DEFAULTS) {
+        if (!existingNames.has(name)) {
+          dev.tuning.push({
+            name,
+            invert: 0,
+            exponent: 1.0,
+            sensitivity: 1.0,
+          });
+        }
+      }
+      // Ensure existing entries have all fields with defaults
+      for (const entry of dev.tuning) {
+        if (entry.invert == null) entry.invert = 0;
+        if (entry.exponent == null) entry.exponent = 1.0;
+        if (entry.sensitivity == null) entry.sensitivity = 1.0;
+      }
+    }
+
+    deviceTuningData = profileTuning;
+  } catch (err) {
+    debugLog('TUNING', 'error', `Failed to load tuning: ${err}`);
+    deviceTuningData = [];
+  }
+}
+
+/**
+ * Saves tuning data for a specific device instance back to the profile.
+ */
+async function saveTuningForDevice(instance, deviceType) {
+  const dev = deviceTuningData.find(d => d.instance === instance && d.device_type === deviceType);
+  if (!dev || !lastRestoredBackupId || !activeScVersion) return;
+
+  try {
+    await invoke('update_device_tuning', {
+      v: activeScVersion,
+      profileId: lastRestoredBackupId,
+      instance: dev.instance,
+      deviceType: dev.device_type,
+      axisOptions: dev.axis_options,
+      tuning: dev.tuning,
+    });
+  } catch (err) {
+    debugLog('TUNING', 'error', `Failed to save tuning: ${err}`);
+    const { showNotification } = await import('../utils/dialogs.js');
+    showNotification(t('environments:notification.tuningSaveFailed', { error: err }), 'error');
+  }
+}
+
+/**
  * Renders the collapsible joystick section with drag-and-drop reordering.
  * Only joysticks are shown - keyboards/gamepads have fixed instance numbers.
  */
@@ -1762,16 +2128,34 @@ function renderDeviceMapCollapsible() {
       <div class="collapsible-content ${isExpanded ? '' : 'collapsed'}">
         ${renderHint('devices-intro', t('environments:hint.devicesIntro'))}
         <div class="device-map-list">
-          ${deviceMap.map(dm => `
-            <div class="device-map-item device-card draggable" data-product="${escapeHtml(dm.product_name)}" data-instance="${dm.sc_instance}" data-device-type="${escapeHtml(dm.device_type)}">
-              <span class="device-drag-handle" title="${t('environments:device.dragToReorder')}">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-              </span>
-              <span class="device-map-instance">js${dm.sc_instance}</span>
-              <span class="device-map-name" title="${escapeHtml(dm.product_name)}">${escapeHtml(dm.alias || dm.product_name)}</span>
-              <button class="btn btn-xs device-map-alias-btn" data-product="${escapeHtml(dm.product_name)}" data-alias="${escapeHtml(dm.alias || '')}" title="${t('environments:device.setAlias')}">✏</button>
+          ${deviceMap.map(dm => {
+            const tuningDev = deviceTuningData.find(d => d.instance === dm.sc_instance && d.device_type === 'joystick');
+            const customCount = tuningDev ? tuningDev.tuning.filter(t => t.invert !== 0 || t.exponent !== 1.0 || t.sensitivity !== 1.0).length : 0;
+            const axisCount = tuningDev ? tuningDev.axis_options.filter(o => (o.deadzone ?? 0) > 0 || (o.saturation ?? 1) < 1).length : 0;
+            const totalCustom = customCount + axisCount;
+            return `
+            <div class="device-card-v2 device-card draggable" data-product="${escapeHtml(dm.product_name)}" data-instance="${dm.sc_instance}" data-device-type="${escapeHtml(dm.device_type)}">
+              <div class="device-card-v2-drag" title="${t('environments:device.dragToReorder')}">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><circle cx="8" cy="4" r="2"/><circle cx="16" cy="4" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="8" cy="20" r="2"/><circle cx="16" cy="20" r="2"/></svg>
+              </div>
+              <div class="device-card-v2-info">
+                <div class="device-card-v2-top">
+                  <span class="device-card-v2-instance">js${dm.sc_instance}</span>
+                  <span class="device-card-v2-name" title="${escapeHtml(dm.product_name)}">${escapeHtml(dm.alias || dm.product_name)}</span>
+                  <button class="device-card-v2-rename" data-product="${escapeHtml(dm.product_name)}" data-alias="${escapeHtml(dm.alias || '')}" title="${t('environments:device.setAlias')}">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                  </button>
+                </div>
+                <div class="device-card-v2-bottom">
+                  <button class="device-card-v2-tuning tuning-open-btn" data-instance="${dm.sc_instance}" data-device-type="joystick">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+                    <span>${t('environments:tuning.title')}</span>
+                    ${totalCustom > 0 ? `<span class="device-card-v2-badge">${totalCustom}</span>` : ''}
+                  </button>
+                </div>
+              </div>
             </div>
-          `).join('')}
+          `}).join('')}
         </div>
       </div>
     </div>
@@ -3634,6 +4018,7 @@ function attachProfilesEventListeners() {
         loadBackups(),
         loadUserCfgSettings(),
         loadLocalizationData(),
+        loadDeviceTuning(),
       ]);
       await loadProfileStatus();
       renderEnvironments(document.getElementById('content'));
@@ -3976,10 +4361,10 @@ function attachProfilesEventListeners() {
   });
 
   // Device alias buttons
-  document.querySelectorAll('.device-map-alias-btn').forEach(btn => {
+  document.querySelectorAll('.device-card-v2-rename').forEach(btn => {
     btn.addEventListener('click', async () => {
       const productName = btn.dataset.product;
-      const currentAlias = btn.dataset.alias || '';
+      const currentAlias = btn.dataset.alias || productName;
       const newAlias = await prompt(t('environments:device.aliasPrompt', { name: productName }), { title: t('environments:device.aliasTitle'), defaultValue: currentAlias });
       if (newAlias === null) return; // cancelled
       try {
@@ -3994,6 +4379,14 @@ function attachProfilesEventListeners() {
       } catch (e) {
         showNotification(t('environments:notification.aliasSetFailed', { error: e }), 'error');
       }
+    });
+  });
+
+  // Tuning: open dialog from device card
+  document.querySelectorAll('.tuning-open-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openTuningDialog(parseInt(btn.dataset.instance, 10), btn.dataset.deviceType);
     });
   });
 
